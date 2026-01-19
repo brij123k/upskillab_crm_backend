@@ -8,6 +8,8 @@ import { CommonModule } from './common/services/common.module';
 import { UserModule } from './api/user/user.module';
 import { DepartmentModule } from './api/departments/department.module';
 import { AuthModule } from './common/auth.module';
+import { LeadStageModule } from './api/lead_management/lead-stage/lead-stage.module';
+import { LeadModule } from './api/lead_management/lead/lead.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -19,6 +21,8 @@ ConfigModule.forRoot({
     CommonModule,
     UserModule,
     DepartmentModule,
+    LeadStageModule,
+    LeadModule,
   ],
   controllers: [AppController],
   providers: [AppService],
