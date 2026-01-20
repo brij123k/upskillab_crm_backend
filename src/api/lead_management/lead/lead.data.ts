@@ -138,8 +138,8 @@ export class LeadData {
 
 assignLeadsByIds(
   leadIds: string[],
-  assignedTo: string,
   modifiedBy: string,
+  assignedTo?: string,
 ) {
   return this.leadModel.updateMany(
     { _id: { $in: leadIds } },
@@ -147,6 +147,22 @@ assignLeadsByIds(
       $set: {
         assignedTo,
         modifiedBy,
+        modifiedAt: new Date(),
+      },
+    },
+  );
+}
+
+
+bulkUpdate(
+  leadIds: string[],
+  updateData: any,
+) {
+  return this.leadModel.updateMany(
+    { _id: { $in: leadIds } },
+    {
+      $set: {
+        ...updateData,
         modifiedAt: new Date(),
       },
     },

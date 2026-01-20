@@ -17,6 +17,11 @@ export class UserData {
   findById(id: string) {
   return this.userModel.findById(id);
 }
+findUserDepartmentById(id: string) {
+  return this.userModel
+    .findById(id)
+    .select('departmentId');
+}
 
   update(id: any, data: any) {
     return this.userModel.findByIdAndUpdate(id, data, { new: true });

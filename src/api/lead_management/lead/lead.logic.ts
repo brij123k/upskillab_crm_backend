@@ -4,11 +4,13 @@ import { LeadStatus } from 'src/schema/lead_management/lead.schema';
 import { CreateLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
 import { LeadHistoryLogic } from '../lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
+import { ProfileData } from 'src/api/profile/profile.data';
 
 @Injectable()
 export class LeadLogic {
   constructor(
     private readonly leadData: LeadData,
+    private readonly profileData: ProfileData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
   ) {}
 
@@ -107,78 +109,77 @@ findAll(filters: any) {
     };
   }
 
-  async assignLeads(
+async assignLeads(
   dto: {
-    leadIds?: string[];
-    departmentId?: string;
+    leadIds: string[];
     assignedTo?: string;
+    departmentId?: string;
   },
   currentUserId: string,
 ) {
-  const { leadIds, departmentId, assignedTo } = dto;
-
-  if (!leadIds && !departmentId) {
+  const { leadIds, assignedTo, departmentId } = dto;
+  if (!assignedTo && !departmentId) {
     throw new BadRequestException(
-      'Either leadIds or departmentId is required',
+      'assignTo or departmentId is required',
     );
   }
 
-  let finalLeadIds: string[] = [];
-  let leadsForHistory: any[] = [];
+  const leads = await this.leadData.findByIds(leadIds);
 
-  // 🔹 1. Leads from leadIds
-  if (leadIds?.length) {
-    const leads = await this.leadData.findByIds(leadIds);
-    leadsForHistory.push(...leads);
-    finalLeadIds.push(...leads.map((l) => l._id.toString()));
+  if (!leads.length) {
+    throw new BadRequestException('No leads found');
   }
 
-  // 🔹 2. Leads from department
-  if (departmentId) {
-    const deptLeads =
-      await this.leadData.findIdsByDepartment(departmentId);
+  let updatePayload: any = {
+    modifiedBy: currentUserId,
+  };
 
-    leadsForHistory.push(...deptLeads);
-    finalLeadIds.push(
-      ...deptLeads.map((l) => l._id.toString()),
-    );
+  // 🔹 CASE 1: ONLY assignTo
+  if (assignedTo && !departmentId) {
+    updatePayload.assignedTo = assignedTo;
   }
 
-  // 🔹 Remove duplicates
-  finalLeadIds = [...new Set(finalLeadIds)];
+  // 🔹 CASE 2: ONLY departmentId
+  if (departmentId && !assignedTo) {
+    updatePayload.departmentId = departmentId;
+  }
 
-  if (!finalLeadIds.length) {
-    throw new BadRequestException('No leads found to assign');
+  // 🔹 CASE 3: BOTH assignTo + departmentId
+  if (assignedTo && departmentId) {
+    // 🔥 validate user department
+    const user = await this.profileData.findByUserId(assignedTo);
+    if (!user || user.departmentId?.toString() !== departmentId) {
+      throw new BadRequestException(
+        'Assigned user does not belong to this department',
+      );
+    }
+
+    updatePayload.assignedTo = assignedTo;
+    updatePayload.departmentId = departmentId;
   }
 
   // 🔹 Update leads
-  const result = await this.leadData.assignLeadsByIds(
-    finalLeadIds,
-    assignedTo || '',
-    currentUserId,
+  const result = await this.leadData.bulkUpdate(
+    leadIds,
+    updatePayload,
   );
 
-  // 🔹 History logging
-  for (const lead of leadsForHistory) {
+  // 🔹 History
+  for (const lead of leads) {
     await this.leadHistoryLogic.log({
-      leadId: lead._id,
-      actionType: LeadActionType.ASSIGNED,
-      fromUser: lead.assignedTo,
+      leadId: lead._id.toString(),
+      actionType: assignedTo
+        ? LeadActionType.ASSIGNED
+        : LeadActionType.UPDATED,
+      fromUser: lead.assignedTo?.toString(),
       toUser: assignedTo,
       actionBy: currentUserId,
-      changes: {
-        assignedTo: {
-          from: lead.assignedTo,
-          to: assignedTo,
-        },
-      },
+      changes: updatePayload,
     });
   }
 
   return {
-    message: 'Leads assigned successfully',
-    totalAssigned: finalLeadIds.length,
-    matchedCount: result.matchedCount,
+    message: 'Leads updated successfully',
     modifiedCount: result.modifiedCount,
   };
 }

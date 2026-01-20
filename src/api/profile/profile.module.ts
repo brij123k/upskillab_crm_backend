@@ -13,6 +13,6 @@ import { Profile, ProfileSchema } from 'src/schema/profile.schema';
   ],
   controllers: [ProfileController],
   providers: [ProfileLogic, ProfileData],
-  exports: [ProfileLogic],
+  exports: [ProfileLogic,ProfileData],
 })
 export class ProfileModule {}

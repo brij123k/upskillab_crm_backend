@@ -1,5 +1,5 @@
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Profile } from 'src/schema/profile.schema';
 
 
@@ -44,7 +44,7 @@ findByUserIds(userIds: string[]) {
   }
 
   findByUserId(userId: string) {
-    return this.profileModel.findOne({ userId });
+    return this.profileModel.findOne({ userId:new Types.ObjectId(userId) });
   }
 
   updateById(id: string, data: any) {
