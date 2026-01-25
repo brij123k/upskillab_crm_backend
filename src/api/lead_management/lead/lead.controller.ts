@@ -127,12 +127,12 @@ export class LeadController {
         return this.logic.getLeadsByUser(userId);
     }
 
-    @UseGuards(JwtAuthGuard)
-    @Get('department/:departmentId')
-    @ApiOperation({ summary: 'Get all leads by department' })
-    getByDepartment(@Param('departmentId') departmentId: string) {
-        return this.logic.getLeadsByDepartment(departmentId);
-    }
+    // @UseGuards(JwtAuthGuard)
+    // @Get('department/:departmentId')
+    // @ApiOperation({ summary: 'Get all leads by department' })
+    // getByDepartment(@Param('departmentId') departmentId: string) {
+    //     return this.logic.getLeadsByDepartment(departmentId);
+    // }
 
 
 }

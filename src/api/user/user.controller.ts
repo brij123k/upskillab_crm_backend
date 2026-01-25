@@ -11,6 +11,10 @@ import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ChangeStatusDto } from 'src/dto/user/change-status.dto';
 import { ToggleDashboardDto } from 'src/dto/user/toggle-dashboard.dto';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
+import { ChangeUserDto } from 'src/dto/user/userupdate.dto';
 
 @ApiTags('Users')
 @Controller('users')
@@ -77,14 +81,37 @@ toggleDashboard(
   return this.logic.toggleDashboard(userId, dto);
 }
 
-@UseGuards(JwtAuthGuard, RoleGuard)
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('admin')
+@RequirePermission(
+  PERMISSIONS.USER.MODULE,
+  PERMISSIONS.USER.ACTIONS.READ,
+)
 @Get()
 @ApiOperation({
   summary:"get all user detail"
 })
 getAllUsers(){
   return this.logic.getAllUsersWithProfile()
+}
+
+
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('admin')
+@RequirePermission(
+  PERMISSIONS.USER.MODULE,
+  PERMISSIONS.USER.ACTIONS.UPDATE,
+)
+@Patch('user/:id')
+@ApiOperation({
+  summary:"update any User"
+})
+UpdateUser(
+  @Param('id') userId: string,
+  @Body() dto: ChangeUserDto,
+){
+  return this.logic.updateUserAndProfile(userId,dto)
 }
 
 

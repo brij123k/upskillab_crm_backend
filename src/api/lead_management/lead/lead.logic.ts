@@ -15,6 +15,7 @@ export class LeadLogic {
   ) {}
 
   async create(dto: CreateLeadDto, userId: string) {
+    console.log(dto)
     const lead = await this.leadData.create({
       ...dto,
       modifiedBy: userId,
@@ -224,8 +225,8 @@ async assignLeads(
   return this.leadData.findByUserId(userId);
 }
 
-async getLeadsByDepartment(departmentId: string) {
-  return this.leadData.findByDepartmentId(departmentId);
-}
+// async getLeadsByDepartment(departmentId: string) {
+//   return this.leadData.findByDepartmentId(departmentId);
+// }
 
 }

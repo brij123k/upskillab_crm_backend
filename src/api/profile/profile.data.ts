@@ -52,8 +52,9 @@ findByUserIds(userIds: string[]) {
   }
 
   updateByUserId(userId: string, data: any) {
+    console.log(userId,data)
     return this.profileModel.findOneAndUpdate(
-      { userId },
+      {userId: new Types.ObjectId(userId) },
       data,
       { new: true },
     );

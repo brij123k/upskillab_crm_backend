@@ -14,6 +14,11 @@ export class UserData {
   findByEmail(email: string) {
     return this.userModel.findOne({ email }).populate('role');
   }
+  findByEmailWithRole(email: string) {
+  return this.userModel
+    .findOne({ email })
+    .populate('role');
+}
   findById(id: string) {
   return this.userModel.findById(id);
 }

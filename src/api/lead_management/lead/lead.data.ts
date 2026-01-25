@@ -8,16 +8,28 @@ export class LeadData {
     private readonly leadModel: Model<Lead>,
   ) { }
 
-  create(data: any) {
-    return this.leadModel.create(data);
+  async create(data: any) {
+    const lastLead = await this.leadModel
+      .findOne({}, { leadId: 1 })
+      .sort({ leadId: -1 })
+      .lean();
+
+    const nextLeadId = lastLead?.leadId
+      ? lastLead.leadId + 1
+      : 1;
+
+    return this.leadModel.create({
+      ...data,
+      leadId: nextLeadId,
+    });
   }
+
 
   async findAllWithFilters(filters: any) {
     const {
       search,
       status,
       source,
-      departmentId,
       stageId,
       assignedTo,
       modifiedBy,
@@ -44,7 +56,6 @@ export class LeadData {
     // 🎯 FILTERS
     if (status) query.status = status;
     if (source) query.source = source;
-    if (departmentId) query.departmentId = departmentId;
     if (stageId) query.stageId = stageId;
     if (assignedTo) query.assignedTo = assignedTo;
     if (modifiedBy) query.modifiedBy = modifiedBy;
@@ -91,7 +102,6 @@ export class LeadData {
     const [data, total] = await Promise.all([
       this.leadModel
         .find(query)
-        .populate('departmentId', 'name')
         .populate('assignedTo', 'name email')
         .populate('stageId', 'name order')
         .sort({ createdAt: sortOrder })
@@ -130,44 +140,44 @@ export class LeadData {
     return this.leadModel.findByIdAndDelete(id);
   }
 
-  findIdsByDepartment(departmentId: string) {
-  return this.leadModel
-    .find({ departmentId, isActive: true })
-    .select('_id assignedTo');
-}
+  // findIdsByDepartment(departmentId: string) {
+  //   return this.leadModel
+  //     .find({ departmentId, isActive: true })
+  //     .select('_id assignedTo');
+  // }
 
-assignLeadsByIds(
-  leadIds: string[],
-  modifiedBy: string,
-  assignedTo?: string,
-) {
-  return this.leadModel.updateMany(
-    { _id: { $in: leadIds } },
-    {
-      $set: {
-        assignedTo,
-        modifiedBy,
-        modifiedAt: new Date(),
+  assignLeadsByIds(
+    leadIds: string[],
+    modifiedBy: string,
+    assignedTo?: string,
+  ) {
+    return this.leadModel.updateMany(
+      { _id: { $in: leadIds } },
+      {
+        $set: {
+          assignedTo,
+          modifiedBy,
+          modifiedAt: new Date(),
+        },
       },
-    },
-  );
-}
+    );
+  }
 
 
-bulkUpdate(
-  leadIds: string[],
-  updateData: any,
-) {
-  return this.leadModel.updateMany(
-    { _id: { $in: leadIds } },
-    {
-      $set: {
-        ...updateData,
-        modifiedAt: new Date(),
+  bulkUpdate(
+    leadIds: string[],
+    updateData: any,
+  ) {
+    return this.leadModel.updateMany(
+      { _id: { $in: leadIds } },
+      {
+        $set: {
+          ...updateData,
+          modifiedAt: new Date(),
+        },
       },
-    },
-  );
-}
+    );
+  }
 
   pullBackAndReassign(
     leadIds: string[],
@@ -189,21 +199,20 @@ bulkUpdate(
   findByUserId(userId: string) {
     return this.leadModel
       .find({ assignedTo: userId })
-      .populate('departmentId', 'name')
       .populate('assignedTo', 'name email')
       .populate('stageId', 'name order')
       .sort({ createdAt: -1 });
   }
 
-  findByDepartmentId(departmentId: string) {
-    return this.leadModel
-      .find({ departmentId })
-      .populate('departmentId', 'name')
-      .populate('assignedTo', 'name email')
-      .populate('stageId', 'name order')
-      .sort({ createdAt: -1 });
-  }
-  
+  // findByDepartmentId(departmentId: string) {
+  //   return this.leadModel
+  //     .find({ departmentId })
+  //     .populate('departmentId', 'name')
+  //     .populate('assignedTo', 'name email')
+  //     .populate('stageId', 'name order')
+  //     .sort({ createdAt: -1 });
+  // }
+
 
 
 }

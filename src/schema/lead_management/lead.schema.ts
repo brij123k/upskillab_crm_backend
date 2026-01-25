@@ -16,6 +16,10 @@ export enum LeadStatus {
 
 @Schema({ timestamps: true })
 export class Lead extends Document {
+
+  @Prop({ unique: true, index: true })
+  leadId: number;
+
   @Prop({ required: true })
   name: string;
 
@@ -25,11 +29,11 @@ export class Lead extends Document {
   @Prop()
   email?: string;
 
-  @Prop({ enum: LeadSource, required: true, default:LeadSource.MANUAL })
+  @Prop({ enum: LeadSource, required: true, default: LeadSource.MANUAL })
   source: LeadSource;
 
-  @Prop({ type: Types.ObjectId, ref: 'Department', required: false })
-  departmentId: Types.ObjectId;
+  // @Prop({ type: Types.ObjectId, ref: 'Department', required: false })
+  // departmentId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   assignedTo?: Types.ObjectId;
@@ -51,10 +55,10 @@ export class Lead extends Document {
 
   @Prop()
   modifiedAt?: Date;
-  
+
   @Prop()
-  leadHistory?:string
-  
+  leadHistory?: string
+
   @Prop({ default: true })
   isActive: boolean;
 

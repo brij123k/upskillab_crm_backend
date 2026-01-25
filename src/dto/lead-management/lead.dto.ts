@@ -19,10 +19,10 @@ export class CreateLeadDto {
   @IsEnum(LeadSource)
   source: LeadSource;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsMongoId()
-  departmentId: string;
+  // @ApiPropertyOptional()
+  // @IsOptional()
+  // @IsMongoId()
+  // departmentId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
