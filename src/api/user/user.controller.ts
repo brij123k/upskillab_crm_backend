@@ -22,7 +22,7 @@ export class UserController {
   constructor(private readonly logic: UserLogic) {}
 
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('admin')
+  @Roles('Admin')
   @Post('register')
   register(@Body() dto: RegisterUserDto) {
     return this.logic.register(dto);
@@ -49,7 +49,7 @@ export class UserController {
   }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('admin')
+@Roles('Admin')
 @Patch(':id/status')
 @ApiOperation({ summary: 'Change user status' })
 changeStatus(
@@ -60,7 +60,7 @@ changeStatus(
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('admin')
+@Roles('Admin')
 @Patch(':id/toggle-block')
 @ApiOperation({ summary: 'Block / Unblock user' })
 toggleBlock(@Param('id') userId: string) {
@@ -69,7 +69,7 @@ toggleBlock(@Param('id') userId: string) {
 
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('admin')
+@Roles('Admin')
 @Patch(':id/toggle-dashboard')
 @ApiOperation({
   summary: 'Admin enables dashboard & creates profile',
@@ -82,7 +82,7 @@ toggleDashboard(
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('admin','bd')
+@Roles('Admin','bd')
 @RequirePermission(
   PERMISSIONS.USER.MODULE,
   PERMISSIONS.USER.ACTIONS.READ,

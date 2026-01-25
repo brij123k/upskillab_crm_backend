@@ -8,6 +8,7 @@ export enum LeadActionType {
   PULLED_BACK = 'pulled_back',
   REASSIGNED = 'reassigned',
   STATUS_CHANGED = 'status_changed',
+  STAGE_CHANGED = 'stage_changed',
 }
 
 @Schema({ timestamps: true })

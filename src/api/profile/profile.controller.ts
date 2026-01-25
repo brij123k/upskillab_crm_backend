@@ -32,6 +32,11 @@ export class ProfileController {
     return this.logic.getByUserId(userId);
   }
 
+  @Get('department/:departmentId')
+  getBydepartmentId(@Param('departmentId') departmentId: string) {
+    return this.logic.getBydepartmentId(departmentId);
+  }
+
   @Patch(':id')
   updateById(
     @Param('id') id: string,

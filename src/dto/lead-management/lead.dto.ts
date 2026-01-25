@@ -53,3 +53,9 @@ export class ChangeLeadStatusDto {
   @IsEnum(LeadStatus)
   status: LeadStatus;
 }
+
+export class ChangeLeadStageDto {
+  @ApiProperty()
+  @IsString()
+  stageId: string;
+}

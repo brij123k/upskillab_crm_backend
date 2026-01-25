@@ -19,7 +19,7 @@ import { LeadLogic } from './lead.logic';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
-import { CreateLeadDto, UpdateLeadDto, ChangeLeadStatusDto } from 'src/dto/lead-management/lead.dto';
+import { CreateLeadDto, UpdateLeadDto, ChangeLeadStatusDto, ChangeLeadStageDto } from 'src/dto/lead-management/lead.dto';
 import { AssignLeadDto } from 'src/dto/lead-management/assign-lead.dto';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ReassignLeadDto } from 'src/dto/lead-management/reassign-lead.dto';
@@ -33,7 +33,7 @@ export class LeadController {
     constructor(private readonly logic: LeadLogic) { }
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @Post()
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -49,7 +49,7 @@ export class LeadController {
 
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.READ,
@@ -65,7 +65,7 @@ export class LeadController {
 
     
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.READ,
@@ -80,14 +80,14 @@ export class LeadController {
 
    
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.UPDATE,
     )
     @Patch(':id')
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @ApiOperation({ summary: 'Update lead' })
     update(
         @Param('id') id: string,
@@ -108,14 +108,14 @@ export class LeadController {
 
     
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.STATUS_CHANGE,
     )
     @Patch(':id/status')
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @ApiOperation({ summary: 'Change lead status' })
     changeStatus(
         @Param('id') id: string,
@@ -125,9 +125,28 @@ export class LeadController {
         return this.logic.changeStatus(id, dto.status, req?.user.userId);
     }
 
+
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.STAGE_CHANGE,
+    )
+    @Patch(':id/stage')
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('Admin')
+    @ApiOperation({ summary: 'Change lead stage' })
+    changeStage(
+        @Param('id') id: string,
+        @Body() dto: ChangeLeadStageDto,
+        @Req() req: any
+    ) {
+        return this.logic.changeStage(id, dto.stageId, req?.user.userId);
+    }
+
     
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.ASSIGN,

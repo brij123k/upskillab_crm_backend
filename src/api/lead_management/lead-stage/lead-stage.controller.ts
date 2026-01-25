@@ -26,7 +26,7 @@ export class LeadStageController {
   constructor(private readonly logic: LeadStageLogic) { }
 
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('admin')
+  @Roles('Admin')
   @Post()
   @ApiOperation({ summary: 'Create lead stage' })
   create(@Body() dto: CreateLeadStageDto) {
@@ -44,7 +44,7 @@ export class LeadStageController {
 
 
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('admin')
+  @Roles('Admin')
   @Get(':id')
   @ApiOperation({ summary: 'Get lead stage by ID' })
   findOne(@Param('id') id: string) {
@@ -53,7 +53,7 @@ export class LeadStageController {
 
 
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('admin')
+  @Roles('Admin')
   @Patch(':id')
   @ApiOperation({ summary: 'Update lead stage' })
   update(
@@ -65,7 +65,7 @@ export class LeadStageController {
 
 
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('admin')
+  @Roles('Admin')
   @Delete(':id')
   @ApiOperation({ summary: 'Delete lead stage' })
   remove(@Param('id') id: string) {

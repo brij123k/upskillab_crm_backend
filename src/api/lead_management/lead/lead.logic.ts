@@ -110,6 +110,40 @@ findAll(filters: any) {
     };
   }
 
+
+
+  async changeStage(
+    id: string,
+    stageId: string,
+    userId: string,
+  ) {
+    const existingLead = await this.leadData.findById(id);
+    if (!existingLead) throw new NotFoundException('Lead not found');
+
+    const lead = await this.leadData.update(id, {
+      stageId,
+      modifiedBy: userId,
+      modifiedAt: new Date(),
+    });
+
+    await this.leadHistoryLogic.log({
+      leadId: id,
+      actionType: LeadActionType.STAGE_CHANGED,
+      actionBy: userId,
+      changes: {
+        status: {
+          from: existingLead.stageId,
+          to: stageId,
+        },
+      },
+    });
+
+    return {
+      message: 'Lead stage updated successfully',
+      lead,
+    };
+  }
+
 async assignLeads(
   dto: {
     leadIds: string[];

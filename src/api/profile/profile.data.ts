@@ -47,6 +47,10 @@ findByUserIds(userIds: string[]) {
     return this.profileModel.findOne({ userId:new Types.ObjectId(userId) });
   }
 
+getBydepartmentId(departmentId: string) {
+    return this.profileModel.findOne({ departmentId:new Types.ObjectId(departmentId) });
+  }
+
   updateById(id: string, data: any) {
     return this.profileModel.findByIdAndUpdate(id, data, { new: true });
   }

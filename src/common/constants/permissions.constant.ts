@@ -8,6 +8,7 @@ export const PERMISSIONS = {
       DELETE: 'delete',
       ASSIGN: 'assign',
       STATUS_CHANGE: 'status_change',
+      STAGE_CHANGE: 'stage_change',
     },
   },
 

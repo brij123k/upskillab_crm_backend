@@ -24,6 +24,11 @@ export class ProfileLogic {
     .findByUserIds(userIds);
 }
 
+  async getBydepartmentId(departmentId: string) {
+      const profile = await this.profileData.getBydepartmentId(departmentId);
+    if (!profile) return [];
+    return profile;
+}
   async getById(id: string) {
     const profile = await this.profileData.findById(id);
     if (!profile) throw new NotFoundException('Profile not found');
@@ -31,9 +36,7 @@ export class ProfileLogic {
   }
 
   async getByUserId(userId: string) {
-    const profile = await this.profileData.findByUserId(userId);
-    if (!profile) throw new NotFoundException('Profile not found');
-    return profile;
+
   }
 
   updateById(id: string, dto: any) {

@@ -26,7 +26,7 @@ export class DepartmentController {
     constructor(private readonly logic: DepartmentLogic) { }
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @Post()
     @ApiOperation({ summary: 'Create department' })
     create(@Body() dto: CreateDepartmentDto) {
@@ -34,7 +34,7 @@ export class DepartmentController {
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @Get()
     @ApiOperation({ summary: 'Get all departments' })
     findAll() {
@@ -42,7 +42,7 @@ export class DepartmentController {
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @Get(':id')
     @ApiOperation({ summary: 'Get department by ID' })
     findOne(@Param('id') id: string) {
@@ -51,7 +51,7 @@ export class DepartmentController {
 
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @Patch(':id')
     @ApiOperation({ summary: 'Update department' })
     update(
@@ -63,7 +63,7 @@ export class DepartmentController {
 
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
+    @Roles('Admin')
     @Delete(':id')
     @ApiOperation({ summary: 'Delete department' })
     remove(@Param('id') id: string) {

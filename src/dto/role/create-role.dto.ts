@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsMongoId, IsOptional, IsString } from 'class-validator';
 import { PermissionDto } from './permission.dto';
 
 export class CreateRoleDto {
@@ -11,7 +11,16 @@ export class CreateRoleDto {
   @IsMongoId()
   @IsOptional()
   reportingRole:string;
+
   @ApiProperty({ type: [PermissionDto] })
   @IsArray()
-  permissions: PermissionDto[];
+  @IsOptional()
+  permissions?: PermissionDto[];
+
+  @ApiProperty()
+  @IsOptional()
+  @IsBoolean()
+  isSuperAdmin:boolean;
+
+
 }

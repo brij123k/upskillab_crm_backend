@@ -106,13 +106,16 @@ export class UserLogic {
   /* -------------------------------------------------
      🔐 JWT PAYLOAD
   --------------------------------------------------*/
-
+  console.log(role.name)
   const payload = {
     userId: user._id,
     name: user.name,
     email: user.email,
     roleId: role._id,
-    roleName: role.name,
+    roleRealName: role.name,
+     roleName: (role.name === 'Admin' || role.name === 'hr')
+    ? role.name
+    : 'bd',
     isSuperAdmin: role.isSuperAdmin,
     permissions: finalPermissions,
     status: user.status,
@@ -136,7 +139,10 @@ export class UserLogic {
       status: user.status,
       role: {
         id: role._id,
-        name: role.name,
+        name: (role.name === 'Admin' || role.name === 'hr')
+    ? role.name
+    : 'bd',
+        roleRealName: role.name,
         isSuperAdmin: role.isSuperAdmin,
       },
       permissions: finalPermissions,
