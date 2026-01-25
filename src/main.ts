@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -25,6 +26,17 @@ async function bootstrap() {
     },
   }),
 );
+
+ const config = new DocumentBuilder()
+    .setTitle('CRM Backend API')
+    .setDescription('CRM Backend APIs documentation')
+    .setVersion('1.0')
+    .addBearerAuth() // 👈 IMPORTANT (JWT)
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+
+  SwaggerModule.setup('swagger', app, document);
 
 app.enableCors();
   await app.listen(process.env.PORT ?? 3000);
