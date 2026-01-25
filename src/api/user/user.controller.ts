@@ -82,7 +82,7 @@ toggleDashboard(
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('admin')
+@Roles('admin','bd')
 @RequirePermission(
   PERMISSIONS.USER.MODULE,
   PERMISSIONS.USER.ACTIONS.READ,

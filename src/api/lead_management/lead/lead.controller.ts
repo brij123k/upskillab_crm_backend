@@ -24,16 +24,21 @@ import { AssignLeadDto } from 'src/dto/lead-management/assign-lead.dto';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ReassignLeadDto } from 'src/dto/lead-management/reassign-lead.dto';
 import { LeadFilterDto } from 'src/dto/lead-management/lead-filter.dto';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 
 @ApiTags('Leads')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('admin')
 @Controller('leads')
 export class LeadController {
     constructor(private readonly logic: LeadLogic) { }
 
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
     @Post()
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.CREATE,
+    )
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
     @ApiOperation({ summary: 'Create lead' })
@@ -41,6 +46,14 @@ export class LeadController {
         return this.logic.create(dto, req?.user.userId);
     }
 
+
+
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
     @Get()
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
@@ -49,6 +62,14 @@ export class LeadController {
         return this.logic.findAll(query);
     }
 
+
+    
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
     @Get(':id')
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
@@ -57,6 +78,13 @@ export class LeadController {
         return this.logic.findOne(id);
     }
 
+   
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.UPDATE,
+    )
     @Patch(':id')
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
@@ -77,6 +105,14 @@ export class LeadController {
     //     return this.logic.delete(id);
     // }
 
+
+    
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.STATUS_CHANGE,
+    )
     @Patch(':id/status')
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
@@ -89,7 +125,13 @@ export class LeadController {
         return this.logic.changeStatus(id, dto.status, req?.user.userId);
     }
 
-    @UseGuards(JwtAuthGuard)
+    
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.ASSIGN,
+    )
     @Patch('lead/assign')
     @ApiOperation({
         summary:
@@ -103,7 +145,13 @@ export class LeadController {
     }
 
 
-    @UseGuards(JwtAuthGuard)
+    
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.ASSIGN,
+    )
     @Patch('reassign')
     @ApiOperation({
         summary: 'Pull back and reassign leads',
@@ -120,8 +168,13 @@ export class LeadController {
     }
 
 
-    @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
     @Get('user/:userId')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
     @ApiOperation({ summary: 'Get all leads assigned to a user' })
     getByUser(@Param('userId') userId: string) {
         return this.logic.getLeadsByUser(userId);
