@@ -13,10 +13,12 @@ import { AppAuthController } from './app-auth.controller';
 import { AppAuthLogic } from './app-auth.logic';
 import { AppAuthData } from './app-auth.data';
 import { UserAppHistoryData } from './user-app-history.data';
+import { UserModule } from 'src/api/user/user.module';
+import { ProfileModule } from 'src/api/profile/profile.module';
 
 @Module({
   imports: [
-    JwtModule.register({ secret: 'APP_JWT_SECRET' }),
+    JwtModule.register({ secret: 'JWT_SECRET_KEY' }),
     MongooseModule.forFeature([
       { name: AppAuthToken.name, schema: AppAuthTokenSchema },
       {
@@ -24,6 +26,8 @@ import { UserAppHistoryData } from './user-app-history.data';
         schema: UserAppHistorySchema,
       },
     ]),
+    UserModule,
+    ProfileModule,
   ],
   controllers: [AppAuthController],
   providers: [

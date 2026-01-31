@@ -13,5 +13,6 @@ import { ProfileModule } from '../profile/profile.module';
   ],
   controllers: [UserController],
   providers: [UserLogic, UserData],
+  exports:[UserData,UserData]
 })
 export class UserModule {}
