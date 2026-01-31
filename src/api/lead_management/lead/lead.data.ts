@@ -123,6 +123,107 @@ export class LeadData {
   }
 
 
+  async findAllWithFiltersUserId(filters: any, userId:string) {
+    const {
+      search,
+      status,
+      source,
+      stageId,
+      assignedTo,
+      modifiedBy,
+      isActive,
+      dateFilter,
+      fromDate,
+      toDate,
+      sort = 'new',
+      page = 1,
+      limit = 10,
+    } = filters;
+
+    const query: any = {};
+
+    // 🔍 SEARCH
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // 🎯 FILTERS
+    if (status) query.status = status;
+    if (source) query.source = source;
+    if (stageId) query.stageId = stageId;
+    if (assignedTo) query.assignedTo = assignedTo;
+    if (modifiedBy) query.modifiedBy = modifiedBy;
+    if (isActive !== undefined)
+      query.isActive = isActive === 'true';
+
+    // 📅 DATE FILTERS
+    const now = new Date();
+    if (dateFilter) {
+      let start: Date | null = null;
+
+      if (dateFilter === 'today') {
+        start = new Date(now.setHours(0, 0, 0, 0));
+      } else if (dateFilter === 'week') {
+        start = new Date();
+        start.setDate(start.getDate() - 7);
+      } else if (dateFilter === 'month') {
+        start = new Date();
+        start.setMonth(start.getMonth() - 1);
+      } else if (dateFilter === 'year') {
+        start = new Date();
+        start.setFullYear(start.getFullYear() - 1);
+      }
+
+      if (start) {
+        query.createdAt = { $gte: start };
+      }
+    }
+
+    // 📅 CUSTOM DATE RANGE
+    if (fromDate && toDate) {
+      query.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    // 📊 SORTING
+    const sortOrder = sort === 'old' ? 1 : -1;
+
+    // 📄 PAGINATION
+    const skip = (page - 1) * limit;
+const finalQuery = {
+  ...query,
+  assignedTo: userId,
+};
+    const [data, total] = await Promise.all([
+      this.leadModel
+        .find(finalQuery)
+        .populate('assignedTo', 'name email')
+        .populate('stageId', 'name order')
+        .sort({ createdAt: sortOrder })
+        .skip(skip)
+        .limit(Number(limit)),
+
+      this.leadModel.countDocuments(finalQuery),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+
   findById(id: string) {
     return this.leadModel.findById(id);
   }

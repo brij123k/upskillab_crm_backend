@@ -58,8 +58,8 @@ export class LeadController {
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('admin')
     @ApiOperation({ summary: 'Get all leads with filters & pagination' })
-    findAll(@Query() query: LeadFilterDto) {
-        return this.logic.findAll(query);
+    findAll(@Query() query: LeadFilterDto,@Req() req: any) {
+        return this.logic.findAll(query,req.user);
     }
 
 
@@ -183,6 +183,7 @@ export class LeadController {
             dto.leadIds,
             dto.newAssignedTo,
             user.userId,
+            dto.reason,
         );
     }
 

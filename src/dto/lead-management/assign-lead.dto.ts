@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsMongoId, IsOptional } from 'class-validator';
+import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
 
 export class AssignLeadDto {
   @ApiPropertyOptional({
@@ -23,4 +23,10 @@ export class AssignLeadDto {
   @IsOptional()
   @IsMongoId()
   departmentId?: string;
+
+  @ApiPropertyOptional({
+    description:'Explain why Assigned him'
+  })
+  @IsString()
+  reason:string
 }

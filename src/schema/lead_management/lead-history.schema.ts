@@ -9,6 +9,7 @@ export enum LeadActionType {
   REASSIGNED = 'reassigned',
   STATUS_CHANGED = 'status_changed',
   STAGE_CHANGED = 'stage_changed',
+  CALL_LOG = 'call_log',
 }
 
 @Schema({ timestamps: true })
@@ -30,6 +31,9 @@ export class LeadHistory extends Document {
 
   @Prop({ type: Object })
   changes?: Record<string, any>;
+
+  @Prop()
+  reason?:string
 
   createdAt: Date;
 }

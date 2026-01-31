@@ -10,6 +10,9 @@ import { DepartmentModule } from './api/departments/department.module';
 import { AuthModule } from './common/auth.module';
 import { LeadStageModule } from './api/lead_management/lead-stage/lead-stage.module';
 import { LeadModule } from './api/lead_management/lead/lead.module';
+import { callLogModule } from './api/call-logs/call-log.module';
+import { UserActivityModule } from './api/user-activity/user-activity.module';
+import { AppAuthModule } from './api/auth/app-auth/app-auth.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -23,6 +26,9 @@ ConfigModule.forRoot({
     DepartmentModule,
     LeadStageModule,
     LeadModule,
+    callLogModule,
+    UserActivityModule,
+    AppAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

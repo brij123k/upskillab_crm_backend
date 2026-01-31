@@ -1,0 +1,22 @@
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
+import { CallLogController } from './call-log.controller';
+import { CallLogLogic } from './call-log.logic';
+import { CallLogData } from './call-log.data';
+import { CallLogSchema,CallLog } from 'src/schema/call-log.schema';
+import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.module';
+import { UserActivityModule } from '../user-activity/user-activity.module';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: CallLog.name, schema: CallLogSchema }
+    ]),
+    LeadHistoryModule,
+    UserActivityModule,
+  ],
+  controllers: [CallLogController],
+  providers: [CallLogLogic, CallLogData],
+})
+export class callLogModule {}

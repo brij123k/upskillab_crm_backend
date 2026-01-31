@@ -98,7 +98,7 @@ getAllUsers(){
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('admin')
+@Roles('Admin')
 @RequirePermission(
   PERMISSIONS.USER.MODULE,
   PERMISSIONS.USER.ACTIONS.UPDATE,

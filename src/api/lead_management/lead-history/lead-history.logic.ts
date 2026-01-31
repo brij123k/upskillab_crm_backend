@@ -13,6 +13,7 @@ export class LeadHistoryLogic {
     toUser?: string;
     actionBy: string;
     changes?: Record<string, any>;
+    reason?:string;
   }) {
     return this.historyData.create(data);
   }

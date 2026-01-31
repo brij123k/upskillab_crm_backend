@@ -32,8 +32,12 @@ export class LeadLogic {
     return lead;
   }
 
-findAll(filters: any) {
-  return this.leadData.findAllWithFilters(filters);
+findAll(filters: any,user:any) {
+  if(user.roleName=="Admin"){
+    return this.leadData.findAllWithFilters(filters);
+  }else{
+    return this.leadData.findAllWithFiltersUserId(filters,user.userId);
+  }
 }
 
   async findOne(id: string) {
@@ -149,10 +153,11 @@ async assignLeads(
     leadIds: string[];
     assignedTo?: string;
     departmentId?: string;
+    reason: string;
   },
   currentUserId: string,
 ) {
-  const { leadIds, assignedTo, departmentId } = dto;
+  const { leadIds, assignedTo, departmentId,reason } = dto;
   if (!assignedTo && !departmentId) {
     throw new BadRequestException(
       'assignTo or departmentId is required',
@@ -210,6 +215,7 @@ async assignLeads(
       toUser: assignedTo,
       actionBy: currentUserId,
       changes: updatePayload,
+      reason:reason,
     });
   }
 
@@ -223,6 +229,7 @@ async assignLeads(
     leadIds: string[],
     newAssignedTo: string,
     currentUserId: string,
+    reason: string,
   ) {
     const leads = await this.leadData.findByIds(leadIds);
 
@@ -239,11 +246,13 @@ async assignLeads(
         fromUser: lead.assignedTo?.toString(),
         toUser: newAssignedTo,
         actionBy: currentUserId,
+        
         changes: {
           assignedTo: {
             from: lead.assignedTo,
             to: newAssignedTo,
           },
+          reason:reason,
         },
       });
     }

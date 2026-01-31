@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsMongoId } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
 
 export class ReassignLeadDto {
   @ApiProperty({
@@ -14,4 +14,10 @@ export class ReassignLeadDto {
   @IsArray()
   @IsMongoId({ each: true })
   leadIds: string[];
+
+    @ApiPropertyOptional({
+      description:'Explain why Assigned him'
+    })
+    @IsString()
+    reason:string
 }
