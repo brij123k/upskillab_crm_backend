@@ -20,7 +20,7 @@ export class UserData {
     .populate('role');
 }
   findById(id: string) {
-  return this.userModel.findById(id);
+  return this.userModel.findById(id).populate('role');
 }
 findUserDepartmentById(id: string) {
   return this.userModel

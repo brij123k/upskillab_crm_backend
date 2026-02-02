@@ -64,7 +64,7 @@ let finalPermissions: {
     module: string;
     actions: string[];
   }[] = role?.permissions || [];
-
+console.log(role)
   const profile = await this.profileData.findByUserId(user._id.toString());
 
   if (profile?.extraAccessControls?.length) {
