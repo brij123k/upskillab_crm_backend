@@ -6,6 +6,7 @@ import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { LeadLogic } from '../lead_management/lead/lead.logic';
 
 @Injectable()
 export class CallLogLogic {
@@ -13,6 +14,7 @@ export class CallLogLogic {
     private readonly callLogData: CallLogData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
     private readonly userActivityLogic: UserActivityLogic,
+    private readonly leadLogic:LeadLogic,
 
     @InjectModel(CallLogReview.name)
     private readonly model: Model<CallLogReview>,
@@ -23,6 +25,7 @@ export class CallLogLogic {
      const callLog = await this.callLogData.create({
     ...callLogData,
     userId: dto.userId || currentUserId,
+    startedAt: dto.startedAt || new Date(),
   });
 
   // 2️⃣ Lead History
@@ -59,9 +62,34 @@ export class CallLogLogic {
   };
   }
 
-  getByLead(leadId: number) {
-    return this.callLogData.findByLeadId(leadId);
-  }
+async getByLead(leadId: number) {
+  // 1️⃣ Get call logs
+  const callLogs = await this.callLogData.findByLeadId(leadId);
+
+  if (!callLogs.length) return [];
+
+  // 2️⃣ Get remarks for all callLogs
+  const callLogIds = callLogs.map((c) => c._id);
+
+  const remarks = await this.findByCallLogIds(callLogIds);
+  const remarkMap = new Map(
+    remarks.map((r) => [
+      r.callLogId.toString(),
+      r.remark,
+    ]),
+  );
+
+  // 3️⃣ Get lead info (name + phone)
+  const lead = await this.leadLogic.getLeadByLeadId(leadId);
+
+  // 4️⃣ Attach everything
+  return callLogs.map((log) => ({
+    ...log.toObject(),
+    remark: remarkMap.get(log._id.toString()) || null,
+    leadName: lead?.name || null,
+    LeadNumber:lead?.phone || null,
+  }));
+}
 
   getByUser(filter:any,userId: string) {
     return this.callLogData.findWithPagination(filter,userId);
@@ -104,7 +132,7 @@ export class CallLogLogic {
     return this.model.create(data);
   }
 
-  findByCallLogIds(callLogIds: string[]) {
+  findByCallLogIds(callLogIds: any) {
     return this.model.find({
       callLogId: { $in: callLogIds },
     });

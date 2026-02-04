@@ -200,6 +200,20 @@ export class LeadController {
         return this.logic.getLeadsByUser(userId);
     }
 
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @Get('lead/:leadId')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
+    @ApiOperation({ summary: 'Get all leads by leadId' })
+    getbyLeadId(@Param('leadId') leadId: number){
+        return this.logic.getLeadByLeadId(leadId)
+    }
+
+
+
     // @UseGuards(JwtAuthGuard)
     // @Get('department/:departmentId')
     // @ApiOperation({ summary: 'Get all leads by department' })

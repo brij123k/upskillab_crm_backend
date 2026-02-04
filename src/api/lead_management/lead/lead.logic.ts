@@ -114,6 +114,11 @@ findAll(filters: any,user:any) {
     };
   }
 
+  async getLeadByLeadId(
+    leadId:number
+  ){
+    return await this.leadData.getByLeadId(leadId)
+  }
 
 
   async changeStage(

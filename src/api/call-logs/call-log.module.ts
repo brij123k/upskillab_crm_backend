@@ -8,6 +8,8 @@ import { CallLogSchema,CallLog } from 'src/schema/call-log.schema';
 import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.module';
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.schema';
+import { LeadModule } from '../lead_management/lead/lead.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -16,6 +18,7 @@ import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.sch
     ]),
     LeadHistoryModule,
     UserActivityModule,
+    LeadModule
   ],
   controllers: [CallLogController],
   providers: [CallLogLogic, CallLogData],

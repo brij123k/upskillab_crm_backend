@@ -26,6 +26,14 @@ export class CreateCallLogDto {
   @IsMongoId()
   stageId?: string;
 
+  @ApiProperty({
+    description: 'Call started date-time (ISO)',
+    example: '2026-01-28T10:15:00.000Z',
+  })
+  @Type(() => Date)
+  @IsDate()
+  startedAt: Date;
+
   @ApiPropertyOptional({
     description: 'Call review submitted after call',
   })

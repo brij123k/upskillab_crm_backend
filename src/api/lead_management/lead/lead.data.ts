@@ -223,6 +223,9 @@ const finalQuery = {
     };
   }
 
+  getByLeadId(leadId:number){
+    return this.leadModel.findOne({leadId:leadId});
+  }
 
   findById(id: string) {
     return this.leadModel.findById(id);

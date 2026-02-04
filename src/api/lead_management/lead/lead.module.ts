@@ -17,5 +17,6 @@ import { ProfileModule } from 'src/api/profile/profile.module';
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],
+  exports:[LeadLogic]
 })
 export class LeadModule {}

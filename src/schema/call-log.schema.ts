@@ -17,6 +17,9 @@ export class CallLog extends Document {
   @Prop({ type: Types.ObjectId, ref: 'LeadStage' })
   stageId?: Types.ObjectId;
 
+  @Prop({ required: true })
+  startedAt: Date;
+
   // @Prop()
   // reminder?:Date;
 }

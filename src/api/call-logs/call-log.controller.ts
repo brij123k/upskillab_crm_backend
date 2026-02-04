@@ -27,7 +27,7 @@ export class CallLogController {
     @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('admin','bd')
   create(
-    @Body() dto: CreateCallLogDto,
+    @Body() dto: any,
     @CurrentUser() user: any,
   ) {
     return this.logic.create(dto, user.userId);
