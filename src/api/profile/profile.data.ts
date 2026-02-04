@@ -26,14 +26,14 @@ findAll() {
       },
     })
     .populate('departmentId', 'name')
-    .populate('reportingManagerId', 'name');
+    .populate('reportingSenierId', 'name');
 }
 
 findByUserIds(userIds: string[]) {
   return this.profileModel
     .find({ userId: { $in: userIds } })
     .populate('departmentId', 'name')
-    .populate('reportingManagerId', 'name')
+    .populate('reportingSenierId', 'name')
     .lean();
 }
 

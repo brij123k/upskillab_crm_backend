@@ -45,8 +45,9 @@ export class CallLogController {
    @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('bd')
   @ApiOperation({ summary: 'Get call logs by userId' })
-  getByUser(@Param('userId') userId: string, @Req() req: any) {
-    return this.logic.getByUser(req?.user.userId);
+  getByUser(
+  @Param() params: any, @Req() req: any) {
+    return this.logic.getByUser(params,req?.user.userId);
   }
 
   @Patch(':id')

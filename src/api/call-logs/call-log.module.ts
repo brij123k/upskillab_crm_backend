@@ -7,11 +7,12 @@ import { CallLogData } from './call-log.data';
 import { CallLogSchema,CallLog } from 'src/schema/call-log.schema';
 import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.module';
 import { UserActivityModule } from '../user-activity/user-activity.module';
-
+import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: CallLog.name, schema: CallLogSchema }
+      { name: CallLog.name, schema: CallLogSchema },
+      { name: CallLogReview.name, schema: CallLogReviewSchema }
     ]),
     LeadHistoryModule,
     UserActivityModule,

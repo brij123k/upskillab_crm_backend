@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsMongoId, IsNumber, IsOptional, IsString } from 'class-validator';
-import { CallOutcome } from 'src/schema/call-log.schema';
+import { Type } from 'class-transformer';
+import { IsDate, IsEnum, IsMongoId, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateCallLogDto {
   @ApiProperty({ description: 'Numeric Lead ID' })
@@ -20,13 +20,16 @@ export class CreateCallLogDto {
   @IsOptional()
   @IsString()
   outcome: string;
-  
-  @ApiProperty({ enum: CallOutcome })
-  @IsEnum(CallOutcome)
-  status?: CallOutcome;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsMongoId()
   stageId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Call review submitted after call',
+  })
+  @IsOptional()
+  @IsString()
+  remark?: string;
 }

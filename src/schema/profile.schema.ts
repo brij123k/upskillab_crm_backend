@@ -10,7 +10,7 @@ export class Profile extends Document {
   departmentId?: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
-  reportingManagerId?: Types.ObjectId;
+  reportingSenierId?: Types.ObjectId;
 
   @Prop()
   education?: string;

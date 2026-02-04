@@ -20,12 +20,45 @@ export class CallLogData {
       .sort({ createdAt: -1 });
   }
 
-  findByUserId(userId: string) {
-    return this.callLogModel
-      .find({ userId })
+  async findWithPagination(
+  filters: any,
+  userId?: string,
+) {
+  const {
+    leadId,
+    outcome,
+    page = 1,
+    limit = 10,
+  } = filters;
+
+  const query: any = {};
+  if (leadId) query.leadId = Number(leadId);
+  if (outcome) query.outcome = outcome;
+  if (userId) query.userId = userId;
+
+  const skip = (page - 1) * limit;
+
+  const [data, total] = await Promise.all([
+    this.callLogModel
+      .find(query)
+      .populate('userId', 'name email')
       .populate('stageId', 'name')
-      .sort({ createdAt: -1 });
-  }
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit)),
+
+    this.callLogModel.countDocuments(query),
+  ]);
+
+  return {
+    data,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
 
   findById(id: string) {
     return this.callLogModel.findById(id);

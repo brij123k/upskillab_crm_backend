@@ -3,6 +3,9 @@ import { CallLogData } from './call-log.data';
 import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
+import { CallLogReview } from 'src/schema/all-log-review.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class CallLogLogic {
@@ -10,40 +13,58 @@ export class CallLogLogic {
     private readonly callLogData: CallLogData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
     private readonly userActivityLogic: UserActivityLogic,
+
+    @InjectModel(CallLogReview.name)
+    private readonly model: Model<CallLogReview>,
   ) {}
 
   async create(dto: any, currentUserId: string) {
-    const callLog = await this.callLogData.create({
-      ...dto,
-      userId: dto.userId || currentUserId,
-    });
+    const { remark, ...callLogData } = dto;
+     const callLog = await this.callLogData.create({
+    ...callLogData,
+    userId: dto.userId || currentUserId,
+  });
 
-    // 🧾 Lead history
-    await this.leadHistoryLogic.log({
-      leadId: callLog.leadId.toString(),
-      actionType: LeadActionType.CALL_LOG,
-      actionBy: callLog.userId.toString(),
-      changes: dto,
-    });
+  // 2️⃣ Lead History
+  await this.leadHistoryLogic.log({
+    leadId: callLog.leadId.toString(),
+    actionType: LeadActionType.CALL_LOG,
+    actionBy: callLog.userId.toString(),
+    changes: callLogData,
+  });
 
-    // 👤 User activity
-    await this.userActivityLogic.log({
-      userId: callLog.userId.toString(),
-      action: 'CALL_LOGGED',
-      referenceType: 'LEAD',
-      referenceId: callLog.leadId.toString(),
-      meta: dto,
-    });
+  // 3️⃣ User Activity
+  await this.userActivityLogic.log({
+    userId: callLog.userId.toString(),
+    action: 'CALL_LOGGED',
+    referenceType: 'LEAD',
+    referenceId: callLog.leadId.toString(),
+    meta: callLogData,
+  });
 
-    return callLog;
+  // 4️⃣ Create Review IF provided
+  if (remark) {
+    await this.createreview({
+      leadId: callLog.leadId,
+      callLogId: callLog._id,
+      userId: callLog.userId,
+      remark,
+    });
+  }
+
+  return {
+    message: 'Call log created successfully',
+    callLogId: callLog._id,
+    reviewAdded: !!remark,
+  };
   }
 
   getByLead(leadId: number) {
     return this.callLogData.findByLeadId(leadId);
   }
 
-  getByUser(userId: string) {
-    return this.callLogData.findByUserId(userId);
+  getByUser(filter:any,userId: string) {
+    return this.callLogData.findWithPagination(filter,userId);
   }
 
   async update(id: string, dto: any, currentUserId: string) {
@@ -76,4 +97,46 @@ export class CallLogLogic {
 
     return { message: 'Call log deleted successfully' };
   }
+
+
+
+  createreview(data: any) {
+    return this.model.create(data);
+  }
+
+  findByCallLogIds(callLogIds: string[]) {
+    return this.model.find({
+      callLogId: { $in: callLogIds },
+    });
+  }
+//   async getWithReviews(filters: any, userId?: string) {
+//   const result = await this.callLogData.findWithPagination(
+//     filters,
+//     userId,
+//   );
+
+//   const callLogIds = result.data.map((c) => c._id.toString());
+
+//   const reviews =
+//     await this.callLogReviewData.findByCallLogIds(
+//       callLogIds,
+//     );
+
+//   const reviewMap = new Map(
+//     reviews.map((r) => [
+//       r.callLogId.toString(),
+//       r,
+//     ]),
+//   );
+
+//   const finalData = result.data.map((log) => ({
+//     ...log.toObject(),
+//     review: reviewMap.get(log._id.toString()) || null,
+//   }));
+
+//   return {
+//     ...result,
+//     data: finalData,
+//   };
+// }
 }

@@ -33,7 +33,7 @@ export class LeadLogic {
   }
 
 findAll(filters: any,user:any) {
-  if(user.roleName=="Admin"){
+  if(user.roleName=="Admin" || user.roleRealName=="Sales Manager"){
     return this.leadData.findAllWithFilters(filters);
   }else{
     return this.leadData.findAllWithFiltersUserId(filters,user.userId);
