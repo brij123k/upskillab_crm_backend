@@ -222,7 +222,12 @@ const finalQuery = {
       },
     };
   }
-
+async getLeadsByLeadIds(leadIds: number[]) {
+  return this.leadModel.find(
+    { leadId: { $in: leadIds } },
+    { leadId: 1, name: 1, phone: 1 },
+  );
+}
   getByLeadId(leadId:number){
     return this.leadModel.findOne({leadId:leadId});
   }

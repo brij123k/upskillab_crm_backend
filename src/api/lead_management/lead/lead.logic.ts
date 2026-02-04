@@ -272,7 +272,9 @@ async assignLeads(
   async getLeadsByUser(userId: string) {
   return this.leadData.findByUserId(userId);
 }
-
+async getLeadsByLeadIds(leadIds:number[]){
+  return this.leadData.getLeadsByLeadIds(leadIds)
+}
 // async getLeadsByDepartment(departmentId: string) {
 //   return this.leadData.findByDepartmentId(departmentId);
 // }

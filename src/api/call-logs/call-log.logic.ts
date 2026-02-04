@@ -87,13 +87,55 @@ async getByLead(leadId: number) {
     ...log.toObject(),
     remark: remarkMap.get(log._id.toString()) || null,
     leadName: lead?.name || null,
-    LeadNumber:lead?.phone || null,
+    leadNumber:lead?.phone || null,
   }));
 }
 
-  getByUser(filter:any,userId: string) {
-    return this.callLogData.findWithPagination(filter,userId);
+  async getByUser(filter: any, userId: string) {
+  const result = await this.callLogData.findWithPagination(
+    filter,
+    userId,
+  );
+
+  if (!result.data.length) {
+    return result;
   }
+
+  // 1️⃣ Collect unique leadIds
+  const leadIds = [
+    ...new Set(result.data.map((log) => log.leadId)),
+  ];
+
+  // 2️⃣ Fetch all leads in one query
+  const leads = await this.leadLogic.getLeadsByLeadIds(
+    leadIds,
+  );
+
+  // 3️⃣ Create lookup map
+  const leadMap = new Map(
+    leads.map((l) => [
+      l.leadId,
+      { name: l.name, phone: l.phone },
+    ]),
+  );
+
+  // 4️⃣ Attach lead info to call logs
+  const enrichedData = result.data.map((log) => {
+    const lead = leadMap.get(log.leadId);
+
+    return {
+      ...log.toObject(),
+      leadName: lead?.name || null,
+      leadNumber:lead?.phone || null
+    };
+  });
+
+  return {
+    ...result,
+    data: enrichedData,
+  };
+}
+
 
   async update(id: string, dto: any, currentUserId: string) {
     const existing = await this.callLogData.findById(id);
