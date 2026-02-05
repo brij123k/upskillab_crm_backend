@@ -313,6 +313,47 @@ async getLeadsByLeadIds(leadIds: number[]) {
       .sort({ createdAt: -1 });
   }
 
+  async findDuplicateLeads() {
+  return this.leadModel.aggregate([
+    {
+      $match: {
+        $or: [
+          { phone: { $ne: null } },
+          { email: { $ne: null } },
+        ],
+      },
+    },
+
+    {
+      $group: {
+        _id: {
+          phone: "$phone",
+          email: "$email",
+        },
+        leads: { $push: "$$ROOT" },
+        count: { $sum: 1 },
+      },
+    },
+
+    {
+      $match: {
+        count: { $gt: 1 },
+      },
+    },
+
+    {
+      $project: {
+        _id: 0,
+        phone: "$_id.phone",
+        email: "$_id.email",
+        count: 1,
+        leads: 1,
+      },
+    },
+  ]);
+}
+
+
   // findByDepartmentId(departmentId: string) {
   //   return this.leadModel
   //     .find({ departmentId })

@@ -1,7 +1,7 @@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CallLog } from 'src/schema/call-log.schema';
-
+import { PipelineStage } from 'mongoose';
 export class CallLogData {
   constructor(
     @InjectModel(CallLog.name)
@@ -20,10 +20,7 @@ export class CallLogData {
       .sort({ createdAt: -1 });
   }
 
-  async findWithPagination(
-  filters: any,
-  userId?: string,
-) {
+async findWithPagination(filters: any, userId?: string) {
   const {
     leadId,
     outcome,
@@ -31,24 +28,66 @@ export class CallLogData {
     limit = 10,
   } = filters;
 
-  const query: any = {};
-  if (leadId) query.leadId = Number(leadId);
-  if (outcome) query.outcome = outcome;
-  if (userId) query.userId = userId;
+  const match: any = {};
+
+  if (leadId) match.leadId = Number(leadId);
+  if (outcome) match.outcome = outcome;
+  if (userId) match.userId = userId;
 
   const skip = (page - 1) * limit;
 
-  const [data, total] = await Promise.all([
-    this.callLogModel
-      .find(query)
-      .populate('userId', 'name email')
-      .populate('stageId', 'name')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit)),
+const pipeline: PipelineStage[] = [
+  { $match: match },
 
-    this.callLogModel.countDocuments(query),
+  { $sort: { createdAt: -1 } },
+
+  {
+    $group: {
+      _id: "$leadId",
+      latestCall: { $first: "$$ROOT" },
+    },
+  },
+
+  { $replaceRoot: { newRoot: "$latestCall" } },
+
+  { $skip: skip },
+  { $limit: Number(limit) },
+
+  {
+    $lookup: {
+      from: "users",
+      localField: "userId",
+      foreignField: "_id",
+      as: "userId",
+    },
+  },
+  { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+
+  {
+    $lookup: {
+      from: "stages",
+      localField: "stageId",
+      foreignField: "_id",
+      as: "stageId",
+    },
+  },
+  { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
+];
+
+
+const countPipeline: PipelineStage[] = [
+  { $match: match },
+  { $group: { _id: "$leadId" } },
+  { $count: "total" },
+];
+
+
+  const [data, countResult] = await Promise.all([
+    this.callLogModel.aggregate(pipeline),
+    this.callLogModel.aggregate(countPipeline),
   ]);
+
+  const total = countResult[0]?.total || 0;
 
   return {
     data,
@@ -58,6 +97,7 @@ export class CallLogData {
     totalPages: Math.ceil(total / limit),
   };
 }
+
 
 
   findById(id: string) {

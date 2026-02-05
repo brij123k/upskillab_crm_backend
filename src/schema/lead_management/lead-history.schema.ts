@@ -10,6 +10,7 @@ export enum LeadActionType {
   STATUS_CHANGED = 'status_changed',
   STAGE_CHANGED = 'stage_changed',
   CALL_LOG = 'call_log',
+  MEET_LOG = 'meet_log',
 }
 
 @Schema({ timestamps: true })

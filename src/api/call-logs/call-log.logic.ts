@@ -34,6 +34,7 @@ export class CallLogLogic {
     actionType: LeadActionType.CALL_LOG,
     actionBy: callLog.userId.toString(),
     changes: callLogData,
+    reason:remark
   });
 
   // 3️⃣ User Activity
@@ -119,14 +120,14 @@ async getByLead(leadId: number) {
     ]),
   );
 
-  // 4️⃣ Attach lead info to call logs
+  // 4️⃣ Attach lead info (NO toObject)
   const enrichedData = result.data.map((log) => {
     const lead = leadMap.get(log.leadId);
 
     return {
-      ...log.toObject(),
+      ...log, // ✅ aggregation result = plain object
       leadName: lead?.name || null,
-      leadNumber:lead?.phone || null
+      leadNumber: lead?.phone || null,
     };
   });
 
@@ -137,12 +138,12 @@ async getByLead(leadId: number) {
 }
 
 
+
   async update(id: string, dto: any, currentUserId: string) {
     const existing = await this.callLogData.findById(id);
     if (!existing) throw new NotFoundException('Call log not found');
 
     const updated = await this.callLogData.update(id, dto);
-
     await this.userActivityLogic.log({
       userId: currentUserId,
       action: 'CALL_LOG_UPDATED',
@@ -150,6 +151,7 @@ async getByLead(leadId: number) {
       referenceId: id,
       meta: { from: existing, to: updated },
     });
+
 
     return updated;
   }

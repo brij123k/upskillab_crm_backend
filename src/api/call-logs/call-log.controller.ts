@@ -25,7 +25,7 @@ export class CallLogController {
   @Post()
   @ApiOperation({ summary: 'Create call log (web & mobile)' })
     @UseGuards(JwtAuthGuard, RoleGuard)
-   @Roles('admin','bd')
+   @Roles('Admin','bd')
   create(
     @Body() dto: any,
     @CurrentUser() user: any,
@@ -35,7 +35,7 @@ export class CallLogController {
 
   @Get('lead/:leadId')
   @UseGuards(JwtAuthGuard, RoleGuard)
-   @Roles('admin','bd')
+   @Roles('Admin','bd')
   @ApiOperation({ summary: 'Get call logs by leadId' })
   getByLead(@Param('leadId') leadId: number) {
     return this.logic.getByLead(Number(leadId));
@@ -43,7 +43,7 @@ export class CallLogController {
 
   @Get()
    @UseGuards(JwtAuthGuard, RoleGuard)
-   @Roles('bd')
+   @Roles('bd','Admin')
   @ApiOperation({ summary: 'Get call logs by userId' })
   getByUser(
   @Param() params: any, @Req() req: any) {

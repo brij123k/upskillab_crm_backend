@@ -13,6 +13,7 @@ import { LeadModule } from './api/lead_management/lead/lead.module';
 import { callLogModule } from './api/call-logs/call-log.module';
 import { UserActivityModule } from './api/user-activity/user-activity.module';
 import { AppAuthModule } from './api/auth/app-auth/app-auth.module';
+import { MeetingLogModule } from './api/meeting-logs/meeting-log.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -29,6 +30,7 @@ ConfigModule.forRoot({
     callLogModule,
     UserActivityModule,
     AppAuthModule,
+    MeetingLogModule,
   ],
   controllers: [AppController],
   providers: [AppService],

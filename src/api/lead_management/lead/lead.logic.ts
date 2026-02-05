@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { LeadData } from './lead.data';
-import { LeadStatus } from 'src/schema/lead_management/lead.schema';
+import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
 import { CreateLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
 import { LeadHistoryLogic } from '../lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { ProfileData } from 'src/api/profile/profile.data';
+import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
+import { CallLog } from 'src/schema/call-log.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { MeetingLog } from 'src/schema/meeting-log.schema';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class LeadLogic {
@@ -12,6 +17,14 @@ export class LeadLogic {
     private readonly leadData: LeadData,
     private readonly profileData: ProfileData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
+    @InjectModel(CallLog.name)
+    private readonly callLogModel: Model<CallLog>,
+
+    @InjectModel(MeetingLog.name)
+    private meetingLogModel: Model<MeetingLog>,
+
+    @InjectModel(Lead.name)
+    private readonly leadModel: Model<Lead>,
   ) {}
 
   async create(dto: CreateLeadDto, userId: string) {
@@ -23,7 +36,7 @@ export class LeadLogic {
     });
 
     await this.leadHistoryLogic.log({
-      leadId: lead._id.toString(),
+      leadId: lead?.leadId.toString(),
       actionType: LeadActionType.CREATED,
       actionBy: userId,
       changes: dto,
@@ -55,9 +68,12 @@ findAll(filters: any,user:any) {
       modifiedBy: userId,
       modifiedAt: new Date(),
     });
+    if(!lead){
+      throw new NotFoundException("Lead Not found")
+    }
 
     await this.leadHistoryLogic.log({
-      leadId: id,
+      leadId: lead?.leadId.toString(),
       actionType: LeadActionType.UPDATED,
       actionBy: userId,
       changes: {
@@ -95,9 +111,11 @@ findAll(filters: any,user:any) {
       modifiedBy: userId,
       modifiedAt: new Date(),
     });
-
+    if(!lead){
+      throw new NotFoundException("Lead Not found")
+    }
     await this.leadHistoryLogic.log({
-      leadId: id,
+      leadId: lead?.leadId.toString(),
       actionType: LeadActionType.STATUS_CHANGED,
       actionBy: userId,
       changes: {
@@ -135,8 +153,11 @@ findAll(filters: any,user:any) {
       modifiedAt: new Date(),
     });
 
+    if(!lead){
+      throw new NotFoundException("Lead Not found")
+    }
     await this.leadHistoryLogic.log({
-      leadId: id,
+      leadId: lead?.leadId.toString(),
       actionType: LeadActionType.STAGE_CHANGED,
       actionBy: userId,
       changes: {
@@ -212,7 +233,7 @@ async assignLeads(
   // 🔹 History
   for (const lead of leads) {
     await this.leadHistoryLogic.log({
-      leadId: lead._id.toString(),
+      leadId: lead?.leadId.toString(),
       actionType: assignedTo
         ? LeadActionType.ASSIGNED
         : LeadActionType.UPDATED,
@@ -246,7 +267,7 @@ async assignLeads(
 
     for (const lead of leads) {
       await this.leadHistoryLogic.log({
-        leadId: lead._id.toString(),
+        leadId: lead?.leadId.toString(),
         actionType: LeadActionType.REASSIGNED,
         fromUser: lead.assignedTo?.toString(),
         toUser: newAssignedTo,
@@ -278,5 +299,53 @@ async getLeadsByLeadIds(leadIds:number[]){
 // async getLeadsByDepartment(departmentId: string) {
 //   return this.leadData.findByDepartmentId(departmentId);
 // }
+async getDuplicateLeads(){
+  return this.leadData.findDuplicateLeads()
+}
 
+async mergeLeads(dto: MergeLeadsDTO, userId: string) {
+  const { masterLeadId, duplicateLeadIds } = dto;
+
+  // 1️⃣ Ensure master not in duplicates
+  if (duplicateLeadIds.includes(masterLeadId)) {
+    throw new Error('Master lead cannot be merged into itself');
+  }
+
+  const masterLeadIdNum = Number(masterLeadId);
+const duplicateLeadIdsNum = duplicateLeadIds.map(Number);
+  // 2️⃣ Move all references
+  await Promise.all([
+    // Call Logs
+    this.callLogModel.updateMany(
+      { leadId: { $in: duplicateLeadIdsNum } },
+      { $set: { leadId: masterLeadIdNum } },
+    ),
+
+    // Meeting Logs
+    this.meetingLogModel.updateMany(
+      { leadId: { $in: duplicateLeadIdsNum } },
+      { $set: { leadId: masterLeadIdNum } },
+    ),
+
+    // Notes / Tasks / Deals (add others here)
+  ]);
+
+  // 3️⃣ Delete duplicate leads
+  await this.leadModel.deleteMany({
+    leadId: { $in: duplicateLeadIdsNum },
+  });
+
+  // 4️⃣ Store merge history (optional but recommended)
+  // await this.leadMergeHistoryModel.create({
+  //   masterLeadId,
+  //   mergedLeadIds: duplicateLeadIds,
+  //   mergedBy: userId,
+  // });
+
+  return {
+    message: 'Leads merged successfully',
+    masterLeadId,
+    mergedCount: duplicateLeadIds.length,
+  };
+}
 }

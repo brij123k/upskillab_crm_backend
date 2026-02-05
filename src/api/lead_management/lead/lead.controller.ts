@@ -26,6 +26,7 @@ import { ReassignLeadDto } from 'src/dto/lead-management/reassign-lead.dto';
 import { LeadFilterDto } from 'src/dto/lead-management/lead-filter.dto';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
 
 @ApiTags('Leads')
 @Controller('leads')
@@ -212,6 +213,21 @@ export class LeadController {
         return this.logic.getLeadByLeadId(leadId)
     }
 
+
+
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('admin', 'bd')
+    @Get('leaddoublicate/duplicates')  
+    getDuplicates() {
+     return this.logic.getDuplicateLeads();
+    }
+
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles('admin', 'bd')
+@Post('leaddoublicate/merge')
+mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {
+  return this.logic.mergeLeads(dto, req.user._id);
+}
 
 
     // @UseGuards(JwtAuthGuard)
