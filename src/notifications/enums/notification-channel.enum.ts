@@ -1,0 +1,6 @@
+export enum NOTIFICATION_CHANNEL {
+  IN_APP = 'IN_APP',
+  EMAIL = 'EMAIL',
+  PUSH = 'PUSH',
+  WHATSAPP = 'WHATSAPP',
+}

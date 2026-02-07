@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lead Schedule Socket Test</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 20px;
+    }
+    .log {
+      margin-top: 10px;
+      padding: 10px;
+      background: #020617;
+      border-radius: 6px;
+    }
+    .notification {
+      margin-top: 15px;
+      padding: 12px;
+      background: #16a34a;
+      color: white;
+      border-radius: 6px;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🔔 Lead Schedule Socket Test</h2>
+
+  <label>JWT Token</label>
+  <input id="token" placeholder="Paste JWT token here" />
+
+  <button onclick="connectSocket()">Connect Socket</button>
+
+  <div class="log" id="log">Logs will appear here...</div>
+
+  <script>
+    let socket;
+
+    function log(msg) {
+      document.getElementById('log').innerHTML += `<div>${msg}</div>`;
+    }
+
+    function connectSocket() {
+      const token = document.getElementById('token').value;
+      if (!token) {
+        alert("Token required");
+        return;
+      }
+
+      socket = io("http://localhost:3000", {
+        auth: {
+          token: token
+        }
+      });
+
+      socket.on("connect", () => {
+        log("🟢 Socket connected");
+      });
+
+      socket.on("disconnect", () => {
+        log("🔴 Socket disconnected");
+      });
+
+      socket.on("connect_error", (err) => {
+        log("❌ Connection error: " + err.message);
+      });
+
+      // 🔥 THIS IS WHAT WE ARE TESTING
+      socket.on("lead-schedule-reminder", (data) => {
+        log("🔔 Reminder received");
+
+        const div = document.createElement("div");
+        div.className = "notification";
+        div.innerText = data.message + " (LeadId: " + data.leadId + ")";
+        document.body.appendChild(div);
+      });
+    }
+  </script>
+
+</body>
+</html>

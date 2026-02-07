@@ -10,6 +10,9 @@ import { CallLog } from 'src/schema/call-log.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { MeetingLog } from 'src/schema/meeting-log.schema';
 import { Model } from 'mongoose';
+import { NotificationEngineService } from 'src/notifications/services/notification-engine.service';
+import { NOTIFICATION_EVENT } from 'src/notifications/enums/notification-event.enum';
+import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity.enum';
 
 @Injectable()
 export class LeadLogic {
@@ -25,10 +28,11 @@ export class LeadLogic {
 
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
+
+    private readonly notificationEngine: NotificationEngineService,
   ) {}
 
   async create(dto: CreateLeadDto, userId: string) {
-    console.log(dto)
     const lead = await this.leadData.create({
       ...dto,
       modifiedBy: userId,
@@ -41,6 +45,55 @@ export class LeadLogic {
       actionBy: userId,
       changes: dto,
     });
+
+    await this.notificationEngine.handleEvent({
+    event: NOTIFICATION_EVENT.LEAD_ASSIGNED,
+    actorId: userId,
+
+    recipients: {
+      userIds: ['697631c82f5d7cd2f90dfba0'], // 🔥 Sales Managers only
+    },
+
+    title: 'Lead Assigned',
+    message: `A lead has been assigned to a sales executive.`,
+
+    entity: {
+      type: NOTIFICATION_ENTITY.LEAD,
+      id: lead._id.toString(),
+    },
+
+    metadata: {
+      redirectUrl: `leads`,
+    },
+  });
+  // const salesManagers = await this.userModel.find({
+  //   roleName: 'sales_manager',   // adjust if needed
+  //   status: 'active',
+  // }).select('_id');
+
+  // const managerIds = salesManagers.map(u => u._id.toString());
+
+  // // 3️⃣ Emit notification event
+  // await this.notificationEngine.handleEvent({
+  //   event: NOTIFICATION_EVENT.LEAD_ASSIGNED,
+  //   actorId: actorId,
+
+  //   recipients: {
+  //     userIds: managerIds, // 🔥 Sales Managers only
+  //   },
+
+  //   title: 'Lead Assigned',
+  //   message: `A lead has been assigned to a sales executive.`,
+
+  //   entity: {
+  //     type: NOTIFICATION_ENTITY.LEAD,
+  //     id: lead._id.toString(),
+  //   },
+
+  //   metadata: {
+  //     redirectUrl: `/leads/${lead._id}`,
+  //   },
+  // });
 
     return lead;
   }

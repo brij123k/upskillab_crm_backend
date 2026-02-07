@@ -8,6 +8,7 @@ import { LeadHistoryModule } from '../lead-history/lead-history.module';
 import { ProfileModule } from 'src/api/profile/profile.module';
 import { MeetingLog,MeetingLogSchema } from 'src/schema/meeting-log.schema';
 import { CallLog,CallLogSchema } from 'src/schema/call-log.schema';
+import { NotificationModule } from 'src/notifications/notification.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -17,6 +18,7 @@ import { CallLog,CallLogSchema } from 'src/schema/call-log.schema';
     ]),
     LeadHistoryModule,
     ProfileModule,
+    NotificationModule,
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],

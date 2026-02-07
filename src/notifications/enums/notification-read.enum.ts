@@ -1,0 +1,4 @@
+export enum NOTIFICATION_READ_STATUS {
+  READ = 'READ',
+  UNREAD = 'UNREAD',
+}

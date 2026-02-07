@@ -37,6 +37,8 @@ export class LeadData {
       dateFilter,
       fromDate,
       toDate,
+      connected,
+      scheduler,
       sort = 'new',
       page = 1,
       limit = 10,

@@ -1,0 +1,7 @@
+export enum NOTIFICATION_ENTITY {
+  LEAD = 'LEAD',
+  TASK = 'TASK',
+  PAYMENT = 'PAYMENT',
+  USER = 'USER',
+  SYSTEM = 'SYSTEM',
+}
