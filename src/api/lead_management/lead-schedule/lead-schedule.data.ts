@@ -13,6 +13,27 @@ export class LeadScheduleData {
   create(data: Partial<LeadSchedule>) {
     return this.model.create(data);
   }
+getFutureScheduleLead(leadId: number) {
+  const now = new Date();
+
+  return this.model.find({
+    leadId,
+    scheduledAt: { $gt: now }, // only future schedules
+  }).sort({ scheduledAt: 1 }); // optional: earliest first
+}
+
+async getScheduledLeadIds(leadIds: number[]) {
+  const now = new Date();
+
+  const result = await this.model.distinct("leadId", {
+    leadId: { $in: leadIds },
+    scheduledAt: { $gt: now },
+  });
+
+  return result;
+}
+
+
 
 async lockOnePending(now: Date) {
   return this.model.findOneAndUpdate(

@@ -48,5 +48,12 @@ export const PERMISSIONS = {
       CREATE:'create',
       READ:'read',
     }
+  },
+  Meeting:{
+    MODULE:'Meetings',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read'
+    }
   }
 } as const;

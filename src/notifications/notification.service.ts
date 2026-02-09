@@ -16,7 +16,6 @@ export class NotificationService {
      LIST NOTIFICATIONS
   ============================== */
   async list(userId: string, page = 1, limit = 20) {
-    console.log(userId,"1")
     const skip = (page - 1) * limit;
 
     const data = await this.notificationModel
@@ -79,11 +78,7 @@ export class NotificationService {
     return notification;
   }
 
-  /* =============================
-     MARK ALL AS READ
-  ============================== */
   async markAllAsRead(userId: string) {
-    console.log(userId,"2")
     await this.notificationModel.updateMany(
       { userId: new Types.ObjectId(userId), isRead: false },
       {

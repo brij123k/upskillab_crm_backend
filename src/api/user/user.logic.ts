@@ -343,7 +343,6 @@ async updateUserAndProfile(
     userId: string,
     dto: ChangeUserDto,
   ) {
-    console.log(dto)
     const user = await this.userData.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');

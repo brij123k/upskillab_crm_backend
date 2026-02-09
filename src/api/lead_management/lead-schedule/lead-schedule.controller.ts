@@ -12,4 +12,7 @@ export class LeadScheduleController {
   create(@Body() dto: CreateLeadScheduleDTO) {
     return this.logic.create(dto);
   }
+
+  // @Get(':leadId')
+  // getScheduler()
 }

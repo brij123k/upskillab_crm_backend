@@ -75,7 +75,6 @@ export class CallLogController {
        )
   getByUsers(
   @Query() query: any, @Req() req: any) {
-    console.log(query,"2")
     return this.logic.getByUsers(query,req?.user.userId);
   }
 

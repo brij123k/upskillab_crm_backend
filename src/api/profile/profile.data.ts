@@ -56,7 +56,6 @@ getBydepartmentId(departmentId: string) {
   }
 
   updateByUserId(userId: string, data: any) {
-    console.log(userId,data)
     return this.profileModel.findOneAndUpdate(
       {userId: new Types.ObjectId(userId) },
       data,

@@ -22,9 +22,11 @@ export class CreateMeetingDTO {
   startedAt: Date;
 
   @IsNumber()
+  @IsOptional()
   duration: number;
 
   @IsString()
+  @IsOptional()
   feedback:string;
 }
 

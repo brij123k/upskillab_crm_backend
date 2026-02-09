@@ -35,5 +35,6 @@ import { Lead,LeadSchema } from 'src/schema/lead_management/lead.schema';
     LeadScheduleLogic,
     LeadScheduleCron,
   ],
+  exports:[LeadScheduleData]
 })
 export class LeadScheduleModule {}

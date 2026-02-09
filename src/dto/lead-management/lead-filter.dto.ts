@@ -64,6 +64,14 @@ export class LeadFilterDto {
   @IsOptional()
   toDate?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  connected?:boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  scheduler?:boolean;
+
   @ApiPropertyOptional({ example: 'new | old' })
   @IsOptional()
   sort?: string;

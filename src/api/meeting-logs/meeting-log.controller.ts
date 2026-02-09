@@ -14,6 +14,8 @@ import { CreateMeetingDTO,UpdateMeetingDTO } from 'src/dto/meeting-log.dto';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 
 @Controller('meeting-logs')
 export class MeetingLogController {
@@ -22,6 +24,10 @@ export class MeetingLogController {
   @Post()
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin','bd')
+  @RequirePermission(
+           PERMISSIONS.Meeting.MODULE,
+           PERMISSIONS.Meeting.ACTIONS.CREATE,
+         )
   create(@Body() dto: CreateMeetingDTO, @Req() req) {
     return this.logic.create(dto, req?.user.userId);
   }
@@ -43,6 +49,10 @@ export class MeetingLogController {
   @Get('lead/:leadId')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin','bd')
+  @RequirePermission(
+           PERMISSIONS.Meeting.MODULE,
+           PERMISSIONS.Meeting.ACTIONS.READ,
+         )
   getByLead(@Param('leadId') leadId: number) {
     return this.logic.getByLeadId(Number(leadId));
   }
@@ -50,6 +60,10 @@ export class MeetingLogController {
   @Get()
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin','bd')
+    @RequirePermission(
+           PERMISSIONS.Meeting.MODULE,
+           PERMISSIONS.Meeting.ACTIONS.READ,
+         )
   getByUser(@Req() req) {
     return this.logic.getByUser(req.user);
   }
@@ -57,6 +71,10 @@ export class MeetingLogController {
   @Get('with-feedbacks')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin','bd')
+    @RequirePermission(
+           PERMISSIONS.Meeting.MODULE,
+           PERMISSIONS.Meeting.ACTIONS.READ,
+         )
   getWithFeedbacks() {
     return this.logic.meetingsWithFeedbacks();
   }

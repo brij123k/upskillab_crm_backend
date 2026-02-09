@@ -56,7 +56,6 @@ export class LeadController {
     @Get()
     @ApiOperation({ summary: 'Get all leads with filters & pagination' })
     findAll(@Query() query: LeadFilterDto,@Req() req: any) {
-        console.log(query)
         return this.logic.findAll(query,req.user);
     }
 

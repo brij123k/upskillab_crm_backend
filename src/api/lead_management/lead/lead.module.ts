@@ -10,6 +10,8 @@ import { MeetingLog,MeetingLogSchema } from 'src/schema/meeting-log.schema';
 import { CallLog,CallLogSchema } from 'src/schema/call-log.schema';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { UserModule } from 'src/api/user/user.module';
+import { callLogModule } from 'src/api/call-logs/call-log.module';
+import { LeadScheduleModule } from '../lead-schedule/lead-schedule.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -21,6 +23,7 @@ import { UserModule } from 'src/api/user/user.module';
     ProfileModule,
     NotificationModule,
     UserModule,
+    LeadScheduleModule,
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],

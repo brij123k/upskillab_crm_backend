@@ -114,7 +114,6 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     page = 1,
     limit = 10,
   } = filters;
-  console.log(filters)
   const query: any = {};
 
   // 🎯 Filters
@@ -191,7 +190,6 @@ async findCallLogWithPagination(filters: any, userId?: string) {
 
   // 📄 Pagination
   const skip = (page - 1) * limit;
-    console.log(query,"1")
   const [data, total] = await Promise.all([
     this.callLogModel
       .find(query)
@@ -212,6 +210,10 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     totalPages: Math.ceil(total / limit),
   };
 }
+
+
+
+
 
 
 

@@ -1,14 +1,20 @@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { CallLogData } from 'src/api/call-logs/call-log.data';
 import { UserLogic } from 'src/api/user/user.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { User } from 'src/schema/user.schema';
+import { LeadScheduleData } from '../lead-schedule/lead-schedule.data';
+import { CallLog } from 'src/schema/call-log.schema';
 
 export class LeadData {
   constructor(
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
+    @InjectModel(CallLog.name)
+    private readonly callLogModel: Model<CallLog>,
     private readonly userLogic: UserLogic,
+    private readonly leadScheduleData: LeadScheduleData,
   ) { }
 
   async create(data: any) {
@@ -154,12 +160,12 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     limit = 10,
   } = filters;
 
-  // 🔐 Base query → senior can see junior leads
+  // 🔐 Base query (access control)
   const query: any = {
     assignedTo: { $in: userIds },
   };
 
-  // 🔍 SEARCH
+  /* ================= SEARCH ================= */
   if (search) {
     const searchConditions: any[] = [
       { name: { $regex: search, $options: 'i' } },
@@ -167,63 +173,41 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
       { email: { $regex: search, $options: 'i' } },
     ];
 
-    // 🔢 employeeId search (partial)
     if (!isNaN(Number(search))) {
       const users = await this.userLogic.findbyEmpId(Number(search));
       const empUserIds = users.map((u) => u._id.toString());
-
-      // ✅ intersect with allowed userIds
-      const allowedIds = empUserIds.filter((id) =>
-        userIds.includes(id),
-      );
+      const allowedIds = empUserIds.filter((id) => userIds.includes(id));
 
       if (allowedIds.length) {
-        searchConditions.push({
-          assignedTo: { $in: allowedIds },
-        });
+        searchConditions.push({ assignedTo: { $in: allowedIds } });
       }
     }
 
     query.$or = searchConditions;
   }
 
-  // 🎯 Explicit assignedTo filter (OVERRIDES access rule)
-  if (assignedTo) {
-    query.assignedTo = assignedTo;
-  }
-
-  // 🎯 Other filters
+  /* ================= BASIC FILTERS ================= */
+  if (assignedTo) query.assignedTo = assignedTo;
   if (status) query.status = status;
   if (source) query.source = source;
   if (stageId) query.stageId = stageId;
   if (modifiedBy) query.modifiedBy = modifiedBy;
-  if (isActive !== undefined)
-    query.isActive = isActive === 'true';
+  if (isActive !== undefined) query.isActive = isActive === 'true';
 
-  // 📅 DATE FILTERS
+  /* ================= DATE FILTER ================= */
   const now = new Date();
+
   if (dateFilter) {
     let start: Date | null = null;
 
-    if (dateFilter === 'today') {
-      start = new Date(now.setHours(0, 0, 0, 0));
-    } else if (dateFilter === 'week') {
-      start = new Date();
-      start.setDate(start.getDate() - 7);
-    } else if (dateFilter === 'month') {
-      start = new Date();
-      start.setMonth(start.getMonth() - 1);
-    } else if (dateFilter === 'year') {
-      start = new Date();
-      start.setFullYear(start.getFullYear() - 1);
-    }
+    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+    else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
+    else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
+    else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
 
-    if (start) {
-      query.createdAt = { $gte: start };
-    }
+    if (start) query.createdAt = { $gte: start };
   }
 
-  // 📅 Custom range
   if (fromDate && toDate) {
     query.createdAt = {
       $gte: new Date(fromDate),
@@ -231,7 +215,51 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     };
   }
 
-  // 📊 Pagination + sorting
+  /* ================= DERIVED FILTERS ================= */
+
+  // Step 1: get all leadIds matching base query (before connected/scheduler)
+  let baseLeadIds = await this.leadModel
+    .find(query)
+    .select('leadId')
+    .lean();
+
+  let filteredLeadIds = baseLeadIds.map((l) => l.leadId);
+
+  // 🔌 CONNECTED FILTER
+  if (connected !== undefined) {
+    const connectedLeadIds =
+      await this.getLeadIdsByConnection(
+        filteredLeadIds,
+        connected === 'true',
+      );
+
+    filteredLeadIds = filteredLeadIds.filter((id) =>
+      connectedLeadIds.includes(id),
+    );
+  }
+
+  // ⏰ SCHEDULER FILTER
+  if (scheduler !== undefined) {
+    const scheduledLeadIds =
+      await this.leadScheduleData.getScheduledLeadIds(filteredLeadIds);
+
+    if (scheduler === 'true') {
+      filteredLeadIds = filteredLeadIds.filter((id) =>
+        scheduledLeadIds.includes(id),
+      );
+    } else {
+      filteredLeadIds = filteredLeadIds.filter(
+        (id) => !scheduledLeadIds.includes(id),
+      );
+    }
+  }
+
+  // Apply final leadId filter
+  if (connected !== undefined || scheduler !== undefined) {
+    query.leadId = filteredLeadIds.length ? { $in: filteredLeadIds } : [-1];
+  }
+
+  /* ================= PAGINATION ================= */
   const skip = (page - 1) * limit;
   const sortOrder = sort === 'old' ? 1 : -1;
 
@@ -257,6 +285,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     },
   };
 }
+
 
 
 
@@ -502,5 +531,29 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
   // }
 
 
+  async getLeadIdsByConnection(
+  leadIds: number[],
+  connected: boolean,
+) {
+  const pipeline: any[] = [
+    { $match: { leadId: { $in: leadIds } } },
+    { $sort: { createdAt: -1 } },
+    {
+      $group: {
+        _id: "$leadId",
+        latestCall: { $first: "$$ROOT" },
+      },
+    },
+    {
+      $match: connected
+        ? { "latestCall.duration": { $gt: 0 } }
+        : { "latestCall.duration": 0 },
+    },
+    { $project: { _id: 1 } },
+  ];
+
+  const result = await this.callLogModel.aggregate(pipeline);
+  return result.map((r) => r._id);
+}
 
 }
