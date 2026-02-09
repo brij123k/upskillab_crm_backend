@@ -1,10 +1,14 @@
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
+import { Profile } from 'src/schema/profile.schema';
 import { User } from 'src/schema/user.schema';
 export class UserData {
   constructor(
     @InjectModel(User.name)
-    private readonly userModel: Model<User>
+    private readonly userModel: Model<User>,
+
+    @InjectModel(Profile.name)
+    private readonly profileModel: Model<Profile>,
   ) {}
 
   create(data: any) {
@@ -22,10 +26,48 @@ export class UserData {
   findById(id: string) {
   return this.userModel.findById(id).populate('role');
 }
+async findbyEmpId(employeeId: number) {
+  return this.userModel.aggregate([
+    {
+      $addFields: {
+        employeeIdStr: { $toString: '$employeeId' },
+      },
+    },
+    {
+      $match: {
+        employeeIdStr: {
+          $regex: employeeId.toString(),
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 1,
+      },
+    },
+  ]);
+}
+
+
+findByIds(userIds: string[]) {
+  return this.userModel
+    .find(
+      { _id: { $in: userIds } },
+      { name: 1, email: 1, number: 1, role: 1, employeeId: 1 },
+    )
+    .populate({
+      path: 'role',
+      select: 'name',
+    });
+}
 findUserDepartmentById(id: string) {
   return this.userModel
     .findById(id)
     .select('departmentId');
+}
+
+async findByEmployeeId(employeeId: number) {
+  return this.userModel.findOne({ employeeId });
 }
 
   update(id: any, data: any) {
@@ -52,7 +94,7 @@ toggleBlock(userId: string, isBlocked: boolean) {
     return this.userModel
       .find()
       .select(
-        'name email number status isBlocked isDashboardEnabled role lastLoginAt createdAt updatedAt',
+        'name email number employeeId status isBlocked isDashboardEnabled role lastLoginAt createdAt updatedAt',
       )
       .populate({
         path: 'role',
@@ -60,6 +102,28 @@ toggleBlock(userId: string, isBlocked: boolean) {
       })
       .lean();
   }
+
+  async findAllSubordinates(
+  seniorUserId: string,
+  departmentId: string,
+) {
+  const result: any[] = [];
+  const stack = [seniorUserId];
+  while (stack.length) {
+    const currentSenior = stack.pop();
+    const juniors = await this.profileModel.find({
+      reportingSenierId: new Types.ObjectId(currentSenior),
+      departmentId: new Types.ObjectId(departmentId),
+    });
+
+    for (const junior of juniors) {
+      result.push(junior);
+      stack.push(junior.userId.toString());
+    }
+  }
+
+  return result;
+}
 
 
 }

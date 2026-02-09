@@ -10,7 +10,7 @@ export class UserActivity extends Document {
   action: string;
 
   @Prop()
-  referenceType?: string; // LEAD, CALL_LOG, USER, etc.
+  referenceType?: string;
 
   @Prop()
   referenceId?: string;

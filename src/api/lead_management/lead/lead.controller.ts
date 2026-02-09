@@ -40,8 +40,6 @@ export class LeadController {
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.CREATE,
     )
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
     @ApiOperation({ summary: 'Create lead' })
     create(@Body() dto: CreateLeadDto, @Req() req: any) {
         return this.logic.create(dto, req?.user.userId);
@@ -56,10 +54,9 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
     @Get()
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
     @ApiOperation({ summary: 'Get all leads with filters & pagination' })
     findAll(@Query() query: LeadFilterDto,@Req() req: any) {
+        console.log(query)
         return this.logic.findAll(query,req.user);
     }
 
@@ -72,8 +69,6 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
     @Get(':id')
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin')
     @ApiOperation({ summary: 'Get lead by ID' })
     findOne(@Param('id') id: string) {
         return this.logic.findOne(id);
@@ -87,8 +82,6 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.UPDATE,
     )
     @Patch(':id')
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
     @ApiOperation({ summary: 'Update lead' })
     update(
         @Param('id') id: string,
@@ -115,8 +108,6 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.STATUS_CHANGE,
     )
     @Patch(':id/status')
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
     @ApiOperation({ summary: 'Change lead status' })
     changeStatus(
         @Param('id') id: string,
@@ -134,8 +125,6 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.STAGE_CHANGE,
     )
     @Patch(':id/stage')
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
     @ApiOperation({ summary: 'Change lead stage' })
     changeStage(
         @Param('id') id: string,
@@ -167,7 +156,7 @@ export class LeadController {
 
     
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.ASSIGN,
@@ -190,7 +179,7 @@ export class LeadController {
 
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @Get('user/:userId')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -202,7 +191,7 @@ export class LeadController {
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
     @Get('lead/:leadId')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -216,14 +205,18 @@ export class LeadController {
 
 
     @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('admin', 'bd')
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.UPDATE,
+    )
     @Get('leaddoublicate/duplicates')  
     getDuplicates() {
      return this.logic.getDuplicateLeads();
     }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('admin', 'bd')
+@Roles('Admin', 'bd')
 @Post('leaddoublicate/merge')
 mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {
   return this.logic.mergeLeads(dto, req.user._id);

@@ -16,32 +16,64 @@ import { profile } from 'console';
 import { ProfileData } from '../profile/profile.data';
 import { ChangeUserDto } from 'src/dto/user/userupdate.dto';
 import { User } from 'src/schema/user.schema';
+import { RegisterUserDto } from 'src/dto/user/register-user.dto';
+import { UserActivityLogic } from '../user-activity/user-activity.logic';
 
 @Injectable()
 export class UserLogic {
+private async generateUniqueEmployeeId(): Promise<number> {
+  let employeeId = 0; // ✅ initialized
+  let exists = true;
+
+  while (exists) {
+    employeeId = Math.floor(100000 + Math.random() * 900000); // 6-digit
+
+    const user = await this.userData.findByEmployeeId(employeeId);
+    exists = !!user;
+  }
+
+  return employeeId;
+}
   constructor(
     private readonly userData: UserData,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
     private readonly profileLogic: ProfileLogic,
     private readonly profileData: ProfileData,
+    private readonly userActivityLogic:UserActivityLogic,
+    
   ) { }
 
-  async register(dto: any) {
-    const exists = await this.userData.findByEmail(dto.email);
-    if (exists) AppError.badRequest('Email already exists');
-
-    dto.password = await bcrypt.hash(dto.password, 10);
-    return this.userData.create({ ...dto, role: new Types.ObjectId(dto.role) });
+async register(dto: RegisterUserDto) {
+  // 1️⃣ Check email
+  const exists = await this.userData.findByEmail(dto.email);
+  if (exists) {
+    AppError.badRequest('Email already exists');
   }
 
-  async login(dto: any) {
+  // 2️⃣ Generate unique employeeId
+  const employeeId = await this.generateUniqueEmployeeId();
+
+  // 3️⃣ Hash password
+  dto.password = await bcrypt.hash(dto.password, 10);
+
+  // 4️⃣ Save user
+  const user= this.userData.create({
+    ...dto,
+    employeeId,
+    role: new Types.ObjectId(dto.role),
+  });
+
+  await this.emailService.registerDetail(dto.email,dto.password);
+
+  return user;
+}
+
+async login(dto: any) {
   const user = await this.userData.findByEmailWithRole(dto.email);
   if (!user) {
     throw new UnauthorizedException('User not Exist');
   }
-
-  // ❌ Blocked / status checks
   if (user.isBlocked) {
     throw new UnauthorizedException('User is blocked');
   }
@@ -63,10 +95,13 @@ export class UserLogic {
   await this.userData.update(user._id, {
     lastLoginAt: new Date(),
   });
-
-  /* -------------------------------------------------
-     🔐 BUILD PERMISSIONS (ROLE + PROFILE)
-  --------------------------------------------------*/
+    await this.userActivityLogic.log({
+    userId: user._id.toString(),
+    action: 'USER_LOGIN',
+    referenceType: 'Login',
+    referenceId: null,
+    meta: {LoginAt :new Date()},
+  });
 
   const role = user.role as any;
 
@@ -106,7 +141,6 @@ export class UserLogic {
   /* -------------------------------------------------
      🔐 JWT PAYLOAD
   --------------------------------------------------*/
-  console.log(role.name)
   const payload = {
     userId: user._id,
     name: user.name,
@@ -121,13 +155,8 @@ export class UserLogic {
     status: user.status,
     isDashboardEnabled: user.isDashboardEnabled,
   };
-  console.log(payload)
 
   const access_token = this.jwtService.sign(payload);
-
-  /* -------------------------------------------------
-     📤 RESPONSE
-  --------------------------------------------------*/
 
   return {
     access_token,
@@ -154,6 +183,18 @@ export class UserLogic {
   };
 }
 
+async logout(user:any){
+   await this.userActivityLogic.log({
+    userId: user.userId.toString(),
+    action: 'USER_Logout',
+    referenceType: 'Logout',
+    referenceId: null,
+    meta: {
+      logoutAt:new Date()
+    },
+  });
+  return {success:true,message:"Logged Out Successfully"}
+}
 
   async sendOtp(email: string) {
     const user = await this.userData.findByEmail(email);
@@ -256,15 +297,32 @@ async toggleDashboard(
     extraAccessControls: dto.extraAccessControls,
     profileImage: dto.profileImage,
   });
-
+await this.emailService.dashboardUpdate(user.email,user.employeeId );
   return {
     message: 'Dashboard enabled and profile created successfully',
     user: updatedUser,
   };
 }
 
-async getAllUsersWithProfile() {
+async getAllUsersWithProfile(user:any) {
+  if(user.roleName.toLowerCase()=="admin"){
     const users = await this.userData.getAllUsers();
+
+    const userIds = users.map((u) => u._id);
+
+    const profiles =
+      await this.profileLogic.getProfilesByUserIds(userIds);
+
+    const profileMap = new Map(
+      profiles.map((p) => [p.userId.toString(), p]),
+    );
+
+    return users.map((user) => ({
+      ...user,
+      profile: profileMap.get(user._id.toString()) || null,
+    }));
+  }
+    const users = await this.getUsersUnder(user.userId);
 
     const userIds = users.map((u) => u._id);
 
@@ -348,5 +406,38 @@ async updateUserAndProfile(
     };
   }
 
+
+
+    async getUsersUnder(userId: string) {
+    // 1️⃣ Get profile of requested user
+    const profile = await this.profileData.findByUserId(userId);
+    if (!profile || !profile.departmentId) {
+    throw new NotFoundException(
+    'Profile or department not found',
+    );
+    }
+
+    // 2️⃣ Get all subordinate profiles
+    const subordinates =
+      await this.userData.findAllSubordinates(
+        userId,
+        profile?.departmentId.toString(),
+      );
+    if (!subordinates.length) return [];
+
+    // 3️⃣ Extract userIds
+    const userIds = subordinates.map((p) =>
+      p.userId.toString(),
+    );
+
+    // 4️⃣ Fetch user details
+    const users = await this.userData.findByIds(userIds);
+
+    return users;
+  }
+
+  async findbyEmpId(empId: number){
+    return this.userData.findbyEmpId(empId)
+  }
   
 }

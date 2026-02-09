@@ -6,7 +6,7 @@ import {
   Param,
   Patch,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProfileLogic } from './profile.logic';
 import { UpdateProfileDto } from 'src/dto/profile.dto';
 
@@ -62,4 +62,7 @@ export class ProfileController {
   deleteByUserId(@Param('userId') userId: string) {
     return this.logic.deleteByUserId(userId);
   }
+
+
+
 }

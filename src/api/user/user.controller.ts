@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserLogic } from './user.logic';
 import {RegisterUserDto} from 'src/dto/user/register-user.dto';
@@ -48,6 +48,12 @@ export class UserController {
     return this.logic.resetPassword(dto.email, dto.otp, dto.newPassword);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('Logout')
+  logout(@Req() req:any) {
+    return this.logic.logout(req.user);
+  }
+
 @UseGuards(JwtAuthGuard, RoleGuard)
 @Roles('Admin')
 @Patch(':id/status')
@@ -91,8 +97,23 @@ toggleDashboard(
 @ApiOperation({
   summary:"get all user detail"
 })
-getAllUsers(){
-  return this.logic.getAllUsersWithProfile()
+getAllUsers(@Req() req:any){
+  return this.logic.getUsersUnder(req.user.userId)
+}
+
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin','bd')
+@RequirePermission(
+  PERMISSIONS.USER.MODULE,
+  PERMISSIONS.USER.ACTIONS.READ,
+)
+@Get('profile')
+@ApiOperation({
+  summary:"get all user detail by Profile"
+})
+getAllUsersProfile(@Req() req:any){
+  return this.logic.getAllUsersWithProfile(req.user)
 }
 
 
@@ -114,5 +135,13 @@ UpdateUser(
   return this.logic.updateUserAndProfile(userId,dto)
 }
 
+
+  // @Get(':userId')
+  // @ApiOperation({
+  //   summary: 'Get all users under given userId',
+  // })
+  // getUsersUnder(@Param('userId') userId: string) {
+  //   return this.logic.getUsersUnder(userId);
+  // }
 
 }

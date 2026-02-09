@@ -50,4 +50,24 @@ export class EmailService {
 
     return this.sendMail(email, 'OTP Verification', html);
   }
+
+  async registerDetail(email:string,password:string){
+    const html = `
+    <h2>Complayee Employee Registration</h2>
+    <h3>Email : </h3><p>${email}</p>
+    <h3>Password : </h3><p>${password}</p>
+    please wait for approvel
+    `
+    return this.sendMail(email, 'User Registered', html);
+  }
+
+  async dashboardUpdate(email:string, employeeId:number){
+    const html = `
+    <h2>CRM UPDATE</h2>
+    <p>Your CRM Dashboard Now activated now u can visit you dashboard</p>
+    <p>Here is ypur employee Id : ${employeeId}</p>
+    `
+
+    return this.sendMail(email, 'CRM UPDATE', html);
+  }
 }

@@ -61,7 +61,7 @@ const pipeline: PipelineStage[] = [
       as: "userId",
     },
   },
-  { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+  // { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
 
   {
     $lookup: {
@@ -71,7 +71,7 @@ const pipeline: PipelineStage[] = [
       as: "stageId",
     },
   },
-  { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
+  // { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
 ];
 
 
@@ -97,6 +97,124 @@ const countPipeline: PipelineStage[] = [
     totalPages: Math.ceil(total / limit),
   };
 }
+
+async findCallLogWithPagination(filters: any, userId?: string) {
+  const {
+    search,
+    leadId,
+    stageId,
+    outcome,
+    durationMin,
+    durationMax,
+    byUserId,
+    dateFilter,
+      fromDate,
+      toDate,
+      sort = 'new',
+    page = 1,
+    limit = 10,
+  } = filters;
+  console.log(filters)
+  const query: any = {};
+
+  // 🎯 Filters
+  if (leadId) query.leadId = Number(leadId);
+  if (stageId) query.stageId = stageId;
+  if (outcome) query.outcome = outcome;
+
+  if (durationMin || durationMax) {
+    query.duration = {};
+    if (durationMin) query.duration.$gte = Number(durationMin);
+    if (durationMax) query.duration.$lte = Number(durationMax);
+  }
+
+  // 🎯 User filter (same logic as leads)
+  if (byUserId) {
+    query.userId = byUserId;
+  } else if (userId) {
+    query.userId = userId;
+  }
+
+  // 🔍 SEARCH (simple & predictable)
+  if (search) {
+    const searchConditions: any[] = [
+      { outcome: { $regex: search, $options: 'i' } },
+    ];
+
+    if (!isNaN(Number(search))) {
+      searchConditions.push(
+        { leadId: Number(search) },
+        { duration: Number(search) }
+      );
+    }
+
+    searchConditions.push(
+      { userId: search },
+      { stageId: search }
+    );
+
+    query.$or = searchConditions;
+  }
+
+  const now = new Date();
+    if (dateFilter) {
+      let start: Date | null = null;
+
+      if (dateFilter === 'today') {
+        start = new Date(now.setHours(0, 0, 0, 0));
+      } else if (dateFilter === 'week') {
+        start = new Date();
+        start.setDate(start.getDate() - 7);
+      } else if (dateFilter === 'month') {
+        start = new Date();
+        start.setMonth(start.getMonth() - 1);
+      } else if (dateFilter === 'year') {
+        start = new Date();
+        start.setFullYear(start.getFullYear() - 1);
+      }
+
+      if (start) {
+        query.createdAt = { $gte: start };
+      }
+    }
+
+    // 📅 CUSTOM DATE RANGE
+    if (fromDate && toDate) {
+      query.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    // 📊 SORTING
+    const sortOrder = sort === 'old' ? 1 : -1;
+
+  // 📄 Pagination
+  const skip = (page - 1) * limit;
+    console.log(query,"1")
+  const [data, total] = await Promise.all([
+    this.callLogModel
+      .find(query)
+      .populate('userId', 'name')
+      .populate('stageId', 'name')
+      .sort({ createdAt: sortOrder })
+      .skip(skip)
+      .limit(Number(limit)),
+
+    this.callLogModel.countDocuments(query),
+  ]);
+
+  return {
+    data,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+
+
 
 
 

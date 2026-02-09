@@ -13,6 +13,7 @@ import { Model } from 'mongoose';
 import { NotificationEngineService } from 'src/notifications/services/notification-engine.service';
 import { NOTIFICATION_EVENT } from 'src/notifications/enums/notification-event.enum';
 import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity.enum';
+import { UserLogic } from 'src/api/user/user.logic';
 
 @Injectable()
 export class LeadLogic {
@@ -20,6 +21,7 @@ export class LeadLogic {
     private readonly leadData: LeadData,
     private readonly profileData: ProfileData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
+    private readonly userLogic: UserLogic,
     @InjectModel(CallLog.name)
     private readonly callLogModel: Model<CallLog>,
 
@@ -49,9 +51,8 @@ export class LeadLogic {
     await this.notificationEngine.handleEvent({
     event: NOTIFICATION_EVENT.LEAD_ASSIGNED,
     actorId: userId,
-
     recipients: {
-      userIds: ['697631c82f5d7cd2f90dfba0'], // 🔥 Sales Managers only
+      userIds: [userId], // 🔥 Sales Managers only
     },
 
     title: 'Lead Assigned',
@@ -98,13 +99,28 @@ export class LeadLogic {
     return lead;
   }
 
-findAll(filters: any,user:any) {
-  if(user.roleName=="Admin" || user.roleRealName=="Sales Manager"){
+async findAll(filters: any, user: any) {
+  // 🔥 Admin → see everything
+  if (user.isSuperAdmin) {
     return this.leadData.findAllWithFilters(filters);
-  }else{
-    return this.leadData.findAllWithFiltersUserId(filters,user.userId);
   }
+  const users = await this.userLogic.getUsersUnder(user.userId);
+  const accessibleUserIds = users.map((u) => u._id.toString());
+    accessibleUserIds.push(user.userId)
+  if (!accessibleUserIds || !accessibleUserIds.length) {
+    return this.leadData.findAllWithFiltersUserIds(
+      filters,
+      [user.userId],
+    );
+  }
+
+  // 🔥 Apply hierarchy filter
+  return this.leadData.findAllWithFiltersUserIds(
+    filters,
+    accessibleUserIds,
+  );
 }
+
 
   async findOne(id: string) {
     const lead = await this.leadData.findById(id);

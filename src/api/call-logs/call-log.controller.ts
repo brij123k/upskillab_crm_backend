@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -16,6 +17,8 @@ import { CreateCallLogDto } from 'src/dto/call-log/create-call-log.dto';
 import { CallLogLogic } from './call-log.logic';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RoleGuard } from 'src/common/guards/role.guard';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 
 @ApiTags('Call Logs')
 @Controller('call-logs')
@@ -26,6 +29,10 @@ export class CallLogController {
   @ApiOperation({ summary: 'Create call log (web & mobile)' })
     @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('Admin','bd')
+    @RequirePermission(
+         PERMISSIONS.Calls.MODULE,
+         PERMISSIONS.Calls.ACTIONS.CREATE,
+       )
   create(
     @Body() dto: any,
     @CurrentUser() user: any,
@@ -36,6 +43,10 @@ export class CallLogController {
   @Get('lead/:leadId')
   @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('Admin','bd')
+   @RequirePermission(
+         PERMISSIONS.Calls.MODULE,
+         PERMISSIONS.Calls.ACTIONS.READ,
+       )
   @ApiOperation({ summary: 'Get call logs by leadId' })
   getByLead(@Param('leadId') leadId: number) {
     return this.logic.getByLead(Number(leadId));
@@ -44,10 +55,28 @@ export class CallLogController {
   @Get()
    @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('bd','Admin')
+   @RequirePermission(
+         PERMISSIONS.Calls.MODULE,
+         PERMISSIONS.Calls.ACTIONS.READ,
+       )
   @ApiOperation({ summary: 'Get call logs by userId' })
   getByUser(
   @Param() params: any, @Req() req: any) {
     return this.logic.getByUser(params,req?.user.userId);
+  }
+
+    @Get('users')
+   @UseGuards(JwtAuthGuard, RoleGuard)
+   @Roles('bd','Admin')
+  @ApiOperation({ summary: 'Get call logs by userId' })
+  @RequirePermission(
+         PERMISSIONS.Calls.MODULE,
+         PERMISSIONS.Calls.ACTIONS.READ,
+       )
+  getByUsers(
+  @Query() query: any, @Req() req: any) {
+    console.log(query,"2")
+    return this.logic.getByUsers(query,req?.user.userId);
   }
 
   @Patch(':id')

@@ -71,4 +71,7 @@ getBydepartmentId(departmentId: string) {
   deleteByUserId(userId: string) {
     return this.profileModel.findOneAndDelete({ userId });
   }
+
+
+  
 }

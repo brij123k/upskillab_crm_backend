@@ -137,6 +137,13 @@ async getByLead(leadId: number) {
   };
 }
 
+async getByUsers(filter: any, userId: string){
+  const result = await this.callLogData.findCallLogWithPagination(
+    filter,
+    userId,
+  );
+  return result
+}
 
 
   async update(id: string, dto: any, currentUserId: string) {

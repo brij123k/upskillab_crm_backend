@@ -42,4 +42,11 @@ export const PERMISSIONS = {
       DELETE: 'delete',
     },
   },
+  Calls:{
+    MODULE:'Calls',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+    }
+  }
 } as const;

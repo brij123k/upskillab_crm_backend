@@ -30,6 +30,11 @@ export class CreateLeadDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  reason:string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsMongoId()
   stageId: string;
 

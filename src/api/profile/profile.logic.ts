@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ProfileData } from './profile.data';
 import { Types } from 'mongoose';
+import { UserData } from '../user/user.data';
 
 @Injectable()
 export class ProfileLogic {
-  constructor(private readonly profileData: ProfileData) {}
+  constructor(private readonly profileData: ProfileData,
+  ) {}
 
   createProfile(data: any) {
     return this.profileData.create({
@@ -54,4 +56,6 @@ export class ProfileLogic {
   deleteByUserId(userId: string) {
     return this.profileData.deleteByUserId(userId);
   }
+
+
 }

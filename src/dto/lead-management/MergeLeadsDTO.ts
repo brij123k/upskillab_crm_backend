@@ -1,9 +1,9 @@
-import { IsArray, IsString } from "class-validator";
+import { IsArray, IsNumber, IsString } from "class-validator";
 
 export class MergeLeadsDTO {
-    @IsString()
-  masterLeadId: string;
+    @IsNumber()
+  masterLeadId: number;
 
   @IsArray()
-  duplicateLeadIds: string[];
+  duplicateLeadIds: number[];
 }

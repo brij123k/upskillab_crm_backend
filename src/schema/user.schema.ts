@@ -13,6 +13,9 @@ export class User extends Document {
   @Prop({ required: true })
   name: string;
 
+  @Prop({ required: true, unique: true, index: true })
+  employeeId:number;
+
   @Prop({ required: true, unique: true })
   email: string;
 
