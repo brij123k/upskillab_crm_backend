@@ -1,5 +1,5 @@
 import { Cron } from '@nestjs/schedule';
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { LeadScheduleData } from './lead-schedule.data';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { SocketGateway } from 'src/api/socket/socket.gateway';
@@ -42,10 +42,33 @@ async handleSchedules() {
       {
         leadId: schedule.leadId,
         message: schedule.message,
-        url:""
+        url:`lead/${lead.leadId}`
       },
     );
   }
+}
+
+async handleInstantCall(leadId:number) {
+
+    const lead = await this.leadModel.findOne({
+      leadId,
+    });
+
+    if (!lead || !lead.assignedTo) {
+      throw new NotFoundException("Lead not found")
+    }
+
+    // 2️⃣ Emit socket notification (ONCE)
+    this.socketGateway.emitToUser(
+      lead.assignedTo.toString(),
+      'lead-schedule-reminder',
+      {
+        leadId: lead.leadId,
+        message: `⏰ CRM Reminder call ${lead.name} leadId: ${lead.leadId} `,
+        url:`lead/${lead.leadId}`
+      },
+    );
+
 }
 
 }

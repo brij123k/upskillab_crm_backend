@@ -218,7 +218,7 @@ export class LeadController {
 @Roles('Admin', 'bd')
 @Post('leaddoublicate/merge')
 mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {
-  return this.logic.mergeLeads(dto, req.user._id);
+  return this.logic.mergeLeads(dto, req.user.userId);
 }
 
 

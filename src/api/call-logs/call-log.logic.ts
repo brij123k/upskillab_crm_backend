@@ -7,6 +7,7 @@ import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { LeadLogic } from '../lead_management/lead/lead.logic';
+import { Types } from 'mongoose';
 
 @Injectable()
 export class CallLogLogic {
@@ -27,6 +28,9 @@ export class CallLogLogic {
     userId: dto.userId || currentUserId,
     startedAt: dto.startedAt || new Date(),
   });
+  if(dto.stageId){
+    this.leadLogic.changeStagebyLeadId(dto.leadId,dto.stageId,currentUserId)
+  }
 
   // 2️⃣ Lead History
   await this.leadHistoryLogic.log({
@@ -43,7 +47,9 @@ export class CallLogLogic {
     action: 'CALL_LOGGED',
     referenceType: 'LEAD',
     referenceId: callLog.leadId.toString(),
-    meta: callLogData,
+    meta: {
+      message:"Call Log created",
+      callLogData},
   });
 
   // 4️⃣ Create Review IF provided
@@ -145,6 +151,27 @@ async getByUsers(filter: any, userId: string){
   return result
 }
 
+async getreviewbycallId(callId: string): Promise<any> {
+  const exist = await this.callLogData.findById(callId);
+  if (!exist) {
+    throw new NotFoundException("call Log not Found");
+  }
+
+  const log = await this.model.findOne({
+    callLogId: new Types.ObjectId(callId),
+  });
+
+  if (!log) {
+    throw new NotFoundException("Log review not found");
+  }
+
+  const leaddetail = await this.leadLogic.getLeadByLeadId(log.leadId);
+
+  return {
+    ...log.toObject(),   // 🔥 IMPORTANT
+    leaddetail,
+  };
+}
 
   async update(id: string, dto: any, currentUserId: string) {
     const existing = await this.callLogData.findById(id);

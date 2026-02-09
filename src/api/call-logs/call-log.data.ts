@@ -219,7 +219,6 @@ async findCallLogWithPagination(filters: any, userId?: string) {
 
 
 
-
   findById(id: string) {
     return this.callLogModel.findById(id);
   }

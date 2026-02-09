@@ -9,14 +9,16 @@ export enum LeadActionType {
   REASSIGNED = 'reassigned',
   STATUS_CHANGED = 'status_changed',
   STAGE_CHANGED = 'stage_changed',
+  STAGE_CHANGED_CallS = 'stage_changed_by_calls',
   CALL_LOG = 'call_log',
   MEET_LOG = 'meet_log',
+  LEAD_SCHEDULE = 'lead_schedule',
 }
 
 @Schema({ timestamps: true })
 export class LeadHistory extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Lead', required: true })
-  leadId: Types.ObjectId;
+  @Prop({ required: true })
+  leadId: string;
 
   @Prop({ enum: LeadActionType, required: true })
   actionType: LeadActionType;

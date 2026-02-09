@@ -40,7 +40,10 @@ export class MeetingLogLogic {
         action: 'MEET_LOGGED',
         referenceType: 'LEAD',
         referenceId: meeting_log.leadId.toString(),
-        meta: meeting_log,
+        meta: {
+          message:"meeting log created",
+          meeting_log
+        },
       });
       return{
         success :true,
@@ -65,7 +68,9 @@ export class MeetingLogLogic {
         action: 'MEET_LOGGED',
         referenceType: 'LEAD',
         referenceId: meeting_log.leadId.toString(),
-        meta: meeting_log,
+        meta: {
+          message:"meeting log updated",
+          meeting_log},
       });
        return{
         success :true,

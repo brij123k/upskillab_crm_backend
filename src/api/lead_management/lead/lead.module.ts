@@ -12,18 +12,22 @@ import { NotificationModule } from 'src/notifications/notification.module';
 import { UserModule } from 'src/api/user/user.module';
 import { callLogModule } from 'src/api/call-logs/call-log.module';
 import { LeadScheduleModule } from '../lead-schedule/lead-schedule.module';
+import { LeadStage,LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
+import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Lead.name, schema: LeadSchema },
       { name: MeetingLog.name, schema: MeetingLogSchema },
-      { name: CallLog.name, schema: CallLogSchema }
+      { name: CallLog.name, schema: CallLogSchema },
+      { name: LeadStage.name, schema: LeadStageSchema },
     ]),
     LeadHistoryModule,
     ProfileModule,
     NotificationModule,
     UserModule,
     LeadScheduleModule,
+    UserActivityModule,
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],

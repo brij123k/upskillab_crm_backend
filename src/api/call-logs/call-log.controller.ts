@@ -78,6 +78,14 @@ export class CallLogController {
     return this.logic.getByUsers(query,req?.user.userId);
   }
 
+  @Get('callLogReview/:callLogId')
+@ApiOperation({ summary: "Get call Log review by call Log Id" })
+async getreviewbycallId(
+  @Param('callLogId') callLogId: string
+): Promise<any> {
+  return this.logic.getreviewbycallId(callLogId);
+}
+
   @Patch(':id')
   @ApiOperation({ summary: 'Update call log' })
   update(

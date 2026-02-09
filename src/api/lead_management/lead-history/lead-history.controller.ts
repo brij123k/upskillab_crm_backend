@@ -9,7 +9,9 @@ export class LeadHistoryController {
   constructor(private readonly logic: LeadHistoryLogic) {}
 
   @Get(':leadId')
-  getLeadHistory(@Param('leadId') leadId: string) {
-    return this.logic.getHistoryByLead(leadId);
+  getLeadHistory(@Param('leadId') leadId: number) {
+    return this.logic.getHistoryByLead(leadId.toString());
   }
+
+  
 }
