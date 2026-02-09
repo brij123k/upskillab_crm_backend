@@ -36,9 +36,9 @@ export class SocketGateway
 
       client.data.userId = userId;
 
-      // console.log(`🟢 Socket connected | userId=${userId}`);
+      console.log(`🟢 Socket connected | userId=${userId}`);
     } catch (error) {
-      // console.error('Socket connection error', error.message);
+      console.error('Socket connection error', error.message);
       client.disconnect();
     }
   }
@@ -46,7 +46,7 @@ export class SocketGateway
   handleDisconnect(client: Socket) {
     const userId = client.data.userId;
     if (userId) {
-      // console.log(`🔴 Socket disconnected | userId=${userId}`);
+      console.log(`🔴 Socket disconnected | userId=${userId}`);
     }
   }
 

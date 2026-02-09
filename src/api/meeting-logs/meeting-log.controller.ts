@@ -8,6 +8,7 @@ import {
   Param,
   Req,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { MeetingLogLogic } from './meeting-log.logic';
 import { CreateMeetingDTO,UpdateMeetingDTO } from 'src/dto/meeting-log.dto';
@@ -75,7 +76,7 @@ export class MeetingLogController {
            PERMISSIONS.Meeting.MODULE,
            PERMISSIONS.Meeting.ACTIONS.READ,
          )
-  getWithFeedbacks() {
-    return this.logic.meetingsWithFeedbacks();
+  getWithFeedbacks(@Query() query: any,@Req() req) {
+    return this.logic.meetingsWithFeedbacks(query,req.user);
   }
 }

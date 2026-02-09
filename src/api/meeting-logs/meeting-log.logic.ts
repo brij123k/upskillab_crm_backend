@@ -88,7 +88,7 @@ export class MeetingLogLogic {
     return this.data.findByUser(user.userId);
   }
 
-  meetingsWithFeedbacks() {
-    return this.data.meetingsWithFeedbacks();
+  meetingsWithFeedbacks(filters:any,user:any) {
+    return this.data.meetingsWithFeedbacks(filters,user);
   }
 }
