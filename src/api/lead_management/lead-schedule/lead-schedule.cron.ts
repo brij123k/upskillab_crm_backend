@@ -30,21 +30,23 @@ async handleSchedules() {
     const lead = await this.leadModel.findOne({
       leadId: schedule.leadId,
     });
+    console.log(lead,"2")
 
     if (!lead?.assignedTo) {
       continue;
     }
 
     // 2️⃣ Emit socket notification (ONCE)
-    this.socketGateway.emitToUser(
-      lead.assignedTo.toString(),
-      'lead-schedule-reminder',
-      {
-        leadId: schedule.leadId,
-        message: schedule.message,
-        url:`lead/${lead.leadId}`
-      },
-    );
+    // this.socketGateway.emitToUser(
+    //   lead.assignedTo.toString(),
+    //   'lead-schedule-reminder',
+    //   {
+    //     leadId: schedule.leadId,
+    //     message: schedule.message,
+    //     url:`lead/${lead.leadId}`
+    //   },
+    // );
+    this.handleInstantCall(schedule.leadId)
   }
 }
 

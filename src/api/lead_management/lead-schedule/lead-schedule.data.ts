@@ -36,6 +36,7 @@ async getScheduledLeadIds(leadIds: number[]) {
 
 
 async lockOnePending(now: Date) {
+  console.log(now)
   return this.model.findOneAndUpdate(
     {
       scheduledAt: { $lte: now },
