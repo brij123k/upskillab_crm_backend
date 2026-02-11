@@ -32,6 +32,7 @@ export class Lead extends Document {
   @Prop({ enum: LeadSource, required: true, default: LeadSource.MANUAL })
   source: LeadSource;
 
+
   // @Prop({ type: Types.ObjectId, ref: 'Department', required: false })
   // departmentId: Types.ObjectId;
 

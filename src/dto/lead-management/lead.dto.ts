@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { IsEnum, IsMongoId, IsNumber, IsOptional, IsString } from 'class-validator';
-import { LeadSource,LeadStatus } from 'src/schema/lead_management/lead.schema';
+import { LeadStatus } from 'src/schema/lead_management/lead.schema';
 
 export class CreateLeadDto {
   @ApiProperty()
@@ -18,6 +18,7 @@ export class CreateLeadDto {
   @ApiProperty({ enum: LeadSource })
   @IsEnum(LeadSource)
   source: LeadSource;
+
 
   // @ApiPropertyOptional()
   // @IsOptional()
