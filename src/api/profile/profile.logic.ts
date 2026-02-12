@@ -13,7 +13,7 @@ export class ProfileLogic {
       ...data,
       userId:new Types.ObjectId(data.userId),
       departmentId:new Types.ObjectId(data.departmentId),
-      reportingManagerId:new Types.ObjectId(data.reportingManagerId)
+      reportingSeniorId:new Types.ObjectId(data.reportingSeniorId)
     });
   }
 

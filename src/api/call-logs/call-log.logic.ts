@@ -8,6 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { LeadLogic } from '../lead_management/lead/lead.logic';
 import { Types } from 'mongoose';
+import { UserLogic } from '../user/user.logic';
 
 @Injectable()
 export class CallLogLogic {
@@ -16,6 +17,7 @@ export class CallLogLogic {
     private readonly leadHistoryLogic: LeadHistoryLogic,
     private readonly userActivityLogic: UserActivityLogic,
     private readonly leadLogic:LeadLogic,
+    private readonly userLogic: UserLogic,
 
     @InjectModel(CallLogReview.name)
     private readonly model: Model<CallLogReview>,
@@ -144,11 +146,29 @@ async getByLead(leadId: number) {
 }
 
 async getByUsers(filter: any, userId: string){
+  if(filter.group=='true'){
+    const users = await this.userLogic.getUsersUnder(userId);
+    const accessibleUserIds = users.map((u) => u._id.toString());
+    accessibleUserIds.push(userId)
+    if (!accessibleUserIds || !accessibleUserIds.length) {
+      return this.callLogData.findAllWithUserIds(
+        filter,
+        [userId],
+      );
+    }
+
+    // 🔥 Apply hierarchy filter
+    return this.callLogData.findAllWithUserIds(
+      filter,
+      accessibleUserIds,
+    );
+  }else{
   const result = await this.callLogData.findCallLogWithPagination(
     filter,
     userId,
   );
   return result
+  }
 }
 
 async getreviewbycallId(callId: string): Promise<any> {

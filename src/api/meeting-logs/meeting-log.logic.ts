@@ -5,12 +5,14 @@ import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { MeetingFeedbackLogData } from './meeting-feedback.data';
 import { Types } from 'mongoose';
+import { UserLogic } from '../user/user.logic';
 @Injectable()
 export class MeetingLogLogic {
   constructor(private readonly data: MeetingLogData,
     private readonly meetingFeedbackLog: MeetingFeedbackLogData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
     private readonly userActivityLogic: UserActivityLogic,
+    private readonly userLogic: UserLogic,
   ) {}
 
  async create(dto: any, userId: string) {
@@ -93,7 +95,50 @@ export class MeetingLogLogic {
     return this.data.findByUser(user.userId);
   }
 
-  meetingsWithFeedbacks(filters:any,user:any) {
-    return this.data.meetingsWithFeedbacks(filters,user);
+async getMeetingsByUsers(filter: any, userId: string) {
+  if (filter.group == 'true') {
+    const users = await this.userLogic.getUsersUnder(userId);
+
+    const accessibleUserIds = users.map(u => u._id.toString());
+    accessibleUserIds.push(userId);
+
+    if (!accessibleUserIds.length) {
+      return this.data.meetingsWithFeedbacks(filter, [userId]);
+    }
+
+    return this.data.meetingsWithFeedbacks(filter, accessibleUserIds);
   }
+
+  // 🔹 normal single user
+  return this.data.meetingsWithFeedbacks(filter, [userId]);
+}
+
+async addFeedback(dto:any,userId:string){
+  const res = await this.meetingFeedbackLog.create(
+    {...dto,
+      userId:new Types.ObjectId(userId),
+      meetingId:new Types.ObjectId(dto.meetingId)
+    })
+
+    await this.leadHistoryLogic.log({
+        leadId: res.leadId.toString(),
+        actionType: LeadActionType.MEET_LOG_FEEDBACK,
+        meet_log:res.meetingId.toString(),
+        actionBy: res.userId.toString(),
+        changes: res,
+        reason:dto?.feedback
+      });
+      await this.userActivityLogic.log({
+        userId: res.userId.toString(),
+        action: 'MEET_LOG_FEEDBACK',
+        referenceType: 'LEAD',
+        referenceId: res.leadId.toString(),
+        meta: {
+          message:"meeting Feedback updated",
+          res},
+      });
+
+      return res;
+}
+
 }

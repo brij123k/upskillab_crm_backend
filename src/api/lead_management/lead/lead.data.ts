@@ -396,7 +396,6 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     );
   }
   getByLeadId(leadId: number) {
-    console.log(leadId,'2')
     return this.leadModel.findOne({ leadId: leadId }).populate('stageId').lean();
   }
 

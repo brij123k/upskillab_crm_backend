@@ -112,7 +112,7 @@ toggleBlock(userId: string, isBlocked: boolean) {
   while (stack.length) {
     const currentSenior = stack.pop();
     const juniors = await this.profileModel.find({
-      reportingSenierId: new Types.ObjectId(currentSenior),
+      reportingSeniorId: new Types.ObjectId(currentSenior),
       departmentId: new Types.ObjectId(departmentId),
     });
 

@@ -53,7 +53,8 @@ export const PERMISSIONS = {
     MODULE:'Meetings',
     ACTIONS:{
       CREATE:'create',
-      READ:'read'
+      READ:'read',
+      FEEDBACK:'feedback'
     }
   }
 } as const;

@@ -286,12 +286,11 @@ async toggleDashboard(
   const updatedUser = await this.userData.update(userId, {
     isDashboardEnabled: true,
   });
-
   // 2️⃣ Create profile with admin-provided data
   await this.profileLogic.createProfile({
     userId,
     departmentId: dto.departmentId,
-    reportingManagerId: dto.reportingManagerId,
+    reportingSeniorId: dto.reportingSeniorId,
     education: dto.education,
     salary: dto.salary,
     extraAccessControls: dto.extraAccessControls,
@@ -369,8 +368,8 @@ async updateUserAndProfile(
 
     if (dto.departmentId)
       profilePayload.departmentId = dto.departmentId;
-    if (dto.reportingManagerId)
-      profilePayload.reportingManagerId = dto.reportingManagerId;
+    if (dto.reportingSeniorId)
+      profilePayload.reportingSeniorId = new Types.ObjectId(dto.reportingSeniorId);
     if (dto.education)
       profilePayload.education = dto.education;
     if (dto.salary)
@@ -437,6 +436,10 @@ async updateUserAndProfile(
 
   async findbyEmpId(empId: number){
     return this.userData.findbyEmpId(empId)
+  }
+
+  async getUserByDepartmentId(departmentId:string){
+    return this.profileData.getBydepId(departmentId)
   }
   
 }

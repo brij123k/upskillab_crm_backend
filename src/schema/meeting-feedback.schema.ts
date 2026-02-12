@@ -6,6 +6,9 @@ export class MeetingFeedback {
   @Prop({ type: Types.ObjectId, ref: 'MeetingLog', required: true })
   meetingId: Types.ObjectId;
 
+  @Prop({required: true })
+  leadId: number;
+
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 

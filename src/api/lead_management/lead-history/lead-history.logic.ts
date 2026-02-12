@@ -10,6 +10,7 @@ export class LeadHistoryLogic {
     leadId: string;
     actionType: LeadActionType;
     fromUser?: string;
+    meet_log?:string;
     toUser?: string;
     actionBy: string;
     changes?: Record<string, any>;
@@ -19,6 +20,6 @@ export class LeadHistoryLogic {
   }
 
   getHistoryByLead(leadId: string) {
-    return this.historyData.findByLeadId(leadId);
+    return this.historyData.findByLeadId(leadId).populate('meet_log');
   }
 }

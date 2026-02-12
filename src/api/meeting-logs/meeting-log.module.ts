@@ -9,6 +9,7 @@ import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { LeadModule } from '../lead_management/lead/lead.module';
 import { MeetingFeedbackLogData } from './meeting-feedback.data';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
@@ -18,7 +19,8 @@ import { MeetingFeedbackLogData } from './meeting-feedback.data';
     ]),
     LeadHistoryModule,
     UserActivityModule,
-    LeadModule
+    LeadModule,
+    UserModule
   ],
   controllers: [MeetingLogController],
   providers: [MeetingLogLogic, MeetingLogData,MeetingFeedbackLogData],

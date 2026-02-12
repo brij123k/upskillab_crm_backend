@@ -5,8 +5,8 @@ export class CallLog extends Document {
   @Prop({ required: true })
   leadId: number; // numeric leadId
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  userId: Types.ObjectId;
+  @Prop({ref: 'User', required: true })
+  userId: string;
 
   @Prop({ required: true })
   duration: number; // seconds
@@ -14,8 +14,8 @@ export class CallLog extends Document {
   @Prop()
   outcome: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'LeadStage' })
-  stageId?: Types.ObjectId;
+  @Prop({ref: 'LeadStage' })
+  stageId?: string;
 
   @Prop({ required: true })
   startedAt: Date;

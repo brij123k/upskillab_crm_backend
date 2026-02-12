@@ -26,14 +26,14 @@ findAll() {
       },
     })
     .populate('departmentId', 'name')
-    .populate('reportingSenierId', 'name');
+    .populate('reportingSeniorId', 'name');
 }
 
 findByUserIds(userIds: string[]) {
   return this.profileModel
     .find({ userId: { $in: userIds } })
     .populate('departmentId', 'name')
-    .populate('reportingSenierId', 'name')
+    .populate('reportingSeniorId', 'name')
     .lean();
 }
 
@@ -50,6 +50,19 @@ findByUserIds(userIds: string[]) {
 getBydepartmentId(departmentId: string) {
     return this.profileModel.findOne({ departmentId:new Types.ObjectId(departmentId) });
   }
+
+getBydepId(departmentId: string) {
+  return this.profileModel
+    .find({ departmentId: new Types.ObjectId(departmentId) })
+    .populate({
+      path: 'userId',
+      populate: {
+        path: 'role',   // field inside User schema
+        model: 'Role',  // role model name
+      },
+    });
+}
+
 
   updateById(id: string, data: any) {
     return this.profileModel.findByIdAndUpdate(id, data, { new: true });

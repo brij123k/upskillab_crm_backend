@@ -12,6 +12,7 @@ export enum LeadActionType {
   STAGE_CHANGED_CallS = 'stage_changed_by_calls',
   CALL_LOG = 'call_log',
   MEET_LOG = 'meet_log',
+  MEET_LOG_FEEDBACK = 'meet_log_feedback',
   LEAD_SCHEDULE = 'lead_schedule',
 }
 
@@ -31,6 +32,9 @@ export class LeadHistory extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   actionBy: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'MeetingLog', required: true })
+  meet_log: Types.ObjectId;
 
   @Prop({ type: Object })
   changes?: Record<string, any>;

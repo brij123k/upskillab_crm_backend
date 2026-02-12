@@ -106,35 +106,47 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     outcome,
     durationMin,
     durationMax,
+    answered, // 👈 NEW
     byUserId,
     dateFilter,
-      fromDate,
-      toDate,
-      sort = 'new',
+    fromDate,
+    toDate,
+    sort = 'new',
     page = 1,
     limit = 10,
   } = filters;
+
   const query: any = {};
 
-  // 🎯 Filters
+  // 🎯 BASIC FILTERS
   if (leadId) query.leadId = Number(leadId);
   if (stageId) query.stageId = stageId;
   if (outcome) query.outcome = outcome;
 
+  // 🎯 DURATION FILTER
   if (durationMin || durationMax) {
     query.duration = {};
     if (durationMin) query.duration.$gte = Number(durationMin);
     if (durationMax) query.duration.$lte = Number(durationMax);
   }
 
-  // 🎯 User filter (same logic as leads)
+  // 🎯 ANSWERED FILTER
+  if (answered !== undefined) {
+    if (answered === true || answered === 'true') {
+      query.duration = { ...(query.duration || {}), $gt: 0 };
+    } else if (answered === false || answered === 'false') {
+      query.duration = { ...(query.duration || {}), $eq: 0 };
+    }
+  }
+
+  // 👤 USER FILTER
   if (byUserId) {
     query.userId = byUserId;
   } else if (userId) {
     query.userId = userId;
   }
 
-  // 🔍 SEARCH (simple & predictable)
+  // 🔍 SEARCH
   if (search) {
     const searchConditions: any[] = [
       { outcome: { $regex: search, $options: 'i' } },
@@ -147,60 +159,294 @@ async findCallLogWithPagination(filters: any, userId?: string) {
       );
     }
 
-    searchConditions.push(
-      { userId: search },
-      { stageId: search }
-    );
-
+    searchConditions.push({ userId: search }, { stageId: search });
     query.$or = searchConditions;
   }
 
+  // 📅 DATE FILTER
   const now = new Date();
-    if (dateFilter) {
-      let start: Date | null = null;
+  if (dateFilter) {
+    let start: Date | null = null;
 
-      if (dateFilter === 'today') {
-        start = new Date(now.setHours(0, 0, 0, 0));
-      } else if (dateFilter === 'week') {
-        start = new Date();
-        start.setDate(start.getDate() - 7);
-      } else if (dateFilter === 'month') {
-        start = new Date();
-        start.setMonth(start.getMonth() - 1);
-      } else if (dateFilter === 'year') {
-        start = new Date();
-        start.setFullYear(start.getFullYear() - 1);
-      }
-
-      if (start) {
-        query.createdAt = { $gte: start };
-      }
+    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+    else if (dateFilter === 'week') {
+      start = new Date();
+      start.setDate(start.getDate() - 7);
+    } else if (dateFilter === 'month') {
+      start = new Date();
+      start.setMonth(start.getMonth() - 1);
+    } else if (dateFilter === 'year') {
+      start = new Date();
+      start.setFullYear(start.getFullYear() - 1);
     }
 
-    // 📅 CUSTOM DATE RANGE
-    if (fromDate && toDate) {
-      query.createdAt = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
+    if (start) query.createdAt = { $gte: start };
+  }
 
-    // 📊 SORTING
-    const sortOrder = sort === 'old' ? 1 : -1;
+  if (fromDate && toDate) {
+    query.createdAt = {
+      $gte: new Date(fromDate),
+      $lte: new Date(toDate),
+    };
+  }
 
-  // 📄 Pagination
+  const sortOrder = sort === 'old' ? 1 : -1;
   const skip = (page - 1) * limit;
-  const [data, total] = await Promise.all([
+
+  // 🚀 GET DATA
+  const [logs, total] = await Promise.all([
     this.callLogModel
       .find(query)
       .populate('userId', 'name')
       .populate('stageId', 'name')
       .sort({ createdAt: sortOrder })
       .skip(skip)
-      .limit(Number(limit)),
+      .limit(Number(limit))
+      .lean(),
 
     this.callLogModel.countDocuments(query),
   ]);
+
+  // 🧠 Get leadIds for 30 day count
+  const leadIds = logs.map(l => l.leadId);
+
+  const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  const counts = await this.callLogModel.aggregate([
+    {
+      $match: {
+        leadId: { $in: leadIds },
+        createdAt: { $gte: last30Days },
+      },
+    },
+    {
+      $group: {
+        _id: '$leadId',
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const countMap = {};
+  counts.forEach(c => {
+    countMap[c._id] = c.count;
+  });
+
+  // 🎯 FINAL DATA FORMAT
+  const data = logs.map(log => ({
+    ...log,
+    answered: log.duration > 0,
+    callCount30Days: countMap[log.leadId] || 0,
+  }));
+
+  return {
+    data,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+
+async findAllWithUserIds(filters: any, accessibleUserIds: string[]) {
+  const {
+    search,
+    leadId,
+    stageId,
+    outcome,
+    durationMin,
+    durationMax,
+    answered, // 👈 new filter true/false
+    byUserId,
+    dateFilter,
+    fromDate,
+    toDate,
+    sort = 'new',
+    page = 1,
+    limit = 10,
+  } = filters;
+
+  const match: any = {};
+
+  // 🎯 BASIC FILTERS
+  if (leadId) match.leadId = Number(leadId);
+  if (stageId) match.stageId = stageId;
+  if (outcome) match.outcome = outcome;
+
+  if (durationMin || durationMax) {
+    match.duration = {};
+    if (durationMin) match.duration.$gte = Number(durationMin);
+    if (durationMax) match.duration.$lte = Number(durationMax);
+  }
+
+  // 👥 MULTIPLE USER FILTER
+  if (byUserId) {
+    match.userId = byUserId;
+  } else {
+    match.userId = { $in: accessibleUserIds };
+  }
+
+  // 🔍 SEARCH
+  if (search) {
+    const searchConditions: any[] = [
+      { outcome: { $regex: search, $options: 'i' } },
+    ];
+
+    if (!isNaN(Number(search))) {
+      searchConditions.push(
+        { leadId: Number(search) },
+        { duration: Number(search) }
+      );
+    }
+
+    searchConditions.push({ userId: search }, { stageId: search });
+    match.$or = searchConditions;
+  }
+
+  // 📅 DATE FILTER
+  const now = new Date();
+
+  if (dateFilter) {
+    let start: Date | null = null;
+
+    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+    else if (dateFilter === 'week') {
+      start = new Date();
+      start.setDate(start.getDate() - 7);
+    } else if (dateFilter === 'month') {
+      start = new Date();
+      start.setMonth(start.getMonth() - 1);
+    } else if (dateFilter === 'year') {
+      start = new Date();
+      start.setFullYear(start.getFullYear() - 1);
+    }
+
+    if (start) match.createdAt = { $gte: start };
+  }
+
+  if (fromDate && toDate) {
+    match.createdAt = {
+      $gte: new Date(fromDate),
+      $lte: new Date(toDate),
+    };
+  }
+
+  // 📊 ANSWERED FILTER
+  if (answered !== undefined) {
+    if (answered === true || answered === 'true') {
+      match.duration = { ...(match.duration || {}), $gt: 0 };
+    } else if (answered === false || answered === 'false') {
+      match.duration = { ...(match.duration || {}), $eq: 0 };
+    }
+  }
+
+  const sortOrder = sort === 'old' ? 1 : -1;
+  const skip = (page - 1) * limit;
+
+  // 🚀 AGGREGATION PIPELINE
+  const pipeline: any[] = [
+    { $match: match },
+
+    // 👇 ADD answered field
+    {
+      $addFields: {
+        answered: {
+          $cond: [{ $gt: ['$duration', 0] }, true, false],
+        },
+      },
+    },
+
+    // 👇 LOOKUP: count calls in last 30 days per lead
+    {
+      $lookup: {
+        from: 'calllogs',
+        let: { lead: '$leadId' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ['$leadId', '$$lead'] },
+                  {
+                    $gte: [
+                      '$createdAt',
+                      new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $count: 'count' },
+        ],
+        as: 'callCount30Days',
+      },
+    },
+
+    {
+      $addFields: {
+        callCount30Days: {
+          $ifNull: [{ $arrayElemAt: ['$callCount30Days.count', 0] }, 0],
+        },
+      },
+    },
+
+    {
+  $addFields: {
+    userObjectId: { $toObjectId: "$userId" },
+    stageObjectId: {
+      $cond: [
+        { $ifNull: ["$stageId", false] },
+        { $toObjectId: "$stageId" },
+        null
+      ]
+    }
+  }
+},
+
+// 👤 USER LOOKUP (only needed fields)
+{
+  $lookup: {
+    from: "users",
+    let: { uid: "$userObjectId" },
+    pipeline: [
+      { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+      { $project: { _id: 1, name: 1, employeeId: 1 } }
+    ],
+    as: "userId"
+  }
+},
+{ $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+
+// 🎯 STAGE LOOKUP (only needed fields)
+{
+  $lookup: {
+    from: "leadstages",
+    let: { sid: "$stageObjectId" },
+    pipeline: [
+      { $match: { $expr: { $eq: ["$_id", "$$sid"] } } },
+      { $project: { _id: 1, name: 1 } }
+    ],
+    as: "stageId"
+  }
+},
+{ $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
+
+    { $sort: { createdAt: sortOrder } },
+
+    {
+      $facet: {
+        data: [{ $skip: skip }, { $limit: Number(limit) }],
+        total: [{ $count: 'count' }],
+      },
+    },
+  ];
+
+  const result = await this.callLogModel.aggregate(pipeline);
+
+  const data = result[0].data;
+  const total = result[0].total[0]?.count || 0;
 
   return {
     data,

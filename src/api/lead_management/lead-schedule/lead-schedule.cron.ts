@@ -30,7 +30,6 @@ async handleSchedules() {
     const lead = await this.leadModel.findOne({
       leadId: schedule.leadId,
     });
-    console.log(lead,"2")
 
     if (!lead?.assignedTo) {
       continue;

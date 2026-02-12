@@ -35,7 +35,7 @@ export class ChangeUserDto {
 
     @ApiPropertyOptional()
     @IsOptional()
-    reportingManagerId?: string;
+    reportingSeniorId?: string;
 
     @ApiPropertyOptional()
     @IsOptional()

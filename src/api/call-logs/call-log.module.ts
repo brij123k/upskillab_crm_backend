@@ -9,6 +9,7 @@ import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.schema';
 import { LeadModule } from '../lead_management/lead/lead.module';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
@@ -18,7 +19,8 @@ import { LeadModule } from '../lead_management/lead/lead.module';
     ]),
     LeadHistoryModule,
     UserActivityModule,
-    LeadModule
+    LeadModule,
+    UserModule,
   ],
   controllers: [CallLogController],
   providers: [CallLogLogic, CallLogData],

@@ -41,7 +41,7 @@ export class MeetingLogData {
       .sort({ startedAt: -1 });
   }
 
-async meetingsWithFeedbacks(filters: any,user:any) {
+async meetingsWithFeedbacks(filters: any, userIds: string[]) {
   const {
     search,
     stageId,
@@ -57,10 +57,15 @@ async meetingsWithFeedbacks(filters: any,user:any) {
 
   const match: any = {};
 
-  // 🎯 BASIC FILTERS
   if (leadId) match.leadId = Number(leadId);
-  if (userId) match.userId = userId;
   if (stageId) match.stageId = stageId;
+
+  // 👥 MULTI USER FILTER
+  if (userId) {
+    match.userId = userId;
+  } else {
+    match.userId = { $in: userIds };
+  }
 
   // 🔍 SEARCH
   if (search) {
@@ -71,20 +76,15 @@ async meetingsWithFeedbacks(filters: any,user:any) {
     ];
   }
 
-  // 📅 DATE FILTERS
+  // 📅 DATE FILTER
   const now = new Date();
-
   if (dateFilter) {
     let start: Date | null = null;
 
-    if (dateFilter === 'today')
-      start = new Date(now.setHours(0, 0, 0, 0));
-    else if (dateFilter === 'week')
-      start = new Date(now.setDate(now.getDate() - 7));
-    else if (dateFilter === 'month')
-      start = new Date(now.setMonth(now.getMonth() - 1));
-    else if (dateFilter === 'year')
-      start = new Date(now.setFullYear(now.getFullYear() - 1));
+    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+    else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
+    else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
+    else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
 
     if (start) match.createdAt = { $gte: start };
   }
@@ -96,31 +96,24 @@ async meetingsWithFeedbacks(filters: any,user:any) {
     };
   }
 
-  // 📊 SORT & PAGINATION
   const sortOrder = sort === 'old' ? 1 : -1;
   const skip = (page - 1) * limit;
 
   const pipeline: PipelineStage[] = [
     { $match: match },
 
-    // 🔁 CAST IDS (string → ObjectId safe)
+    // 🔁 CAST IDS
     {
       $addFields: {
-        userObjectId: {
-          $cond: [
-            { $eq: [{ $type: '$userId' }, 'objectId'] },
-            '$userId',
-            { $toObjectId: '$userId' },
-          ],
-        },
+        userObjectId: { $toObjectId: "$userId" },
         stageObjectId: {
           $cond: [
-            { $eq: [{ $type: '$stageId' }, 'objectId'] },
-            '$stageId',
-            { $toObjectId: '$stageId' },
-          ],
-        },
-      },
+            { $ifNull: ["$stageId", false] },
+            { $toObjectId: "$stageId" },
+            null
+          ]
+        }
+      }
     },
 
     { $sort: { createdAt: sortOrder } },
@@ -128,36 +121,41 @@ async meetingsWithFeedbacks(filters: any,user:any) {
     // 🔗 FEEDBACKS
     {
       $lookup: {
-        from: 'meetingfeedbacks',
-        localField: '_id',
-        foreignField: 'meetingId',
-        as: 'feedbacks',
-      },
+        from: "meetingfeedbacks",
+        localField: "_id",
+        foreignField: "meetingId",
+        as: "feedbacks"
+      }
     },
 
-    // 👤 USER
+    // 👤 USER (ONLY REQUIRED FIELDS)
     {
       $lookup: {
-        from: 'users',
-        localField: 'userObjectId',
-        foreignField: '_id',
-        as: 'user',
-      },
+        from: "users",
+        let: { uid: "$userObjectId" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+          { $project: { _id: 1, name: 1, employeeId: 1 } }
+        ],
+        as: "userId"
+      }
     },
-    { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
 
-    // 🧭 STAGE
+    // 🎯 STAGE
     {
       $lookup: {
-        from: 'leadstages',
-        localField: 'stageObjectId',
-        foreignField: '_id',
-        as: 'stage',
-      },
+        from: "leadstages",
+        let: { sid: "$stageObjectId" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$_id", "$$sid"] } } },
+          { $project: { _id: 1, name: 1 } }
+        ],
+        as: "stageId"
+      }
     },
-    { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
 
-    // 🧹 FINAL SHAPE
     {
       $project: {
         leadId: 1,
@@ -168,34 +166,23 @@ async meetingsWithFeedbacks(filters: any,user:any) {
         duration: 1,
         createdAt: 1,
         feedbacks: 1,
-
-        userId: {
-          _id: '$user._id',
-          name: '$user.name',
-        },
-
-        stageId: {
-          _id: '$stage._id',
-          name: '$stage.name',
-        },
-      },
+        userId: 1,
+        stageId: 1
+      }
     },
 
-    { $skip: skip },
-    { $limit: Number(limit) },
+    {
+      $facet: {
+        data: [{ $skip: skip }, { $limit: Number(limit) }],
+        total: [{ $count: "count" }]
+      }
+    }
   ];
 
-  const countPipeline: PipelineStage[] = [
-    { $match: match },
-    { $count: 'total' },
-  ];
+  const result = await this.meetingModel.aggregate(pipeline);
 
-  const [data, countResult] = await Promise.all([
-    this.meetingModel.aggregate(pipeline),
-    this.meetingModel.aggregate(countPipeline),
-  ]);
-
-  const total = countResult[0]?.total || 0;
+  const data = result[0].data;
+  const total = result[0].total[0]?.count || 0;
 
   return {
     data,
@@ -205,6 +192,7 @@ async meetingsWithFeedbacks(filters: any,user:any) {
     totalPages: Math.ceil(total / limit),
   };
 }
+
 
 
 

@@ -98,22 +98,22 @@ toggleDashboard(
   summary:"get all user detail"
 })
 getAllUsers(@Req() req:any){
-  return this.logic.getUsersUnder(req.user.userId)
+return this.logic.getUsersUnder(req.user.userId)
 }
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('Admin','bd')
 @RequirePermission(
-  PERMISSIONS.USER.MODULE,
-  PERMISSIONS.USER.ACTIONS.READ,
+PERMISSIONS.USER.MODULE,
+PERMISSIONS.USER.ACTIONS.READ,
 )
 @Get('profile')
 @ApiOperation({
-  summary:"get all user detail by Profile"
+summary:"get all user detail by Profile"
 })
 getAllUsersProfile(@Req() req:any){
-  return this.logic.getAllUsersWithProfile(req.user)
+return this.logic.getAllUsersWithProfile(req.user)
 }
 
 
@@ -121,27 +121,34 @@ getAllUsersProfile(@Req() req:any){
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('Admin')
 @RequirePermission(
-  PERMISSIONS.USER.MODULE,
-  PERMISSIONS.USER.ACTIONS.UPDATE,
+PERMISSIONS.USER.MODULE,
+PERMISSIONS.USER.ACTIONS.UPDATE,
 )
 @Patch('user/:id')
 @ApiOperation({
-  summary:"update any User"
+summary:"update any User"
 })
 UpdateUser(
-  @Param('id') userId: string,
-  @Body() dto: ChangeUserDto,
+@Param('id') userId: string,
+@Body() dto: ChangeUserDto,
 ){
-  return this.logic.updateUserAndProfile(userId,dto)
+return this.logic.updateUserAndProfile(userId,dto)
 }
 
 
-  // @Get(':userId')
+// @Get(':userId')
   // @ApiOperation({
   //   summary: 'Get all users under given userId',
   // })
   // getUsersUnder(@Param('userId') userId: string) {
   //   return this.logic.getUsersUnder(userId);
   // }
+  @Get(':departmentId')
+  @ApiOperation({
+    summary:'Get all users under this department'
+  })
+  getUserbyDepartmentId(@Param('departmentId') departmentId:string){
+    return this.logic.getUserByDepartmentId(departmentId)
+  }
 
 }

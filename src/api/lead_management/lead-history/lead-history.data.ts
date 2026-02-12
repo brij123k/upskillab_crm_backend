@@ -13,7 +13,6 @@ export class LeadHistoryData {
   }
 
   findByLeadId(leadId: string) {
-    console.log(leadId)
     return this.historyModel
       .find({ leadId })
       .populate('fromUser', 'name email')

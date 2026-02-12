@@ -8,7 +8,7 @@ export class CreateProfileDto {
 
   @ApiPropertyOptional()
   @IsOptional()
-  reportingSenierId?: string;
+  reportingSeniorId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -14,7 +14,7 @@ export class ToggleDashboardDto {
   })
   @IsOptional()
   @IsString()
-  reportingManagerId?: string;
+  reportingSeniorId?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
