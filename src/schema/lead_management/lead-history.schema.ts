@@ -33,7 +33,7 @@ export class LeadHistory extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   actionBy: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'MeetingLog', required: true })
+  @Prop({ type: Types.ObjectId, ref: 'MeetingLog', required: false })
   meet_log: Types.ObjectId;
 
   @Prop({ type: Object })

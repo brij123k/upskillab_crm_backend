@@ -9,6 +9,7 @@ export const PERMISSIONS = {
       ASSIGN: 'assign',
       STATUS_CHANGE: 'status_change',
       STAGE_CHANGE: 'stage_change',
+      VIEW_HISTORY:'view_history'
     },
   },
 
