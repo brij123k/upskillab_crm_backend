@@ -66,7 +66,7 @@ async handleInstantCall(leadId:number) {
       {
         leadId: lead.leadId,
         message: `⏰ CRM Reminder call ${lead.name} leadId: ${lead.leadId} `,
-        url:`lead/${lead.leadId}`
+        url:`crmapp://lead/{leadId}`
       },
     );
 
