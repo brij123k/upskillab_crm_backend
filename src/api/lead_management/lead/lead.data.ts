@@ -396,11 +396,11 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     );
   }
   getByLeadId(leadId: number) {
-    return this.leadModel.findOne({ leadId: leadId }).populate('stageId').populate('assignedTo').lean();
+    return this.leadModel.findOne({ leadId: leadId }).populate('stageId').populate('assignedTo', 'name email employeeId').lean();
   }
 
   findById(id: string) {
-    return this.leadModel.findById(id).populate('stageId').populate('assignedTo');;
+    return this.leadModel.findById(id).populate('stageId').populate('assignedTo', 'name email employeeId');;
   }
   findByIds(ids: string[]) {
     return this.leadModel.find({ _id: { $in: ids } });
