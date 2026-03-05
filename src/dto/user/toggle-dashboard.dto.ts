@@ -16,6 +16,13 @@ export class ToggleDashboardDto {
   @IsString()
   reportingSeniorId?: string;
 
+  @ApiPropertyOptional({
+    description: 'Pool ID',
+  })
+  @IsOptional()
+  @IsString()
+  poolId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

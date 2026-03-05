@@ -40,13 +40,13 @@ export class LeadData {
       status,
       source,
       stageId,
+      poolId,
       assignedTo,
       modifiedBy,
       isActive,
       dateFilter,
       fromDate,
       toDate,
-
       sort = 'new',
       page = 1,
       limit = 10,
@@ -77,6 +77,7 @@ export class LeadData {
     if (status) query.status = status;
     if (source) query.source = source;
     if (stageId) query.stageId = stageId;
+    if (poolId) query.poolId = poolId;
     if (assignedTo) query.assignedTo = assignedTo;
     if (modifiedBy) query.modifiedBy = modifiedBy;
     if (isActive !== undefined)
@@ -123,6 +124,7 @@ export class LeadData {
         .find(query)
         .populate('assignedTo', 'name email employeeId')
         .populate('stageId', 'name order')
+        .populate('poolId', 'name')
         .sort({ createdAt: sortOrder })
         .skip(skip)
         .limit(Number(limit)),
@@ -147,6 +149,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     status,
     source,
     stageId,
+    poolId,
     assignedTo,
     modifiedBy,
     isActive,
@@ -191,6 +194,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
   if (status) query.status = status;
   if (source) query.source = source;
   if (stageId) query.stageId = stageId;
+  if (poolId) query.poolId = poolId;
   if (modifiedBy) query.modifiedBy = modifiedBy;
   if (isActive !== undefined) query.isActive = isActive === 'true';
 
@@ -268,6 +272,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
       .find(query)
       .populate('assignedTo', 'name email employeeId')
       .populate('stageId', 'name order')
+      .populate('poolId', 'name')
       .sort({ createdAt: sortOrder })
       .skip(skip)
       .limit(Number(limit)),
@@ -296,6 +301,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
       status,
       source,
       stageId,
+      poolId,
       assignedTo,
       modifiedBy,
       isActive,
@@ -322,6 +328,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     if (status) query.status = status;
     if (source) query.source = source;
     if (stageId) query.stageId = stageId;
+    if (poolId) query.poolId = poolId;
     if (assignedTo) query.assignedTo = assignedTo;
     if (modifiedBy) query.modifiedBy = modifiedBy;
     if (isActive !== undefined)
@@ -372,6 +379,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
         .find(finalQuery)
         .populate('assignedTo', 'name email employeeId')
         .populate('stageId', 'name order')
+        .populate('poolId', 'name')
         .sort({ createdAt: sortOrder })
         .skip(skip)
         .limit(Number(limit)),
@@ -396,11 +404,11 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
     );
   }
   getByLeadId(leadId: number) {
-    return this.leadModel.findOne({ leadId: leadId }).populate('stageId').populate('assignedTo', 'name email employeeId').lean();
+    return this.leadModel.findOne({ leadId: leadId }).populate('stageId').populate('assignedTo', 'name email employeeId').populate('poolId', 'name').lean();
   }
 
   findById(id: string) {
-    return this.leadModel.findById(id).populate('stageId').populate('assignedTo', 'name email employeeId');;
+    return this.leadModel.findById(id).populate('stageId').populate('assignedTo', 'name email employeeId').populate('poolId', 'name');;
   }
   findByIds(ids: string[]) {
     return this.leadModel.find({ _id: { $in: ids } });
@@ -477,6 +485,7 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
       .find({ assignedTo: userId })
       .populate('assignedTo', 'name email employeeId')
       .populate('stageId', 'name order')
+      .populate('poolId', 'name')
       .sort({ createdAt: -1 });
   }
 

@@ -18,7 +18,7 @@ import { ProfileModule } from 'src/api/profile/profile.module';
 
 @Module({
   imports: [
-    JwtModule.register({ secret: 'JWT_SECRET_KEY' }),
+    JwtModule.register({ secret: 'CRM_PANEL' }),
     MongooseModule.forFeature([
       { name: AppAuthToken.name, schema: AppAuthTokenSchema },
       {

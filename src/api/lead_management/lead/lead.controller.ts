@@ -27,13 +27,14 @@ import { LeadFilterDto } from 'src/dto/lead-management/lead-filter.dto';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
 
 @ApiTags('Leads')
 @Controller('leads')
 export class LeadController {
     constructor(private readonly logic: LeadLogic) { }
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @Post()
     @RequirePermission(
@@ -45,9 +46,7 @@ export class LeadController {
         return this.logic.create(dto, req?.user.userId);
     }
 
-
-
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -61,7 +60,7 @@ export class LeadController {
 
 
     
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -74,7 +73,7 @@ export class LeadController {
     }
 
    
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -91,7 +90,7 @@ export class LeadController {
     }
 
     // @Delete(':id')
-    // @UseGuards(JwtAuthGuard, RoleGuard)
+    // @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     // @Roles('admin')
     // @ApiOperation({ summary: 'Delete lead' })
     // remove(@Param('id') id: string) {
@@ -100,7 +99,7 @@ export class LeadController {
 
 
     
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -117,7 +116,7 @@ export class LeadController {
     }
 
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -134,7 +133,7 @@ export class LeadController {
     }
 
     
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -154,7 +153,7 @@ export class LeadController {
 
 
     
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -177,7 +176,7 @@ export class LeadController {
     }
 
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @Get('user/:userId')
     @RequirePermission(
@@ -189,7 +188,7 @@ export class LeadController {
         return this.logic.getLeadsByUser(userId);
     }
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @Get('lead/:leadId')
     @RequirePermission(
@@ -203,7 +202,7 @@ export class LeadController {
 
 
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
@@ -214,7 +213,7 @@ export class LeadController {
      return this.logic.getDuplicateLeads();
     }
 
-@UseGuards(JwtAuthGuard, RoleGuard)
+@UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
 @Roles('Admin', 'bd')
 @Post('leaddoublicate/merge')
 mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {

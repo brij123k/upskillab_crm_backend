@@ -9,7 +9,7 @@ import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
 import { CallLog } from 'src/schema/call-log.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { MeetingLog } from 'src/schema/meeting-log.schema';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { NotificationEngineService } from 'src/notifications/services/notification-engine.service';
 import { NOTIFICATION_EVENT } from 'src/notifications/enums/notification-event.enum';
 import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity.enum';
@@ -45,6 +45,7 @@ export class LeadLogic {
       ...dto,
       modifiedBy: userId,
       assignedTo:dto.assignedTo?dto.assignedTo:userId,
+      poolId:new Types.ObjectId(dto.poolId),
       modifiedAt: new Date(),
     });
 

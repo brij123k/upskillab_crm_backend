@@ -19,6 +19,7 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
 
 @ApiTags('Call Logs')
 @Controller('call-logs')
@@ -27,7 +28,7 @@ export class CallLogController {
 
   @Post()
   @ApiOperation({ summary: 'Create call log (web & mobile)' })
-    @UseGuards(JwtAuthGuard, RoleGuard)
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('Admin','bd')
     @RequirePermission(
          PERMISSIONS.Calls.MODULE,
@@ -41,7 +42,7 @@ export class CallLogController {
   }
 
   @Get('lead/:leadId')
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('Admin','bd')
    @RequirePermission(
          PERMISSIONS.Calls.MODULE,
@@ -53,7 +54,7 @@ export class CallLogController {
   }
 
   @Get()
-   @UseGuards(JwtAuthGuard, RoleGuard)
+   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('bd','Admin')
    @RequirePermission(
          PERMISSIONS.Calls.MODULE,
@@ -66,7 +67,7 @@ export class CallLogController {
   }
 
     @Get('users')
-   @UseGuards(JwtAuthGuard, RoleGuard)
+   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('bd','Admin')
   @ApiOperation({ summary: 'Get call logs by userId' })
   @RequirePermission(

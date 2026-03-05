@@ -21,6 +21,9 @@ export class Profile extends Document {
   @Prop()
   profileImage?: string;
 
+  @Prop({ type: Types.ObjectId, ref: 'Pool' })
+  poolId?: Types.ObjectId;
+
   @Prop({
     type: [
       {

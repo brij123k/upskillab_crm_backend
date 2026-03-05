@@ -1,6 +1,6 @@
 export const PERMISSIONS = {
   LEAD: {
-    MODULE: 'lead',
+    MODULE: 'leads',
     ACTIONS: {
       CREATE: 'create',
       READ: 'read',
@@ -44,18 +44,26 @@ export const PERMISSIONS = {
     },
   },
   Calls:{
-    MODULE:'Calls',
+    MODULE:'call_logs',
     ACTIONS:{
       CREATE:'create',
       READ:'read',
     }
   },
   Meeting:{
-    MODULE:'Meetings',
+    MODULE:'meeting_logs',
     ACTIONS:{
       CREATE:'create',
       READ:'read',
       FEEDBACK:'feedback'
+    }
+  },
+  POOL:{
+    MODULE:'pool',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+      UPDATE:'update',
     }
   }
 } as const;

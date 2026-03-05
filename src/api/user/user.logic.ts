@@ -379,6 +379,9 @@ async updateUserAndProfile(
     if (dto.extraAccessControls)
       profilePayload.extraAccessControls =
         dto.extraAccessControls;
+    if(dto.poolId){
+      profilePayload.poolId=dto.poolId
+    }
 
     let profile = await this.profileData.findByUserId(
       userId,

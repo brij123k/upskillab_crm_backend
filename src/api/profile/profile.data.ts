@@ -26,7 +26,8 @@ findAll() {
       },
     })
     .populate('departmentId', 'name')
-    .populate('reportingSeniorId', 'name');
+    .populate('reportingSeniorId', 'name')
+    .populate('poolId', 'name');
 }
 
 findByUserIds(userIds: string[]) {
@@ -34,6 +35,7 @@ findByUserIds(userIds: string[]) {
     .find({ userId: { $in: userIds } })
     .populate('departmentId', 'name')
     .populate('reportingSeniorId', 'name')
+    .populate('poolId', 'name')
     .lean();
 }
 
@@ -60,7 +62,9 @@ getBydepId(departmentId: string) {
         path: 'role',   // field inside User schema
         model: 'Role',  // role model name
       },
-    });
+    })
+    .populate('poolId', 'name');
+
 }
 
 

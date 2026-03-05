@@ -20,6 +20,10 @@ export class CreateProfileDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  poolId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   profileImage?: string;
 
   @ApiPropertyOptional({

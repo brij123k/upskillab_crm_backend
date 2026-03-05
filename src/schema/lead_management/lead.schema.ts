@@ -42,6 +42,9 @@ export class Lead extends Document {
   @Prop({ type: Types.ObjectId, ref: 'LeadStage', required: true })
   stageId: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Pool', required: true })
+  poolId: Types.ObjectId;
+
   @Prop({ enum: LeadStatus, default: LeadStatus.ACTIVE })
   status: LeadStatus;
 

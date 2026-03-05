@@ -17,13 +17,14 @@ import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
 
 @Controller('meeting-logs')
 export class MeetingLogController {
   constructor(private readonly logic: MeetingLogLogic) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
   @RequirePermission(
            PERMISSIONS.Meeting.MODULE,
@@ -34,21 +35,21 @@ export class MeetingLogController {
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
   update(@Param('id') id: string, @Body() dto: UpdateMeetingDTO) {
     return this.logic.update(id, dto);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
   delete(@Param('id') id: string) {
     return this.logic.delete(id);
   }
 
   @Get('lead/:leadId')
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
   @RequirePermission(
            PERMISSIONS.Meeting.MODULE,
@@ -59,7 +60,7 @@ export class MeetingLogController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
     @RequirePermission(
            PERMISSIONS.Meeting.MODULE,
@@ -70,7 +71,7 @@ export class MeetingLogController {
   }
 
   @Get('with-feedbacks')
-  @UseGuards(JwtAuthGuard, RoleGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
     @RequirePermission(
            PERMISSIONS.Meeting.MODULE,

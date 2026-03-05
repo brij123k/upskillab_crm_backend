@@ -37,6 +37,11 @@ export class LeadFilterDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsMongoId()
+  poolId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsMongoId()
   assignedTo?: string;
 
   @ApiPropertyOptional()

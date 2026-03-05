@@ -18,6 +18,9 @@ import { CreateDepartmentDto, UpdateDepartmentDto } from 'src/dto/department.dto
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
 
 @ApiTags('Departments')
 @ApiBearerAuth()
@@ -25,34 +28,50 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 export class DepartmentController {
     constructor(private readonly logic: DepartmentLogic) { }
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin','bd')
     @Post()
+    @RequirePermission(
+             PERMISSIONS.DEPARTMENT.MODULE,
+             PERMISSIONS.DEPARTMENT.ACTIONS.CREATE,
+           )
     @ApiOperation({ summary: 'Create department' })
     create(@Body() dto: CreateDepartmentDto) {
         return this.logic.create(dto);
     }
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin','bd')
     @Get()
+    @RequirePermission(
+             PERMISSIONS.DEPARTMENT.MODULE,
+             PERMISSIONS.DEPARTMENT.ACTIONS.READ,
+           )
     @ApiOperation({ summary: 'Get all departments' })
     findAll() {
         return this.logic.findAll();
     }
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin','bd')
     @Get(':id')
+    @RequirePermission(
+             PERMISSIONS.DEPARTMENT.MODULE,
+             PERMISSIONS.DEPARTMENT.ACTIONS.READ,
+           )
     @ApiOperation({ summary: 'Get department by ID' })
     findOne(@Param('id') id: string) {
         return this.logic.findOne(id);
     }
 
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin','bd')
     @Patch(':id')
+    @RequirePermission(
+             PERMISSIONS.DEPARTMENT.MODULE,
+             PERMISSIONS.DEPARTMENT.ACTIONS.UPDATE,
+           )
     @ApiOperation({ summary: 'Update department' })
     update(
         @Param('id') id: string,
@@ -62,9 +81,13 @@ export class DepartmentController {
     }
 
 
-    @UseGuards(JwtAuthGuard, RoleGuard)
-    @Roles('Admin')
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin','bd')
     @Delete(':id')
+    @RequirePermission(
+             PERMISSIONS.DEPARTMENT.MODULE,
+             PERMISSIONS.DEPARTMENT.ACTIONS.DELETE,
+           )
     @ApiOperation({ summary: 'Delete department' })
     remove(@Param('id') id: string) {
         return this.logic.delete(id);

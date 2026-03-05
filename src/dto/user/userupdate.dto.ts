@@ -39,6 +39,11 @@ export class ChangeUserDto {
 
     @ApiPropertyOptional()
     @IsOptional()
+    @IsString()
+    poolId?: string;
+
+    @ApiPropertyOptional()
+    @IsOptional()
     education?: string;
 
     @ApiPropertyOptional()

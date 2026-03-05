@@ -39,6 +39,11 @@ export class CreateLeadDto {
   @IsMongoId()
   stageId: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsMongoId()
+  poolId: string;
+
   @ApiProperty()
   @IsOptional()
   LeadHistory:string;
