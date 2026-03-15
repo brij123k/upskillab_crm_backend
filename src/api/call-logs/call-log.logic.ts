@@ -198,6 +198,9 @@ async getreviewbycallId(callId: string): Promise<any> {
     if (!existing) throw new NotFoundException('Call log not found');
 
     const updated = await this.callLogData.update(id, dto);
+      if(dto.stageId){
+    this.leadLogic.changeStagebyLeadId(dto.leadId,dto.stageId,currentUserId)
+  }
     await this.userActivityLogic.log({
       userId: currentUserId,
       action: 'CALL_LOG_UPDATED',

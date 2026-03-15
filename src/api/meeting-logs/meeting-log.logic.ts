@@ -6,11 +6,13 @@ import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { MeetingFeedbackLogData } from './meeting-feedback.data';
 import { Types } from 'mongoose';
 import { UserLogic } from '../user/user.logic';
+import { LeadLogic } from '../lead_management/lead/lead.logic';
 @Injectable()
 export class MeetingLogLogic {
   constructor(private readonly data: MeetingLogData,
     private readonly meetingFeedbackLog: MeetingFeedbackLogData,
     private readonly leadHistoryLogic: LeadHistoryLogic,
+    private readonly leadLogic:LeadLogic,
     private readonly userActivityLogic: UserActivityLogic,
     private readonly userLogic: UserLogic,
   ) {}
@@ -29,6 +31,9 @@ export class MeetingLogLogic {
             }
         )
     }
+    if(dto.stageId){
+    this.leadLogic.changeStagebyLeadId(dto.leadId,dto.stageId,userId)
+  }
     // 2️⃣ Lead History
       await this.leadHistoryLogic.log({
         leadId: meeting_log.leadId.toString(),
@@ -53,11 +58,14 @@ export class MeetingLogLogic {
       }
   }
 
-  async update(id: string, dto: any) {
+  async update(id: string, dto: any,userId:string) {
     const meeting_log= await this.data.update(id, dto);
     if(!meeting_log){
         throw new NotFoundException("Meeting Log not found")
     }
+    if(dto.stageId){
+    this.leadLogic.changeStagebyLeadId(dto.leadId,dto.stageId,userId)
+  }
      await this.leadHistoryLogic.log({
         leadId: meeting_log.leadId.toString(),
         actionType: LeadActionType.MEET_LOG,

@@ -14,6 +14,7 @@ export enum LeadActionType {
   MEET_LOG = 'meet_log',
   MEET_LOG_FEEDBACK = 'meet_log_feedback',
   LEAD_SCHEDULE = 'lead_schedule',
+  INTERACTION_LOG='intraction Log'
 }
 
 @Schema({ timestamps: true })

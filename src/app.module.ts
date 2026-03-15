@@ -17,6 +17,7 @@ import { MeetingLogModule } from './api/meeting-logs/meeting-log.module';
 import { NotificationModule } from './notifications/notification.module';
 import { LeadScheduleModule } from './api/lead_management/lead-schedule/lead-schedule.module';
 import { PoolModule } from './api/pool/pool.module';
+import { InteractionLogModule } from './api/interaction-log/lead-interaction-log.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -31,6 +32,7 @@ ConfigModule.forRoot({
     LeadStageModule,
     LeadModule,
     callLogModule,
+    InteractionLogModule,
     UserActivityModule,
     AppAuthModule,
     MeetingLogModule,

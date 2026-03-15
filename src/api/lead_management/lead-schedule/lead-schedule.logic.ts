@@ -14,11 +14,11 @@ export class LeadScheduleLogic {
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
     private readonly leadHistoryLogic: LeadHistoryLogic,
-  ) {}
+  ) { }
 
-  async create(dto: CreateLeadScheduleDTO,user:any) {
-    const exist = await this.leadModel.findOne({leadId:dto.leadId})
-    if(!exist){
+  async create(dto: CreateLeadScheduleDTO, user: any) {
+    const exist = await this.leadModel.findOne({ leadId: dto.leadId })
+    if (!exist) {
       throw new NotFoundException("Lead Not found")
     }
     const result = this.data.create({
@@ -27,15 +27,27 @@ export class LeadScheduleLogic {
       message: `You have a scheduled follow-up for Lead #${dto.leadId}`,
     });
 
-      await this.leadHistoryLogic.log({
-          leadId: dto.leadId.toString(),
-          actionType: LeadActionType.LEAD_SCHEDULE,
-          actionBy: user.userId,
-          changes: {
-            message:"Lead Scheduled",
-            scheduler: dto.scheduledAt,
-          },
-        });
+    await this.leadHistoryLogic.log({
+      leadId: dto.leadId.toString(),
+      actionType: LeadActionType.LEAD_SCHEDULE,
+      actionBy: user.userId,
+      changes: {
+        message: "Lead Scheduled",
+        scheduler: dto.scheduledAt,
+      },
+    });
     return result;
   }
+
+  async getSchedules(filters: any, user:any) {
+    const leads = await this.leadModel.find({ assignedTo: user.userId })
+    return this.data.getSchedules(filters,leads)
+
+  }
+  async completeSchedule(scheduleId: string) {
+
+    return this.data.markCompleted(scheduleId)
+
+  }
+
 }

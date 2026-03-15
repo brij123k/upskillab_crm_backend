@@ -37,8 +37,8 @@ export class MeetingLogController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin','bd')
-  update(@Param('id') id: string, @Body() dto: UpdateMeetingDTO) {
-    return this.logic.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateMeetingDTO,@Req() req) {
+    return this.logic.update(id, dto,req?.user.userId);
   }
 
   @Delete(':id')
