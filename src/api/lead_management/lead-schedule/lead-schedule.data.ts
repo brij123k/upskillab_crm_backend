@@ -42,7 +42,7 @@ export class LeadScheduleData {
         isTriggered: false,
       },
       {
-        $set: { isTriggered: true },
+        $set: { isTriggered: true,status:"overdue" },
       },
       {
         new: true,
@@ -62,7 +62,6 @@ export class LeadScheduleData {
 
     const query: any = {};
     const leadIds = leads.map((l) => l.leadId);
-    console.log(leads)
     if (filters.leadId) {
       query.leadId = filters.leadId;
     }
