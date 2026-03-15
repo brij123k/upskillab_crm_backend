@@ -5,6 +5,8 @@ export enum LeadSource {
   FACEBOOK = 'facebook',
   GOOGLE = 'google',
   MANUAL = 'manual',
+  POSITIVE = 'positive',
+  REFURBISHED = 'refurbished',
   API = 'api',
 }
 
