@@ -14,11 +14,13 @@ import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { LeadModule } from '../lead_management/lead/lead.module';
 import { UserModule } from '../user/user.module';
+import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: LeadInteractionLog.name, schema: LeadInteractionLogSchema },
+      { name: Lead.name, schema: LeadSchema },
     ]),
     LeadHistoryModule,
     UserActivityModule,

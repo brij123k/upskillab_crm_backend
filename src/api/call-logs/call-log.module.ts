@@ -15,7 +15,8 @@ import { UserModule } from '../user/user.module';
   imports: [
     MongooseModule.forFeature([
       { name: CallLog.name, schema: CallLogSchema },
-      { name: CallLogReview.name, schema: CallLogReviewSchema }
+      { name: CallLogReview.name, schema: CallLogReviewSchema },
+      { name: Lead.name, schema: LeadSchema },
     ]),
     LeadHistoryModule,
     UserActivityModule,

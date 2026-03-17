@@ -33,10 +33,10 @@ async createPool(data: CreatePoolDto) {
 
 async findAllPools() {
   return await this.poolModel
-    .find()
+    .find().populate('pool_owner','name employeeId email number');
 }
  async findPoolById(id: string) {
-    return await this.poolModel.findById(id);
+    return await this.poolModel.findById(id).populate('pool_owner','name employeeId email number');
   }
  async updateById(id: string, data: any) {
     return await this.poolModel.findByIdAndUpdate(id, data, { new: true });

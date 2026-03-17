@@ -2,11 +2,15 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CallLog } from 'src/schema/call-log.schema';
 import { PipelineStage } from 'mongoose';
+import { Lead } from 'src/schema/lead_management/lead.schema';
 export class CallLogData {
   constructor(
     @InjectModel(CallLog.name)
     private readonly callLogModel: Model<CallLog>,
-  ) {}
+
+        @InjectModel(Lead.name)
+        private readonly leadModel: Model<Lead>,
+  ) { }
 
   create(data: any) {
     return this.callLogModel.create(data);
@@ -20,83 +24,83 @@ export class CallLogData {
       .sort({ createdAt: -1 });
   }
 
-async findWithPagination(filters: any, userId?: string) {
-  const {
-    leadId,
-    outcome,
-    page = 1,
-    limit = 10,
-  } = filters;
+  async findWithPagination(filters: any, userId?: string) {
+    const {
+      leadId,
+      outcome,
+      page = 1,
+      limit = 10,
+    } = filters;
 
-  const match: any = {};
+    const match: any = {};
 
-  if (leadId) match.leadId = Number(leadId);
-  if (outcome) match.outcome = outcome;
-  if (userId) match.userId = userId;
+    if (leadId) match.leadId = Number(leadId);
+    if (outcome) match.outcome = outcome;
+    if (userId) match.userId = userId;
 
-  const skip = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-const pipeline: PipelineStage[] = [
-  { $match: match },
+    const pipeline: PipelineStage[] = [
+      { $match: match },
 
-  { $sort: { createdAt: -1 } },
+      { $sort: { createdAt: -1 } },
 
-  {
-    $group: {
-      _id: "$leadId",
-      latestCall: { $first: "$$ROOT" },
-    },
-  },
+      {
+        $group: {
+          _id: "$leadId",
+          latestCall: { $first: "$$ROOT" },
+        },
+      },
 
-  { $replaceRoot: { newRoot: "$latestCall" } },
+      { $replaceRoot: { newRoot: "$latestCall" } },
 
-  { $skip: skip },
-  { $limit: Number(limit) },
+      { $skip: skip },
+      { $limit: Number(limit) },
 
-  {
-    $lookup: {
-      from: "users",
-      localField: "userId",
-      foreignField: "_id",
-      as: "userId",
-    },
-  },
-  // { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "userId",
+          foreignField: "_id",
+          as: "userId",
+        },
+      },
+      // { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
 
-  {
-    $lookup: {
-      from: "stages",
-      localField: "stageId",
-      foreignField: "_id",
-      as: "stageId",
-    },
-  },
-  // { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
-];
-
-
-const countPipeline: PipelineStage[] = [
-  { $match: match },
-  { $group: { _id: "$leadId" } },
-  { $count: "total" },
-];
+      {
+        $lookup: {
+          from: "stages",
+          localField: "stageId",
+          foreignField: "_id",
+          as: "stageId",
+        },
+      },
+      // { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
+    ];
 
 
-  const [data, countResult] = await Promise.all([
-    this.callLogModel.aggregate(pipeline),
-    this.callLogModel.aggregate(countPipeline),
-  ]);
+    const countPipeline: PipelineStage[] = [
+      { $match: match },
+      { $group: { _id: "$leadId" } },
+      { $count: "total" },
+    ];
 
-  const total = countResult[0]?.total || 0;
 
-  return {
-    data,
-    total,
-    page: Number(page),
-    limit: Number(limit),
-    totalPages: Math.ceil(total / limit),
-  };
-}
+    const [data, countResult] = await Promise.all([
+      this.callLogModel.aggregate(pipeline),
+      this.callLogModel.aggregate(countPipeline),
+    ]);
+
+    const total = countResult[0]?.total || 0;
+
+    return {
+      data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 
 async findCallLogWithPagination(filters: any, userId?: string) {
   const {
@@ -106,7 +110,7 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     outcome,
     durationMin,
     durationMax,
-    answered, // 👈 NEW
+    answered,
     byUserId,
     dateFilter,
     fromDate,
@@ -123,28 +127,25 @@ async findCallLogWithPagination(filters: any, userId?: string) {
   if (stageId) query.stageId = stageId;
   if (outcome) query.outcome = outcome;
 
-  // 🎯 DURATION FILTER
+  // 🎯 DURATION
   if (durationMin || durationMax) {
     query.duration = {};
     if (durationMin) query.duration.$gte = Number(durationMin);
     if (durationMax) query.duration.$lte = Number(durationMax);
   }
 
-  // 🎯 ANSWERED FILTER
+  // 🎯 ANSWERED
   if (answered !== undefined) {
     if (answered === true || answered === 'true') {
       query.duration = { ...(query.duration || {}), $gt: 0 };
-    } else if (answered === false || answered === 'false') {
+    } else {
       query.duration = { ...(query.duration || {}), $eq: 0 };
     }
   }
 
   // 👤 USER FILTER
-  if (byUserId) {
-    query.userId = byUserId;
-  } else if (userId) {
-    query.userId = userId;
-  }
+  if (byUserId) query.userId = byUserId;
+  else if (userId) query.userId = userId;
 
   // 🔍 SEARCH
   if (search) {
@@ -165,6 +166,7 @@ async findCallLogWithPagination(filters: any, userId?: string) {
 
   // 📅 DATE FILTER
   const now = new Date();
+
   if (dateFilter) {
     let start: Date | null = null;
 
@@ -193,11 +195,11 @@ async findCallLogWithPagination(filters: any, userId?: string) {
   const sortOrder = sort === 'old' ? 1 : -1;
   const skip = (page - 1) * limit;
 
-  // 🚀 GET DATA
+  // 🚀 FETCH DATA
   const [logs, total] = await Promise.all([
     this.callLogModel
       .find(query)
-      .populate('userId', 'name')
+      .populate('userId', 'name employeeId')
       .populate('stageId', 'name')
       .sort({ createdAt: sortOrder })
       .skip(skip)
@@ -207,9 +209,21 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     this.callLogModel.countDocuments(query),
   ]);
 
-  // 🧠 Get leadIds for 30 day count
+  // 🧠 GET ALL LEADS
   const leadIds = logs.map(l => l.leadId);
 
+  const leads = await this.leadModel.find(
+    { leadId: { $in: leadIds } },
+    { leadId: 1, name: 1, phone: 1 } // 👈 adjust field if needed
+  ).lean();
+
+  // 🔄 CREATE MAP
+  const leadMap = {};
+  leads.forEach(l => {
+    leadMap[l.leadId] = l;
+  });
+
+  // 🧠 CALL COUNT (30 DAYS)
   const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
   const counts = await this.callLogModel.aggregate([
@@ -232,9 +246,15 @@ async findCallLogWithPagination(filters: any, userId?: string) {
     countMap[c._id] = c.count;
   });
 
-  // 🎯 FINAL DATA FORMAT
+  // 🎯 FINAL DATA (FLAT ✅)
   const data = logs.map(log => ({
     ...log,
+
+    // ✅ FLAT LEAD DATA
+    leadName: leadMap[log.leadId]?.name || null,
+    leadNumber: leadMap[log.leadId]?.phone || null,
+
+    // ✅ EXTRA FIELDS
     answered: log.duration > 0,
     callCount30Days: countMap[log.leadId] || 0,
   }));
@@ -249,213 +269,252 @@ async findCallLogWithPagination(filters: any, userId?: string) {
 }
 
 
-async findAllWithUserIds(filters: any, accessibleUserIds: string[]) {
-  const {
-    search,
-    leadId,
-    stageId,
-    outcome,
-    durationMin,
-    durationMax,
-    answered, // 👈 new filter true/false
-    byUserId,
-    dateFilter,
-    fromDate,
-    toDate,
-    sort = 'new',
-    page = 1,
-    limit = 10,
-  } = filters;
+  async findAllWithUserIds(filters: any, accessibleUserIds: string[]) {
+    const {
+      search,
+      leadId,
+      stageId,
+      outcome,
+      durationMin,
+      durationMax,
+      answered, // 👈 new filter true/false
+      byUserId,
+      dateFilter,
+      fromDate,
+      toDate,
+      sort = 'new',
+      page = 1,
+      limit = 10,
+    } = filters;
 
-  const match: any = {};
+    const match: any = {};
 
-  // 🎯 BASIC FILTERS
-  if (leadId) match.leadId = Number(leadId);
-  if (stageId) match.stageId = stageId;
-  if (outcome) match.outcome = outcome;
+    // 🎯 BASIC FILTERS
+    if (leadId) match.leadId = Number(leadId);
+    if (stageId) match.stageId = stageId;
+    if (outcome) match.outcome = outcome;
 
-  if (durationMin || durationMax) {
-    match.duration = {};
-    if (durationMin) match.duration.$gte = Number(durationMin);
-    if (durationMax) match.duration.$lte = Number(durationMax);
-  }
-
-  // 👥 MULTIPLE USER FILTER
-  if (byUserId) {
-    match.userId = byUserId;
-  } else {
-    match.userId = { $in: accessibleUserIds };
-  }
-
-  // 🔍 SEARCH
-  if (search) {
-    const searchConditions: any[] = [
-      { outcome: { $regex: search, $options: 'i' } },
-    ];
-
-    if (!isNaN(Number(search))) {
-      searchConditions.push(
-        { leadId: Number(search) },
-        { duration: Number(search) }
-      );
+    if (durationMin || durationMax) {
+      match.duration = {};
+      if (durationMin) match.duration.$gte = Number(durationMin);
+      if (durationMax) match.duration.$lte = Number(durationMax);
     }
 
-    searchConditions.push({ userId: search }, { stageId: search });
-    match.$or = searchConditions;
-  }
-
-  // 📅 DATE FILTER
-  const now = new Date();
-
-  if (dateFilter) {
-    let start: Date | null = null;
-
-    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
-    else if (dateFilter === 'week') {
-      start = new Date();
-      start.setDate(start.getDate() - 7);
-    } else if (dateFilter === 'month') {
-      start = new Date();
-      start.setMonth(start.getMonth() - 1);
-    } else if (dateFilter === 'year') {
-      start = new Date();
-      start.setFullYear(start.getFullYear() - 1);
+    // 👥 MULTIPLE USER FILTER
+    if (byUserId) {
+      match.userId = byUserId;
+    } else {
+      match.userId = { $in: accessibleUserIds };
     }
 
-    if (start) match.createdAt = { $gte: start };
-  }
+    // 🔍 SEARCH
+    if (search) {
+      const searchConditions: any[] = [
+        { outcome: { $regex: search, $options: 'i' } },
+      ];
 
-  if (fromDate && toDate) {
-    match.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
-    };
-  }
+      if (!isNaN(Number(search))) {
+        searchConditions.push(
+          { leadId: Number(search) },
+          { duration: Number(search) }
+        );
+      }
 
-  // 📊 ANSWERED FILTER
-  if (answered !== undefined) {
-    if (answered === true || answered === 'true') {
-      match.duration = { ...(match.duration || {}), $gt: 0 };
-    } else if (answered === false || answered === 'false') {
-      match.duration = { ...(match.duration || {}), $eq: 0 };
+      searchConditions.push({ userId: search }, { stageId: search });
+      match.$or = searchConditions;
     }
-  }
 
-  const sortOrder = sort === 'old' ? 1 : -1;
-  const skip = (page - 1) * limit;
+    // 📅 DATE FILTER
+    const now = new Date();
 
-  // 🚀 AGGREGATION PIPELINE
-  const pipeline: any[] = [
-    { $match: match },
+    if (dateFilter) {
+      let start: Date | null = null;
 
-    // 👇 ADD answered field
-    {
-      $addFields: {
-        answered: {
-          $cond: [{ $gt: ['$duration', 0] }, true, false],
+      if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+      else if (dateFilter === 'week') {
+        start = new Date();
+        start.setDate(start.getDate() - 7);
+      } else if (dateFilter === 'month') {
+        start = new Date();
+        start.setMonth(start.getMonth() - 1);
+      } else if (dateFilter === 'year') {
+        start = new Date();
+        start.setFullYear(start.getFullYear() - 1);
+      }
+
+      if (start) match.createdAt = { $gte: start };
+    }
+
+    if (fromDate && toDate) {
+      match.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    // 📊 ANSWERED FILTER
+    if (answered !== undefined) {
+      if (answered === true || answered === 'true') {
+        match.duration = { ...(match.duration || {}), $gt: 0 };
+      } else if (answered === false || answered === 'false') {
+        match.duration = { ...(match.duration || {}), $eq: 0 };
+      }
+    }
+
+    const sortOrder = sort === 'old' ? 1 : -1;
+    const skip = (page - 1) * limit;
+
+    // 🚀 AGGREGATION PIPELINE
+    const pipeline: any[] = [
+      { $match: match },
+
+      // 👇 ADD answered field
+      {
+        $addFields: {
+          answered: {
+            $cond: [{ $gt: ['$duration', 0] }, true, false],
+          },
         },
       },
-    },
 
-    // 👇 LOOKUP: count calls in last 30 days per lead
-    {
-      $lookup: {
-        from: 'calllogs',
-        let: { lead: '$leadId' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ['$leadId', '$$lead'] },
-                  {
-                    $gte: [
-                      '$createdAt',
-                      new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-                    ],
-                  },
-                ],
+      // 👇 LOOKUP: count calls in last 30 days per lead
+      {
+        $lookup: {
+          from: 'calllogs',
+          let: { lead: '$leadId' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ['$leadId', '$$lead'] },
+                    {
+                      $gte: [
+                        '$createdAt',
+                        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+                      ],
+                    },
+                  ],
+                },
               },
             },
-          },
-          { $count: 'count' },
-        ],
-        as: 'callCount30Days',
-      },
-    },
-
-    {
-      $addFields: {
-        callCount30Days: {
-          $ifNull: [{ $arrayElemAt: ['$callCount30Days.count', 0] }, 0],
+            { $count: 'count' },
+          ],
+          as: 'callCount30Days',
         },
       },
-    },
 
-    {
-  $addFields: {
-    userObjectId: { $toObjectId: "$userId" },
-    stageObjectId: {
-      $cond: [
-        { $ifNull: ["$stageId", false] },
-        { $toObjectId: "$stageId" },
-        null
-      ]
-    }
-  }
-},
-
-// 👤 USER LOOKUP (only needed fields)
-{
-  $lookup: {
-    from: "users",
-    let: { uid: "$userObjectId" },
-    pipeline: [
-      { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
-      { $project: { _id: 1, name: 1, employeeId: 1 } }
-    ],
-    as: "userId"
-  }
-},
-{ $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
-
-// 🎯 STAGE LOOKUP (only needed fields)
-{
-  $lookup: {
-    from: "leadstages",
-    let: { sid: "$stageObjectId" },
-    pipeline: [
-      { $match: { $expr: { $eq: ["$_id", "$$sid"] } } },
-      { $project: { _id: 1, name: 1 } }
-    ],
-    as: "stageId"
-  }
-},
-{ $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
-
-    { $sort: { createdAt: sortOrder } },
-
-    {
-      $facet: {
-        data: [{ $skip: skip }, { $limit: Number(limit) }],
-        total: [{ $count: 'count' }],
+      {
+        $addFields: {
+          callCount30Days: {
+            $ifNull: [{ $arrayElemAt: ['$callCount30Days.count', 0] }, 0],
+          },
+        },
       },
-    },
-  ];
 
-  const result = await this.callLogModel.aggregate(pipeline);
+      {
+        $addFields: {
+          userObjectId: { $toObjectId: "$userId" },
+          stageObjectId: {
+            $cond: [
+              { $ifNull: ["$stageId", false] },
+              { $toObjectId: "$stageId" },
+              null
+            ]
+          }
+        }
+      },
 
-  const data = result[0].data;
-  const total = result[0].total[0]?.count || 0;
+      // 👤 USER LOOKUP (only needed fields)
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$userObjectId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { _id: 1, name: 1, employeeId: 1 } }
+          ],
+          as: "userId"
+        }
+      },
+      { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
 
-  return {
-    data,
-    total,
-    page: Number(page),
-    limit: Number(limit),
-    totalPages: Math.ceil(total / limit),
-  };
-}
+      // 🎯 STAGE LOOKUP (only needed fields)
+      {
+        $lookup: {
+          from: "leadstages",
+          let: { sid: "$stageObjectId" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$sid"] } } },
+            { $project: { _id: 1, name: 1 } }
+          ],
+          as: "stageId"
+        }
+      },
+      { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
+
+      {
+  $lookup: {
+    from: "leads",
+    let: { lead: "$leadId" },
+    pipeline: [
+      {
+        $match: {
+          $expr: { $eq: ["$leadId", "$$lead"] }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          leadId: 1,
+          name: 1,
+          phone: 1   // 👈 change if your field name is different (phone/mobile)
+        }
+      }
+    ],
+    as: "lead"
+  }
+},
+{
+  $unwind: {
+    path: "$lead",
+    preserveNullAndEmptyArrays: true
+  }
+},
+{
+  $addFields: {
+    leadName: "$lead.name",
+    leadNumber: "$lead.phone" 
+  }
+},
+{
+  $project: {
+    lead: 0 // ❌ remove nested object
+  }
+},
+      { $sort: { createdAt: sortOrder } },
+
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: Number(limit) }],
+          total: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const result = await this.callLogModel.aggregate(pipeline);
+
+    const data = result[0].data;
+    const total = result[0].total[0]?.count || 0;
+
+    return {
+      data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 
 
 

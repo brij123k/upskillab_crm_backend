@@ -24,7 +24,6 @@ import { PermissionGuard } from 'src/common/guards/permission.guard';
 export class PoolController {
   constructor(private readonly poolService: PoolService) {}
 
-
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('Admin','bd')
   @Post()

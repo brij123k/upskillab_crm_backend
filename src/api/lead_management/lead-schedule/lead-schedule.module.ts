@@ -23,6 +23,7 @@ import { LeadHistoryModule } from '../lead-history/lead-history.module';
         name: LeadSchedule.name,
         schema: LeadScheduleSchema,
       },
+      { name: Lead.name, schema: LeadSchema },
       {
         name: Lead.name,
         schema: LeadSchema,
