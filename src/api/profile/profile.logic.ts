@@ -13,8 +13,12 @@ export class ProfileLogic {
       ...data,
       userId:new Types.ObjectId(data.userId),
       departmentId:new Types.ObjectId(data.departmentId),
-      poolId:new Types.ObjectId(data.poolId),
-      reportingSeniorId:new Types.ObjectId(data.reportingSeniorId)
+      reportingSeniorId:new Types.ObjectId(data.reportingSeniorId),
+      poolIds: data.poolIds
+      ? data.poolIds.map(
+          (id: string) => new Types.ObjectId(id),
+        )
+      : [],
     });
   }
 
