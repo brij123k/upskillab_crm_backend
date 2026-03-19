@@ -37,10 +37,14 @@ export class ChangeUserDto {
     @IsOptional()
     reportingSeniorId?: string;
 
-    @ApiPropertyOptional()
-    @IsOptional()
-    @IsString()
-    poolId?: string;
+@ApiPropertyOptional({
+    type: [String],
+    description: 'Array of Pool IDs',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsMongoId({ each: true, message: 'Each poolId must be a valid Mongo ID' })
+  poolIds?: string[];
 
     @ApiPropertyOptional()
     @IsOptional()

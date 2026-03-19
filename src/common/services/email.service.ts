@@ -63,9 +63,9 @@ export class EmailService {
 
   async dashboardUpdate(email:string, employeeId:number){
     const html = `
-    <h2>CRM UPDATE</h2>
+    <h2>CRM Update</h2>
     <p>Your CRM Dashboard Now activated now u can visit you dashboard</p>
-    <p>Here is ypur employee Id : ${employeeId}</p>
+    <p>Here is your employee Id : ${employeeId}</p>
     `
 
     return this.sendMail(email, 'CRM UPDATE', html);

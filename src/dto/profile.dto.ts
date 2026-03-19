@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
 
 export class CreateProfileDto {
   @ApiPropertyOptional()
@@ -18,9 +18,21 @@ export class CreateProfileDto {
   @IsOptional()
   salary?: number;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'Legacy single pool ID (kept for backward compatibility)',
+  })
   @IsOptional()
+  @IsString()
   poolId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Array of Pool IDs',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsMongoId({ each: true, message: 'Each poolId must be valid' })
+  poolIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

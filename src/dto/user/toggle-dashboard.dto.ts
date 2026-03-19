@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
 
 export class ToggleDashboardDto {
   @ApiPropertyOptional({
@@ -17,11 +17,13 @@ export class ToggleDashboardDto {
   reportingSeniorId?: string;
 
   @ApiPropertyOptional({
-    description: 'Pool ID',
+    description: 'Array of Pool IDs',
+    type: [String],
   })
   @IsOptional()
-  @IsString()
-  poolId?: string;
+  @IsArray()
+  @IsMongoId({ each: true, message: 'Each poolId must be valid' })
+  poolIds?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

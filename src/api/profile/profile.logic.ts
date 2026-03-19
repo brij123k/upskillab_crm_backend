@@ -5,21 +5,40 @@ import { UserData } from '../user/user.data';
 
 @Injectable()
 export class ProfileLogic {
-  constructor(private readonly profileData: ProfileData,
-  ) {}
+  constructor(private readonly profileData: ProfileData) {}
+
+  private normalizePoolIds(data: any): Types.ObjectId[] | undefined {
+    if (!data) return undefined;
+
+    if (Array.isArray(data.poolIds) && data.poolIds.length) {
+      return data.poolIds.map((id: string) => new Types.ObjectId(id));
+    }
+
+    if (data.poolId) {
+      return [new Types.ObjectId(data.poolId)];
+    }
+
+    return undefined;
+  }
+
+  private normalizeProfilePayload(data: any) {
+    const payload: any = { ...data };
+
+    if (data.userId) payload.userId = new Types.ObjectId(data.userId);
+    if (data.departmentId) payload.departmentId = new Types.ObjectId(data.departmentId);
+    if (data.reportingSeniorId) payload.reportingSeniorId = new Types.ObjectId(data.reportingSeniorId);
+
+    const poolIds = this.normalizePoolIds(data);
+    if (poolIds) payload.poolIds = poolIds;
+
+    // Keep the API backwards compatible by allowing `poolId` while storing it as `poolIds`
+    delete payload.poolId;
+
+    return payload;
+  }
 
   createProfile(data: any) {
-    return this.profileData.create({
-      ...data,
-      userId:new Types.ObjectId(data.userId),
-      departmentId:new Types.ObjectId(data.departmentId),
-      reportingSeniorId:new Types.ObjectId(data.reportingSeniorId),
-      poolIds: data.poolIds
-      ? data.poolIds.map(
-          (id: string) => new Types.ObjectId(id),
-        )
-      : [],
-    });
+    return this.profileData.create(this.normalizeProfilePayload(data));
   }
 
   getAll() {
@@ -47,11 +66,11 @@ export class ProfileLogic {
   }
 
   updateById(id: string, dto: any) {
-    return this.profileData.updateById(id, dto);
+    return this.profileData.updateById(id, this.normalizeProfilePayload(dto));
   }
 
   updateByUserId(userId: string, dto: any) {
-    return this.profileData.updateByUserId(userId, dto);
+    return this.profileData.updateByUserId(userId, this.normalizeProfilePayload(dto));
   }
 
   deleteById(id: string) {

@@ -53,7 +53,7 @@ export class UserLogic {
 
     // 2️⃣ Generate unique employeeId
     const employeeId = await this.generateUniqueEmployeeId();
-
+    const rowPassword= dto.password;
     // 3️⃣ Hash password
     dto.password = await bcrypt.hash(dto.password, 10);
 
@@ -64,7 +64,7 @@ export class UserLogic {
       role: new Types.ObjectId(dto.role),
     });
 
-    await this.emailService.registerDetail(dto.email, dto.password);
+    await this.emailService.registerDetail(dto.email, rowPassword);
 
     return user;
   }
@@ -286,15 +286,19 @@ export class UserLogic {
     const updatedUser = await this.userData.update(userId, {
       isDashboardEnabled: true,
     });
+      const poolIds = dto.poolIds?.length
+    ? dto.poolIds.map((id) => new Types.ObjectId(id))
+    : [];
     // 2️⃣ Create profile with admin-provided data
     await this.profileLogic.createProfile({
       userId,
       departmentId: new Types.ObjectId(dto.departmentId),
-      reportingSeniorId: dto.reportingSeniorId,
+      reportingSeniorId: new Types.ObjectId(dto.reportingSeniorId),
       education: dto.education,
       salary: dto.salary,
       extraAccessControls: dto.extraAccessControls,
       profileImage: dto.profileImage,
+      poolIds
     });
     await this.emailService.dashboardUpdate(user.email, user.employeeId);
     return {
@@ -365,7 +369,7 @@ export class UserLogic {
        2️⃣ UPDATE / CREATE PROFILE
     ------------------------------*/
     const profilePayload: any = {};
-
+    
     if (dto.departmentId)
       profilePayload.departmentId = new Types.ObjectId(dto.departmentId);
     if (dto.reportingSeniorId)
@@ -379,8 +383,11 @@ export class UserLogic {
     if (dto.extraAccessControls)
       profilePayload.extraAccessControls =
         dto.extraAccessControls;
-    if (dto.poolId) {
-      profilePayload.poolId = dto.poolId
+    if (dto.poolIds) {
+        const poolIds = dto.poolIds?.length
+    ? dto.poolIds.map((id) => new Types.ObjectId(id))
+    : [];
+      profilePayload.poolIds = poolIds
     }
 
     let profile = await this.profileData.findByUserId(
