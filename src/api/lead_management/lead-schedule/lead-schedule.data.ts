@@ -11,7 +11,7 @@ export class LeadScheduleData {
     private readonly model: Model<LeadSchedule>,
 
     @InjectModel(Lead.name)
-        private readonly leadModel: Model<Lead>,
+    private readonly leadModel: Model<Lead>,
   ) { }
 
   create(data: Partial<LeadSchedule>) {
@@ -46,7 +46,7 @@ export class LeadScheduleData {
         isTriggered: false,
       },
       {
-        $set: { isTriggered: true,status:"overdue" },
+        $set: { isTriggered: true, status: "overdue" },
       },
       {
         new: true,
@@ -63,108 +63,180 @@ export class LeadScheduleData {
   }
 
   async getSchedules(filters: any, leads: any) {
-  const query: any = {};
-  const leadIds = leads.map((l) => l.leadId);
-  const now = new Date();
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      dateFilter,
+      from,
+      to,
+      leadId
+    } = filters;
 
-  // 🎯 Lead filtering
-  if (filters.leadId) {
-    if (!leadIds.includes(Number(filters.leadId))) {
-      return [];
+    const query: any = {};
+    const leadIds = leads.map(l => l.leadId);
+    const now = new Date();
+
+    const skip = (page - 1) * limit;
+
+    // 🎯 Lead filter
+    if (leadId) {
+      if (!leadIds.includes(Number(leadId))) return {
+        data: [],
+        total: 0,
+        page,
+        limit,
+        totalPages: 0
+      };
+
+      query.leadId = Number(leadId);
+    } else {
+      query.leadId = { $in: leadIds };
     }
-    query.leadId = Number(filters.leadId);
-  } else {
-    query.leadId = { $in: leadIds };
-  }
 
-  // 🚨 STEP 1: FIX DB (upcoming → overdue)
-  await this.model.updateMany(
-  {
-    leadId: { $in: leadIds },
-    scheduledAt: { $lt: now },
-    status: {
-      $in: [
-        LeadScheduleStatus.UPCOMING,
-        null,
-        "",
-      ]
+    // 🚨 FIX DB
+    await this.model.updateMany(
+      {
+        leadId: { $in: leadIds },
+        scheduledAt: { $lt: now },
+        status: { $in: [LeadScheduleStatus.UPCOMING, null, ""] }
+      },
+      {
+        $set: { status: LeadScheduleStatus.OVERDUE }
+      }
+    );
+
+    // 🎯 STATUS FILTER
+    if (status === 'upcoming') {
+      query.status = LeadScheduleStatus.UPCOMING;
+      query.scheduledAt = { $gt: now };
     }
-  },
-  {
-    $set: { status: LeadScheduleStatus.OVERDUE },
-  }
-);
-  // 🎯 Status filters (AFTER DB FIX)
-  if (filters.status === 'upcoming') {
-    query.status = LeadScheduleStatus.UPCOMING;
-    query.scheduledAt = { $gt: now };
-  }
 
-  if (filters.status === 'overdue') {
-    query.status = LeadScheduleStatus.OVERDUE;
-    query.scheduledAt = { $lt: now };
-  }
+    if (status === 'overdue') {
+      query.status = LeadScheduleStatus.OVERDUE;
+      query.scheduledAt = { $lt: now };
+    }
 
-  if (filters.status === 'completed') {
-    query.status = LeadScheduleStatus.COMPLETED;
-  }
+    if (status === 'completed') {
+      query.status = LeadScheduleStatus.COMPLETED;
+    }
 
-  // 📅 Today filter
-  if (filters.dateFilter === 'today') {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
+    // 📅 DATE FILTER
+    if (dateFilter === 'today') {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
 
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
 
-    query.scheduledAt = {
-      $gte: start,
-      $lte: end,
+      query.scheduledAt = { $gte: start, $lte: end };
+    }
+
+    if (dateFilter === 'custom') {
+      query.scheduledAt = {
+        $gte: new Date(from),
+        $lte: new Date(to)
+      };
+    }
+
+    // ❗ DEFAULT
+    if (!status) {
+      query.status = { $ne: LeadScheduleStatus.COMPLETED };
+    }
+
+    const sortOrder = 1;
+
+    // 🚀 AGGREGATION (🔥 LIKE CALL LOGS)
+    const pipeline: any[] = [
+      { $match: query },
+
+      // 🎯 stage lookup
+      {
+        $lookup: {
+          from: "leads",
+          let: { lead: "$leadId" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$leadId", "$$lead"] }
+              }
+            },
+            {
+              $project: {
+                _id: 0,
+                leadId: 1,
+                name: 1,
+                phone: 1,
+                stageId: 1   // ✅ IMPORTANT
+              }
+            }
+          ],
+          as: "lead"
+        }
+      },
+      {
+        $unwind: {
+          path: "$lead",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      // 🎯 STEP 2: LOOKUP STAGE FROM LEAD
+      {
+        $lookup: {
+          from: "leadstages",
+          localField: "lead.stageId",
+          foreignField: "_id",
+          as: "stage"
+        }
+      },
+      {
+        $unwind: {
+          path: "$stage",
+          preserveNullAndEmptyArrays: true
+        }
+      },
+
+      // 🎯 STEP 3: FLATTEN
+      {
+        $addFields: {
+          leadName: "$lead.name",
+          leadNumber: "$lead.phone",
+          stageName: "$stage.name"
+        }
+      },
+
+      {
+        $project: {
+          lead: 0,
+          stage: 0
+        }
+      },
+
+      { $sort: { scheduledAt: sortOrder } },
+
+      // 🔥 pagination
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: Number(limit) }],
+          total: [{ $count: "count" }]
+        }
+      }
+    ];
+
+    const result = await this.model.aggregate(pipeline);
+
+    const data = result[0].data;
+    const total = result[0].total[0]?.count || 0;
+
+    return {
+      data,
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(total / limit)
     };
   }
-
-  // 📅 Custom filter
-  if (filters.dateFilter === 'custom') {
-    query.scheduledAt = {
-      $gte: new Date(filters.from),
-      $lte: new Date(filters.to),
-    };
-  }
-
-  // ❗ Default: DO NOT return completed
-  if (!filters.status) {
-    query.status = { $ne: LeadScheduleStatus.COMPLETED };
-  }
-
-  // 🚀 FETCH UPDATED DATA
-  const schedules = await this.model
-    .find(query)
-    .sort({ scheduledAt: 1 })
-    .lean();
-
-  // 🧠 FETCH LEADS
-  const uniqueLeadIds = [...new Set(schedules.map(s => s.leadId))];
-
-  const leadsData = await this.leadModel.find(
-    { leadId: { $in: uniqueLeadIds } },
-    { leadId: 1, name: 1, phone: 1 }
-  ).lean();
-
-  // 🔄 MAP
-  const leadMap = {};
-  leadsData.forEach(l => {
-    leadMap[l.leadId] = l;
-  });
-
-  // 🎯 FINAL RESPONSE (NO FAKE STATUS NOW)
-  const data = schedules.map(s => ({
-    ...s,
-    leadName: leadMap[s.leadId]?.name || null,
-    leadNumber: leadMap[s.leadId]?.phone || null,
-  }));
-
-  return data;
-}
 
   async markCompleted(id: string) {
 

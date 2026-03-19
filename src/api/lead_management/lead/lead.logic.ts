@@ -44,6 +44,7 @@ export class LeadLogic {
     const lead = await this.leadData.create({
       ...dto,
       modifiedBy: userId,
+      stageId:new Types.ObjectId(dto.stageId),
       assignedTo:dto.assignedTo?dto.assignedTo:userId,
       poolId:new Types.ObjectId(dto.poolId),
       modifiedAt: new Date(),
@@ -153,6 +154,7 @@ await this.notificationEngine.handleEvent({
 
     const lead = await this.leadData.update(id, {
       ...dto,
+      stageId:new Types.ObjectId(dto.stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
     });
@@ -257,9 +259,9 @@ await this.notificationEngine.handleEvent({
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
     const existstage = await this.leadStageModel.findById(stageId)
-    if (!existstage) throw new NotFoundException('Lead not found');
+    if (!existstage) throw new NotFoundException('Stage not found');
     const lead = await this.leadData.update(id, {
-      stageId,
+      stageId:new Types.ObjectId(stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
     });
@@ -306,7 +308,7 @@ await this.notificationEngine.handleEvent({
     const existstage = await this.leadStageModel.findById(stageId)
     if (!existstage) throw new NotFoundException('Lead not found');
     const lead = await this.leadData.update(existingLead._id.toString(), {
-      stageId,
+      stageId:new Types.ObjectId(stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
     });

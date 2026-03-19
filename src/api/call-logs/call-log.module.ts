@@ -10,6 +10,7 @@ import { UserActivityModule } from '../user-activity/user-activity.module';
 import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.schema';
 import { LeadModule } from '../lead_management/lead/lead.module';
 import { UserModule } from '../user/user.module';
+import { LeadStage, LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UserModule } from '../user/user.module';
       { name: CallLog.name, schema: CallLogSchema },
       { name: CallLogReview.name, schema: CallLogReviewSchema },
       { name: Lead.name, schema: LeadSchema },
+      {name:LeadStage.name, schema:LeadStageSchema},
     ]),
     LeadHistoryModule,
     UserActivityModule,

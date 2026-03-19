@@ -119,10 +119,47 @@ async findAllWithUserIds(
   const sortOrder = sort === 'old' ? 1 : -1;
   const skip = (page - 1) * limit;
 
+  // ===========================
+  // ✅ NEW: DATE RANGE FOR STATS (DEFAULT TODAY)
+  // ===========================
+  let startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
+
+  let endDate = new Date();
+  endDate.setHours(23, 59, 59, 999);
+
+  if (dateFilter) {
+    const now = new Date();
+
+    if (dateFilter === 'today') {
+      startDate = new Date(now.setHours(0, 0, 0, 0));
+      endDate = new Date();
+    } else if (dateFilter === 'week') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+      endDate = new Date();
+    } else if (dateFilter === 'month') {
+      startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 1);
+      endDate = new Date();
+    } else if (dateFilter === 'year') {
+      startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      endDate = new Date();
+    }
+  }
+
+  if (fromDate && toDate) {
+    startDate = new Date(fromDate);
+    endDate = new Date(toDate);
+  }
+
+  // ===========================
+  // 🚀 ORIGINAL PIPELINE (UNCHANGED)
+  // ===========================
   const pipeline: PipelineStage[] = [
     { $match: match },
 
-    // ✅ FIX: Convert string → ObjectId
     {
       $addFields: {
         userObjectId: {
@@ -142,7 +179,6 @@ async findAllWithUserIds(
       },
     },
 
-    // 👤 USER LOOKUP
     {
       $lookup: {
         from: "users",
@@ -156,7 +192,6 @@ async findAllWithUserIds(
     },
     { $unwind: { path: "$userId", preserveNullAndEmptyArrays: true } },
 
-    // 🎯 STAGE LOOKUP
     {
       $lookup: {
         from: "leadstages",
@@ -170,7 +205,6 @@ async findAllWithUserIds(
     },
     { $unwind: { path: "$stageId", preserveNullAndEmptyArrays: true } },
 
-    // 🎯 LEAD LOOKUP
     {
       $lookup: {
         from: "leads",
@@ -194,7 +228,6 @@ async findAllWithUserIds(
     },
     { $unwind: { path: "$lead", preserveNullAndEmptyArrays: true } },
 
-    // ✅ FLATTEN
     {
       $addFields: {
         leadName: "$lead.name",
@@ -202,7 +235,6 @@ async findAllWithUserIds(
       },
     },
 
-    // ❌ CLEANUP
     {
       $project: {
         lead: 0,
@@ -226,120 +258,195 @@ async findAllWithUserIds(
   const data = result[0].data;
   const total = result[0].total[0]?.count || 0;
 
+  // ===========================
+  // ✅ NEW: STATS QUERY
+  // ===========================
+  const statsMatch = {
+    ...match,
+    createdAt: { $gte: startDate, $lte: endDate },
+  };
+
+  const statsResult = await this.model.aggregate([
+    { $match: statsMatch },
+    {
+      $group: {
+        _id: null,
+        totalInteractions: { $sum: 1 },
+        uniqueLeads: { $addToSet: "$leadId" },
+      },
+    },
+  ]);
+
+  // ✅ SOURCE BREAKDOWN (optional but powerful)
+  const sourceStats = await this.model.aggregate([
+    { $match: statsMatch },
+    {
+      $group: {
+        _id: "$source",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const stats = {
+    totalInteractions: statsResult[0]?.totalInteractions || 0,
+    uniqueLeads: statsResult[0]?.uniqueLeads?.length || 0,
+    sourceBreakdown: sourceStats,
+  };
+
   return {
     data,
     total,
     page: Number(page),
     limit: Number(limit),
     totalPages: Math.ceil(total / limit),
+
+    // ✅ NEW
+    stats,
   };
 }
 
-  async findInteractionLogsWithPagination(filters: any, userId?: string) {
+async findInteractionLogsWithPagination(filters: any, userId?: string) {
 
-    const {
-      search,
-      leadId,
-      stageId,
-      source,
-      byUserId,
-      dateFilter,
-      fromDate,
-      toDate,
-      sort = 'new',
-      page = 1,
-      limit = 10,
-    } = filters;
+  const {
+    search,
+    leadId,
+    stageId,
+    source,
+    byUserId,
+    dateFilter,
+    fromDate,
+    toDate,
+    sort = 'new',
+    page = 1,
+    limit = 10,
+  } = filters;
 
-    const query: any = {};
+  const query: any = {};
 
-    // lead filter
-    if (leadId) query.leadId = Number(leadId);
+  // lead filter
+  if (leadId) query.leadId = Number(leadId);
 
-    if (stageId) query.stageId = stageId;
+  if (stageId) query.stageId = stageId;
 
-    if (source) query.source = source;
+  if (source) query.source = source;
 
-    // user filter
-    if (byUserId) {
-      query.userId = byUserId;
-    } else if (userId) {
-      query.userId = userId;
+  // user filter
+  if (byUserId) {
+    query.userId = byUserId;
+  } else if (userId) {
+    query.userId = userId;
+  }
+
+  // search
+  if (search) {
+
+    const searchConditions: any[] = [
+      { note: { $regex: search, $options: 'i' } },
+      { source: { $regex: search, $options: 'i' } },
+    ];
+
+    if (!isNaN(Number(search))) {
+      searchConditions.push({ leadId: Number(search) });
     }
 
-    // search
-    if (search) {
+    query.$or = searchConditions;
+  }
 
-      const searchConditions: any[] = [
-        { note: { $regex: search, $options: 'i' } },
-        { source: { $regex: search, $options: 'i' } },
-      ];
+  // date filter (existing)
+  const now = new Date();
 
-      if (!isNaN(Number(search))) {
-        searchConditions.push({ leadId: Number(search) });
-      }
+  if (dateFilter) {
 
-      query.$or = searchConditions;
+    let start: Date | null = null;
+
+    if (dateFilter === 'today')
+      start = new Date(now.setHours(0, 0, 0, 0));
+
+    else if (dateFilter === 'week') {
+      start = new Date();
+      start.setDate(start.getDate() - 7);
     }
 
-    // date filter
+    else if (dateFilter === 'month') {
+      start = new Date();
+      start.setMonth(start.getMonth() - 1);
+    }
+
+    else if (dateFilter === 'year') {
+      start = new Date();
+      start.setFullYear(start.getFullYear() - 1);
+    }
+
+    if (start) query.createdAt = { $gte: start };
+  }
+
+  if (fromDate && toDate) {
+    query.createdAt = {
+      $gte: new Date(fromDate),
+      $lte: new Date(toDate),
+    };
+  }
+
+  const sortOrder = sort === 'old' ? 1 : -1;
+  const skip = (page - 1) * limit;
+
+  // ===========================
+  // ✅ NEW: DATE RANGE FOR STATS (DEFAULT TODAY)
+  // ===========================
+  let startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
+
+  let endDate = new Date();
+  endDate.setHours(23, 59, 59, 999);
+
+  if (dateFilter) {
     const now = new Date();
 
-    if (dateFilter) {
-
-      let start: Date | null = null;
-
-      if (dateFilter === 'today')
-        start = new Date(now.setHours(0, 0, 0, 0));
-
-      else if (dateFilter === 'week') {
-        start = new Date();
-        start.setDate(start.getDate() - 7);
-      }
-
-      else if (dateFilter === 'month') {
-        start = new Date();
-        start.setMonth(start.getMonth() - 1);
-      }
-
-      else if (dateFilter === 'year') {
-        start = new Date();
-        start.setFullYear(start.getFullYear() - 1);
-      }
-
-      if (start) query.createdAt = { $gte: start };
+    if (dateFilter === 'today') {
+      startDate = new Date(now.setHours(0, 0, 0, 0));
+      endDate = new Date();
+    } else if (dateFilter === 'week') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+      endDate = new Date();
+    } else if (dateFilter === 'month') {
+      startDate = new Date();
+      startDate.setMonth(startDate.getMonth() - 1);
+      endDate = new Date();
+    } else if (dateFilter === 'year') {
+      startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 1);
+      endDate = new Date();
     }
+  }
 
-    if (fromDate && toDate) {
-      query.createdAt = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
+  if (fromDate && toDate) {
+    startDate = new Date(fromDate);
+    endDate = new Date(toDate);
+  }
 
-    const sortOrder = sort === 'old' ? 1 : -1;
-    const skip = (page - 1) * limit;
+  // 🚀 FETCH DATA (unchanged)
+  const [logs, total] = await Promise.all([
 
-    const [logs, total] = await Promise.all([
+    this.model
+      .find(query)
+      .populate('userId', 'name')
+      .populate('stageId', 'name')
+      .sort({ createdAt: sortOrder })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean(),
 
-      this.model
-        .find(query)
-        .populate('userId', 'name')
-        .populate('stageId', 'name')
-        .sort({ createdAt: sortOrder })
-        .skip(skip)
-        .limit(Number(limit))
-        .lean(),
+    this.model.countDocuments(query),
 
-      this.model.countDocuments(query),
+  ]);
 
-    ]);
-
-    const leadIds = logs.map(l => l.leadId);
+  const leadIds = logs.map(l => l.leadId);
 
   const leads = await this.leadModel.find(
     { leadId: { $in: leadIds } },
-    { leadId: 1, name: 1, phone: 1 } // 👈 adjust field if needed
+    { leadId: 1, name: 1, phone: 1 }
   ).lean();
 
   // 🔄 CREATE MAP
@@ -354,13 +461,51 @@ async findAllWithUserIds(
     leadNumber: leadMap[log.leadId]?.phone || null,
   }));
 
-    return {
-      data,
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / limit),
-    };
-  }
+  // ===========================
+  // ✅ NEW: STATS QUERY
+  // ===========================
+  const statsMatch = {
+    ...query,
+    createdAt: { $gte: startDate, $lte: endDate },
+  };
+
+  const statsResult = await this.model.aggregate([
+    { $match: statsMatch },
+    {
+      $group: {
+        _id: null,
+        totalInteractions: { $sum: 1 },
+        uniqueLeads: { $addToSet: "$leadId" },
+      },
+    },
+  ]);
+
+  const sourceStats = await this.model.aggregate([
+    { $match: statsMatch },
+    {
+      $group: {
+        _id: "$source",
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const stats = {
+    totalInteractions: statsResult[0]?.totalInteractions || 0,
+    uniqueLeads: statsResult[0]?.uniqueLeads?.length || 0,
+    sourceBreakdown: sourceStats,
+  };
+
+  return {
+    data,
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+
+    // ✅ NEW
+    stats,
+  };
+}
 
 }

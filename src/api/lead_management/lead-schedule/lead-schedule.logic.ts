@@ -6,6 +6,7 @@ import { Lead } from 'src/schema/lead_management/lead.schema';
 import { Model } from 'mongoose';
 import { LeadHistoryLogic } from '../lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
+import { UserLogic } from 'src/api/user/user.logic';
 
 @Injectable()
 export class LeadScheduleLogic {
@@ -14,6 +15,7 @@ export class LeadScheduleLogic {
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
     private readonly leadHistoryLogic: LeadHistoryLogic,
+    private readonly userLogic: UserLogic,
   ) { }
 
   async create(dto: CreateLeadScheduleDTO, user: any) {
@@ -39,11 +41,27 @@ export class LeadScheduleLogic {
     return result;
   }
 
-  async getSchedules(filters: any, user:any) {
-    const leads = await this.leadModel.find({ assignedTo: user.userId })
-    return this.data.getSchedules(filters,leads)
+async getSchedules(filters: any, user: any) {
+  if (filters.group === 'true') {
+    const users = await this.userLogic.getUsersUnder(user.userId);
 
+    const userIds = users.map(u => u._id.toString());
+    userIds.push(user.userId);
+
+    // 👇 get leads for ALL users
+    const leads = await this.leadModel.find({
+      assignedTo: { $in: userIds }
+    });
+
+    return this.data.getSchedules(filters, leads);
+  } else {
+    const leads = await this.leadModel.find({
+      assignedTo: user.userId
+    });
+
+    return this.data.getSchedules(filters, leads);
   }
+}
   async completeSchedule(scheduleId: string) {
 
     return this.data.markCompleted(scheduleId)

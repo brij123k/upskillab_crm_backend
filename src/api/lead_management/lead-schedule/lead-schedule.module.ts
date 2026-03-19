@@ -14,6 +14,7 @@ import { LeadScheduleCron } from './lead-schedule.cron';
 import { SocketModule } from 'src/api/socket/socket.module';
 import { Lead,LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { LeadHistoryModule } from '../lead-history/lead-history.module';
+import { UserModule } from 'src/api/user/user.module';
 
 @Module({
   imports: [
@@ -30,7 +31,8 @@ import { LeadHistoryModule } from '../lead-history/lead-history.module';
       },
     ]),
     SocketModule,
-    LeadHistoryModule
+    LeadHistoryModule,
+    UserModule
   ],
   controllers: [LeadScheduleController],
   providers: [
