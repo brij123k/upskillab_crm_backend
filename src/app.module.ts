@@ -18,6 +18,9 @@ import { NotificationModule } from './notifications/notification.module';
 import { LeadScheduleModule } from './api/lead_management/lead-schedule/lead-schedule.module';
 import { PoolModule } from './api/pool/pool.module';
 import { InteractionLogModule } from './api/interaction-log/lead-interaction-log.module';
+import { OrderModule } from './api/order_management/order.module';
+import { PaymentModule } from './api/order_management/payment/payment.module';
+import { LoanPartnerModule } from './api/order_management/loan-partner/loan-partner.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -38,7 +41,10 @@ ConfigModule.forRoot({
     MeetingLogModule,
     NotificationModule,
     LeadScheduleModule,
-    PoolModule
+    PoolModule,
+    OrderModule,
+    PaymentModule,
+    LoanPartnerModule,
   ],
   controllers: [AppController],
   providers: [AppService],
