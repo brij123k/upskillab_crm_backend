@@ -16,6 +16,7 @@ import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity
 import { UserLogic } from 'src/api/user/user.logic';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
+import { Pool } from 'src/schema/Pool.schema';
 
 @Injectable()
 export class LeadLogic {
@@ -35,6 +36,9 @@ export class LeadLogic {
 
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
+
+    @InjectModel(Pool.name)
+    private readonly poolModel: Model<Pool>,
 
     private readonly userActivityLogic: UserActivityLogic,
     private readonly notificationEngine: NotificationEngineService,
@@ -120,10 +124,18 @@ await this.notificationEngine.handleEvent({
   }
 
   async findAll(filters: any, user: any) {
+    console.log('Finding leads with filters:', filters, 'for user:', user);
     // 🔥 Admin → see everything
     if (user.isSuperAdmin) {
       return this.leadData.findAllWithFilters(filters);
     }
+    const Pool= await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
+    let poolId: string | undefined = undefined;
+
+if (Pool?._id) {
+  poolId = Pool._id.toString();
+}
+
     const users = await this.userLogic.getUsersUnder(user.userId);
     const accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId)
@@ -131,6 +143,7 @@ await this.notificationEngine.handleEvent({
       return this.leadData.findAllWithFiltersUserIds(
         filters,
         [user.userId],
+        poolId
       );
     }
 
@@ -138,6 +151,7 @@ await this.notificationEngine.handleEvent({
     return this.leadData.findAllWithFiltersUserIds(
       filters,
       accessibleUserIds,
+      poolId
     );
   }
 
@@ -155,6 +169,7 @@ await this.notificationEngine.handleEvent({
     const lead = await this.leadData.update(id, {
       ...dto,
       stageId:new Types.ObjectId(dto.stageId),
+      poolId:new Types.ObjectId(dto.poolId),
       modifiedBy: userId,
       modifiedAt: new Date(),
     });

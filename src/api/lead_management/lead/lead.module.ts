@@ -14,6 +14,7 @@ import { callLogModule } from 'src/api/call-logs/call-log.module';
 import { LeadScheduleModule } from '../lead-schedule/lead-schedule.module';
 import { LeadStage,LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
 import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
+import { Pool, PoolSchema } from 'src/schema/Pool.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -21,6 +22,7 @@ import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
       { name: MeetingLog.name, schema: MeetingLogSchema },
       { name: CallLog.name, schema: CallLogSchema },
       { name: LeadStage.name, schema: LeadStageSchema },
+      { name: Pool.name, schema: PoolSchema },
     ]),
     LeadHistoryModule,
     ProfileModule,

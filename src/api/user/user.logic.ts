@@ -448,7 +448,9 @@ export class UserLogic {
   async findbyEmpId(empId: number) {
     return this.userData.findbyEmpId(empId)
   }
-
+ async findById(id: string) {
+    return this.userData.findById(id);
+  }
   async getUserByDepartmentId(departmentId: string) {
     return this.profileData.getBydepId(departmentId)
   }

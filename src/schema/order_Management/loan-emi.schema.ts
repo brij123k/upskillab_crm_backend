@@ -15,7 +15,16 @@ export class LoanEmi {
   mobile: string;
 
   @Prop()
+  email: string;
+  
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  couselorId: Types.ObjectId;
+
+  @Prop()
   counselorName: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'LoanPartner' })
+  LoanPartner: Types.ObjectId;
 
   @Prop()
   loanAmount: number;

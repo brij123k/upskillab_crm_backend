@@ -70,4 +70,14 @@ export class EmailService {
 
     return this.sendMail(email, 'CRM UPDATE', html);
   }
+
+  async sendReminder(email: string, reminderText: string) {
+    const formattedText = reminderText.replace(/\n/g, '<br>');
+    const html = `
+      <h2>Loan EMI Reminder</h2>
+      <p>${formattedText}</p>
+    `;
+    return this.sendMail(email, 'Loan EMI Reminder', html);
+  }
+
 }

@@ -36,4 +36,5 @@ export class LoanPartnerService {
       { new: true },
     );
   }
+  
 }

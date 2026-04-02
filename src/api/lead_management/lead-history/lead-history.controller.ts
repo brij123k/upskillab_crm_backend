@@ -17,7 +17,6 @@ export class LeadHistoryController {
   @Roles('Admin', 'bd')
   @Get(':leadId')
   getLeadHistory(@Param('leadId') leadId: number) {
-    console.log(leadId)
     return this.logic.getHistoryByLead(leadId.toString());
   }
 

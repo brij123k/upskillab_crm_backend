@@ -1,5 +1,5 @@
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CallLogData } from 'src/api/call-logs/call-log.data';
 import { UserLogic } from 'src/api/user/user.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
@@ -76,8 +76,8 @@ export class LeadData {
 
     if (status) query.status = status;
     if (source) query.source = source;
-    if (stageId) query.stageId = stageId;
-    if (poolId) query.poolId = poolId;
+    if (stageId) query.stageId = new Types.ObjectId(stageId);
+    if (poolId) query.poolId = new Types.ObjectId(poolId);
     if (assignedTo) query.assignedTo = assignedTo;
     if (modifiedBy) query.modifiedBy = modifiedBy;
     if (isActive !== undefined)
@@ -143,7 +143,7 @@ export class LeadData {
     };
   }
 
-async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
+async findAllWithFiltersUserIds(filters: any, userIds: string[],pool?: string,) {
   const {
     search,
     status,
@@ -164,9 +164,16 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
   } = filters;
 
   // 🔐 Base query (access control)
-  const query: any = {
-    assignedTo: { $in: userIds },
-  };
+  const query: any = {};
+
+  if (pool) {
+    query.$or = [
+      { assignedTo: { $in: userIds } },
+      { poolId: pool },
+    ];
+  } else {
+    query.assignedTo = { $in: userIds };
+  }
 
   /* ================= SEARCH ================= */
   if (search) {
@@ -190,11 +197,14 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[]) {
   }
 
   /* ================= BASIC FILTERS ================= */
-  if (assignedTo) query.assignedTo = assignedTo;
+  if (assignedTo) {
+  query.$and = query.$and || [];
+  query.$and.push({ assignedTo });
+};
   if (status) query.status = status;
   if (source) query.source = source;
-  if (stageId) query.stageId = stageId;
-  if (poolId) query.poolId = poolId;
+  if (stageId) query.stageId = new Types.ObjectId(stageId);
+  if (poolId) query.poolId = new Types.ObjectId(poolId);
   if (modifiedBy) query.modifiedBy = modifiedBy;
   if (isActive !== undefined) query.isActive = isActive === 'true';
 

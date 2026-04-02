@@ -9,7 +9,7 @@ export class CashfreeClient {
     return {
       'x-client-id': process.env.CASHFREE_APP_ID,
       'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-      'x-api-version': '2023-08-01',
+      'x-api-version': '2025-01-01',
       'Content-Type': 'application/json',
     };
   }

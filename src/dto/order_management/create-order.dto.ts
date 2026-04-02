@@ -6,6 +6,7 @@ import {
   IsString,
   IsDateString,
   IsObject,
+  IsBoolean,
 } from 'class-validator';
 import { PaymentMode } from 'src/schema/order_Management/order.schema';
 
@@ -65,27 +66,18 @@ export class CreateOrderDto {
   @ApiPropertyOptional() 
   @IsNumber() 
   discount: number;
-    
-  // @ApiProperty()
-  // @IsNumber()
-  // finalFee: number;
-
-  // @ApiPropertyOptional() 
-  // @IsNumber() 
-  // registrationAmount: number;
   
+  @ApiPropertyOptional()
+  @IsBoolean()
+  GSTEnabled: boolean;
+
+  @ApiPropertyOptional()
+  @IsNumber()
+  GSTAmount: number;
 
   @ApiProperty({ enum: PaymentMode })
   @IsEnum(PaymentMode)
   paymentMode: PaymentMode;
-
-  @ApiPropertyOptional()
-  @IsString() 
-  counsellorId: string;
-
-  @ApiPropertyOptional()
-  @IsString() 
-  counsellorName: string;
 
   @ApiPropertyOptional() 
   @IsDateString() 

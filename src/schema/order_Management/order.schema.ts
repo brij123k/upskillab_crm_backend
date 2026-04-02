@@ -50,7 +50,7 @@ export class Order {
   courseVertical: Types.ObjectId;
 
   @Prop()
-  countedRevenue: string;
+  countedRevenue: number;
 
   @Prop()
   courseName: string;
@@ -66,6 +66,12 @@ export class Order {
 
   @Prop()
   finalFee: number;
+
+  @Prop()
+  GSTEnabled: boolean;
+
+  @Prop()
+  GSTAmount: number;
 
   @Prop()
   registrationAmount: number;

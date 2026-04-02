@@ -65,5 +65,28 @@ export const PERMISSIONS = {
       READ:'read',
       UPDATE:'update',
     }
+  },
+  Orders:{
+    MODULE:'orders',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+      UPDATE:'update',
+      APPROVE:'approve',
+      LOANS:'read_loans',
+      SENDREMINDERS:'send_reminders',
+      PAYMENTLINKGENERATOR:'payment_link_generator',
+      READPAYMENTHISTORY:'read_payment_history',
+    }
+  },
+  LOANPARTNER:{
+    MODULE:'loan_partner',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+      UPDATE:'update',
+      APPROVE:'approve',
+      TOGGLESTATUS:'toggle_status',
+    }
   }
 } as const;

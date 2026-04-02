@@ -36,7 +36,7 @@ export class PoolController {
   }
 
 
-  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
    @Roles('Admin','bd')
   @Get()
   @RequirePermission(

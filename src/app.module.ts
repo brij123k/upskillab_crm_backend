@@ -21,6 +21,7 @@ import { InteractionLogModule } from './api/interaction-log/lead-interaction-log
 import { OrderModule } from './api/order_management/order.module';
 import { PaymentModule } from './api/order_management/payment/payment.module';
 import { LoanPartnerModule } from './api/order_management/loan-partner/loan-partner.module';
+import { SubscriptionModule } from './api/order_management/subscription/subscription.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -45,6 +46,7 @@ ConfigModule.forRoot({
     OrderModule,
     PaymentModule,
     LoanPartnerModule,
+    SubscriptionModule,
   ],
   controllers: [AppController],
   providers: [AppService],
