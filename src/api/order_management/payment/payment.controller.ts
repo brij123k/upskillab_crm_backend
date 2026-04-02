@@ -238,6 +238,6 @@ export class PaymentController {
     return this.paymentService.createSubscription(body);
   }
   async getSubscriptionLink(subscriptionSessionId: string) {
-    return `https://api.cashfree.com/pg/subscriptions/authorize/${subscriptionSessionId}`;
+    return `https://sandbox.cashfree.com/pg/subscriptions/authorize/${subscriptionSessionId}`;
   }
 }

@@ -82,7 +82,7 @@ export class PaymentService {
         };
       }
       const response = await axios.post(
-        'https://api.cashfree.com/pg/links',
+        'https://sandbox.cashfree.com/pg/links',
         payload,
         {
           headers: {
@@ -265,7 +265,7 @@ async getPaymentById(orderId: string) {
   }) {
     try {
       const response = await axios.post(
-        'https://api.cashfree.com/pg/plans',
+        'https://sandbox.cashfree.com/pg/plans',
         {
           plan_id: `plan_${Date.now()}`,
           plan_name: data.name || `plan_${Date.now()}`,
@@ -301,7 +301,7 @@ async getPaymentById(orderId: string) {
   async getPlans(planId?: string) {
     try {
       const response = await axios.get(
-        `https://api.cashfree.com/pg/plans/${planId}`,
+        `https://sandbox.cashfree.com/pg/plans/${planId}`,
         {
           headers: this.getCashfreeHeaders(),
         },
@@ -321,7 +321,7 @@ async getPaymentById(orderId: string) {
     }
     try {
       const response = await axios.patch(
-        `https://api.cashfree.com/pg/subscriptions/plans/${planId}`,
+        `https://sandbox.cashfree.com/pg/subscriptions/plans/${planId}`,
         {
           plan_status: existingPlan.isActive ? 'INACTIVE' : 'ACTIVE',
         },
@@ -411,14 +411,14 @@ async getPaymentById(orderId: string) {
       };
 
       const response = await axios.post(
-        'https://api.cashfree.com/pg/subscriptions',
+        'https://sandbox.cashfree.com/pg/subscriptions',
         payload,
         { headers: this.getCashfreeHeaders() },
       );
 
       const sessionId = response.data.subscription_session_id;
 
-      const authLink = `https://api.cashfree.com/api/v1/${sessionId}`;
+      const authLink = `https://sandbox.cashfree.com/api/v1/${sessionId}`;
       // 🔥 Save in DB
       subscription.subscriptionId = response.data.subscription_id;
       subscription.planId = planId || null;

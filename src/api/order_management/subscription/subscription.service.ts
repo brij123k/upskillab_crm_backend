@@ -126,7 +126,7 @@ firstChargeDate.setDate(firstChargeDate.getDate() + 1);
 
     // // 🔥 CASHFREE CALL
     const res = await axios.post(
-      'https://api.cashfree.com/pg/subscriptions',
+      'https://sandbox.cashfree.com/pg/subscriptions',
       payload,
       {
         headers: {
@@ -139,7 +139,7 @@ firstChargeDate.setDate(firstChargeDate.getDate() + 1);
     );
     
     const authRes = await axios.post(
-  `https://api.cashfree.com/pg/subscriptions/${subscriptionId}/authorize`,
+  `https://sandbox.cashfree.com/pg/subscriptions/${subscriptionId}/authorize`,
   {
     subscription_session_id: res.data.subscription_session_id,
   },
