@@ -168,6 +168,7 @@ if (Pool?._id) {
 
     const lead = await this.leadData.update(id, {
       ...dto,
+      assignedTo:dto.assignedTo===""?existingLead.assignedTo:dto.assignedTo,
       stageId:new Types.ObjectId(dto.stageId),
       poolId:new Types.ObjectId(dto.poolId),
       modifiedBy: userId,
