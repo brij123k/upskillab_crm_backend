@@ -31,6 +31,9 @@ export class Lead extends Document {
   @Prop()
   email?: string;
 
+  @Prop()
+  address?: string;
+
   @Prop({ enum: LeadSource, required: true, default: LeadSource.MANUAL })
   source: LeadSource;
 

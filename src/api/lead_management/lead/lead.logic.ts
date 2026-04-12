@@ -124,7 +124,6 @@ await this.notificationEngine.handleEvent({
   }
 
   async findAll(filters: any, user: any) {
-    console.log('Finding leads with filters:', filters, 'for user:', user);
     // 🔥 Admin → see everything
     if (user.isSuperAdmin) {
       return this.leadData.findAllWithFilters(filters);

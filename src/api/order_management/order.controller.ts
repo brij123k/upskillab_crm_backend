@@ -86,7 +86,6 @@ getAll(@Query() query: any, @Req() req) {
         @Param('id') id: string,
         @Req() req: any,
     ) {
-        console.log('Approving order with ID:', id, 'by user:', req.user.userId);
         const approvedBy = req.user.userId;
         return this.service.approveOrder(id, approvedBy);
     }

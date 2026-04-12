@@ -71,6 +71,7 @@ async findByEmployeeId(employeeId: number) {
 }
 
   update(id: any, data: any) {
+    console.log(id,data)
     return this.userModel.findByIdAndUpdate(id, data, { new: true });
   }
 
@@ -94,7 +95,7 @@ toggleBlock(userId: string, isBlocked: boolean) {
     return this.userModel
       .find()
       .select(
-        'name email number employeeId status isBlocked isDashboardEnabled role lastLoginAt createdAt updatedAt',
+        'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
       )
       .populate({
         path: 'role',

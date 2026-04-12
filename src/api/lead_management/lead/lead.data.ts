@@ -55,24 +55,26 @@ export class LeadData {
     const query: any = {};
 
     if (search) {
-  const searchConditions: any[] = [
-    { name: { $regex: search, $options: 'i' } },
-    { phone: { $regex: search, $options: 'i' } },
-    { email: { $regex: search, $options: 'i' } },
-  ];
+      const searchConditions: any[] = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+      ];
 
-  // 🔢 employeeId lives in assignedTo (User collection)
-  if (!isNaN(Number(search))) {
-    const users = await this.userLogic.findbyEmpId(Number(search));
-    const userIds = users.map((u) => u._id.toString());
+      // 🔢 employeeId lives in assignedTo (User collection)
+      if (!isNaN(Number(search))) {
+        searchConditions.push({ leadId: Number(search) });
+        const users = await this.userLogic.findbyEmpId(Number(search));
+        const userIds = users.map((u) => u._id.toString());
 
-    if (userIds.length) {
-      searchConditions.push({ assignedTo: { $in: userIds } });
+        if (userIds.length) {
+          searchConditions.push({ assignedTo: { $in: userIds } });
+        }
+      }
+
+      query.$or = searchConditions;
     }
-  }
-
-  query.$or = searchConditions;
-}
 
     if (status) query.status = status;
     if (source) query.source = source;
@@ -143,163 +145,162 @@ export class LeadData {
     };
   }
 
-async findAllWithFiltersUserIds(filters: any, userIds: string[],pool?: string,) {
-  const {
-    search,
-    status,
-    source,
-    stageId,
-    poolId,
-    assignedTo,
-    modifiedBy,
-    isActive,
-    dateFilter,
-    fromDate,
-    toDate,
-    connected,
-    scheduler,
-    sort = 'new',
-    page = 1,
-    limit = 10,
-  } = filters;
+  async findAllWithFiltersUserIds(filters: any, userIds: string[], pool?: string,) {
+    const {
+      search,
+      status,
+      source,
+      stageId,
+      poolId,
+      assignedTo,
+      modifiedBy,
+      isActive,
+      dateFilter,
+      fromDate,
+      toDate,
+      connected,
+      scheduler,
+      sort = 'new',
+      page = 1,
+      limit = 10,
+    } = filters;
 
-  // 🔐 Base query (access control)
-  const query: any = {};
+    // 🔐 Base query (access control)
+    const query: any = {};
 
-  if (pool) {
-    query.$or = [
-      { assignedTo: { $in: userIds } },
-      { poolId: pool },
-    ];
-  } else {
-    query.assignedTo = { $in: userIds };
-  }
+    if (pool) {
+      query.$or = [
+        { assignedTo: { $in: userIds } },
+        { poolId: pool },
+      ];
+    } else {
+      query.assignedTo = { $in: userIds };
+    }
 
-  /* ================= SEARCH ================= */
-  if (search) {
-    const searchConditions: any[] = [
-      { name: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-    ];
+    /* ================= SEARCH ================= */
+    if (search) {
+      const searchConditions: any[] = [
+        { name: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { address: { $regex: search, $options: 'i' } },
+      ];
+      if (!isNaN(Number(search))) {
+        searchConditions.push({ leadId: Number(search) });
+        const users = await this.userLogic.findbyEmpId(Number(search));
+        const empUserIds = users.map((u) => u._id.toString());
+        const allowedIds = empUserIds.filter((id) => userIds.includes(id));
 
-    if (!isNaN(Number(search))) {
-      const users = await this.userLogic.findbyEmpId(Number(search));
-      const empUserIds = users.map((u) => u._id.toString());
-      const allowedIds = empUserIds.filter((id) => userIds.includes(id));
+        if (allowedIds.length) {
+          searchConditions.push({ assignedTo: { $in: allowedIds } });
+        }
+      }
 
-      if (allowedIds.length) {
-        searchConditions.push({ assignedTo: { $in: allowedIds } });
+      query.$or = searchConditions;
+    }
+
+    /* ================= BASIC FILTERS ================= */
+    if (assignedTo) {
+      query.$and = query.$and || [];
+      query.$and.push({ assignedTo });
+    };
+    if (status) query.status = status;
+    if (source) query.source = source;
+    if (stageId) query.stageId = new Types.ObjectId(stageId);
+    if (poolId) query.poolId = new Types.ObjectId(poolId);
+    if (modifiedBy) query.modifiedBy = modifiedBy;
+    if (isActive !== undefined) query.isActive = isActive === 'true';
+    const now = new Date();
+
+    if (dateFilter) {
+      let start: Date | null = null;
+
+      if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
+      else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
+      else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
+      else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
+
+      if (start) query.createdAt = { $gte: start };
+    }
+
+    if (fromDate && toDate) {
+      query.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    /* ================= DERIVED FILTERS ================= */
+
+    // Step 1: get all leadIds matching base query (before connected/scheduler)
+    let baseLeadIds = await this.leadModel
+      .find(query)
+      .select('leadId')
+      .lean();
+
+    let filteredLeadIds = baseLeadIds.map((l) => l.leadId);
+
+    // 🔌 CONNECTED FILTER
+    if (connected !== undefined) {
+      const connectedLeadIds =
+        await this.getLeadIdsByConnection(
+          filteredLeadIds,
+          connected === 'true',
+        );
+
+      filteredLeadIds = filteredLeadIds.filter((id) =>
+        connectedLeadIds.includes(id),
+      );
+    }
+
+    // ⏰ SCHEDULER FILTER
+    if (scheduler !== undefined) {
+      const scheduledLeadIds =
+        await this.leadScheduleData.getScheduledLeadIds(filteredLeadIds);
+
+      if (scheduler === 'true') {
+        filteredLeadIds = filteredLeadIds.filter((id) =>
+          scheduledLeadIds.includes(id),
+        );
+      } else {
+        filteredLeadIds = filteredLeadIds.filter(
+          (id) => !scheduledLeadIds.includes(id),
+        );
       }
     }
 
-    query.$or = searchConditions;
-  }
+    // Apply final leadId filter
+    if (connected !== undefined || scheduler !== undefined) {
+      query.leadId = filteredLeadIds.length ? { $in: filteredLeadIds } : [-1];
+    }
 
-  /* ================= BASIC FILTERS ================= */
-  if (assignedTo) {
-  query.$and = query.$and || [];
-  query.$and.push({ assignedTo });
-};
-  if (status) query.status = status;
-  if (source) query.source = source;
-  if (stageId) query.stageId = new Types.ObjectId(stageId);
-  if (poolId) query.poolId = new Types.ObjectId(poolId);
-  if (modifiedBy) query.modifiedBy = modifiedBy;
-  if (isActive !== undefined) query.isActive = isActive === 'true';
+    /* ================= PAGINATION ================= */
+    const skip = (page - 1) * limit;
+    const sortOrder = sort === 'old' ? 1 : -1;
 
-  /* ================= DATE FILTER ================= */
-  const now = new Date();
+    const [data, total] = await Promise.all([
+      this.leadModel
+        .find(query)
+        .populate('assignedTo', 'name email employeeId')
+        .populate('stageId', 'name order')
+        .populate('poolId', 'name')
+        .sort({ createdAt: sortOrder })
+        .skip(skip)
+        .limit(Number(limit)),
 
-  if (dateFilter) {
-    let start: Date | null = null;
+      this.leadModel.countDocuments(query),
+    ]);
 
-    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
-    else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
-    else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
-    else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
-
-    if (start) query.createdAt = { $gte: start };
-  }
-
-  if (fromDate && toDate) {
-    query.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
+    return {
+      data,
+      meta: {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
-
-  /* ================= DERIVED FILTERS ================= */
-
-  // Step 1: get all leadIds matching base query (before connected/scheduler)
-  let baseLeadIds = await this.leadModel
-    .find(query)
-    .select('leadId')
-    .lean();
-
-  let filteredLeadIds = baseLeadIds.map((l) => l.leadId);
-
-  // 🔌 CONNECTED FILTER
-  if (connected !== undefined) {
-    const connectedLeadIds =
-      await this.getLeadIdsByConnection(
-        filteredLeadIds,
-        connected === 'true',
-      );
-
-    filteredLeadIds = filteredLeadIds.filter((id) =>
-      connectedLeadIds.includes(id),
-    );
-  }
-
-  // ⏰ SCHEDULER FILTER
-  if (scheduler !== undefined) {
-    const scheduledLeadIds =
-      await this.leadScheduleData.getScheduledLeadIds(filteredLeadIds);
-
-    if (scheduler === 'true') {
-      filteredLeadIds = filteredLeadIds.filter((id) =>
-        scheduledLeadIds.includes(id),
-      );
-    } else {
-      filteredLeadIds = filteredLeadIds.filter(
-        (id) => !scheduledLeadIds.includes(id),
-      );
-    }
-  }
-
-  // Apply final leadId filter
-  if (connected !== undefined || scheduler !== undefined) {
-    query.leadId = filteredLeadIds.length ? { $in: filteredLeadIds } : [-1];
-  }
-
-  /* ================= PAGINATION ================= */
-  const skip = (page - 1) * limit;
-  const sortOrder = sort === 'old' ? 1 : -1;
-
-  const [data, total] = await Promise.all([
-    this.leadModel
-      .find(query)
-      .populate('assignedTo', 'name email employeeId')
-      .populate('stageId', 'name order')
-      .populate('poolId', 'name')
-      .sort({ createdAt: sortOrder })
-      .skip(skip)
-      .limit(Number(limit)),
-
-    this.leadModel.countDocuments(query),
-  ]);
-
-  return {
-    data,
-    meta: {
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / limit),
-    },
-  };
-}
 
 
 
@@ -327,11 +328,18 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[],pool?: string,) 
 
     // 🔍 SEARCH
     if (search) {
-      query.$or = [
+      const searchConditions: any[] = [
         { name: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
       ];
+      // ✅ Add leadId search
+      if (!isNaN(Number(search))) {
+        searchConditions.push({ leadId: Number(search) });
+      }
+
+      query.$and = query.$and || [];
+      query.$and.push({ $or: searchConditions });
     }
 
     // 🎯 FILTERS
@@ -551,28 +559,28 @@ async findAllWithFiltersUserIds(filters: any, userIds: string[],pool?: string,) 
 
 
   async getLeadIdsByConnection(
-  leadIds: number[],
-  connected: boolean,
-) {
-  const pipeline: any[] = [
-    { $match: { leadId: { $in: leadIds } } },
-    { $sort: { createdAt: -1 } },
-    {
-      $group: {
-        _id: "$leadId",
-        latestCall: { $first: "$$ROOT" },
+    leadIds: number[],
+    connected: boolean,
+  ) {
+    const pipeline: any[] = [
+      { $match: { leadId: { $in: leadIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$leadId",
+          latestCall: { $first: "$$ROOT" },
+        },
       },
-    },
-    {
-      $match: connected
-        ? { "latestCall.duration": { $gt: 0 } }
-        : { "latestCall.duration": 0 },
-    },
-    { $project: { _id: 1 } },
-  ];
+      {
+        $match: connected
+          ? { "latestCall.duration": { $gt: 0 } }
+          : { "latestCall.duration": 0 },
+      },
+      { $project: { _id: 1 } },
+    ];
 
-  const result = await this.callLogModel.aggregate(pipeline);
-  return result.map((r) => r._id);
-}
+    const result = await this.callLogModel.aggregate(pipeline);
+    return result.map((r) => r._id);
+  }
 
 }

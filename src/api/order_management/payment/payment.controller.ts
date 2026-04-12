@@ -79,10 +79,8 @@ export class PaymentController {
 
         if (orderId) {
           order = await this.orderService.findById(orderId);
-          console.log('Linked Order:', order);
           if (order) {
             counsellorId = order.counsellorId;
-            console.log('Counsellor ID from Order:', counsellorId);
             // 🔥 LEAD MATCH BY EMAIL
             if (order.email) {
               const lead = await this.leadModel.findOne({

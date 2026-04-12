@@ -43,6 +43,12 @@ export class User extends Document {
   @Prop()
   otp: string;
 
+  @Prop({default:false})
+  IVREnabled:boolean
+
+  @Prop()
+  CallerIds:number[];
+  
   @Prop()
   otpExpiry: Date;
 

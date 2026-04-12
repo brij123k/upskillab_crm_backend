@@ -22,6 +22,7 @@ import { OrderModule } from './api/order_management/order.module';
 import { PaymentModule } from './api/order_management/payment/payment.module';
 import { LoanPartnerModule } from './api/order_management/loan-partner/loan-partner.module';
 import { SubscriptionModule } from './api/order_management/subscription/subscription.module';
+import { SmartfloModule } from './api/smartflo/smartflo.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -47,6 +48,7 @@ ConfigModule.forRoot({
     PaymentModule,
     LoanPartnerModule,
     SubscriptionModule,
+    SmartfloModule,
   ],
   controllers: [AppController],
   providers: [AppService],

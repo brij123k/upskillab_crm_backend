@@ -7,6 +7,7 @@ import { User, UserSchema } from 'src/schema/user.schema';
 import { ProfileModule } from '../profile/profile.module';
 import { Profile,ProfileSchema } from 'src/schema/profile.schema';
 import { UserActivityModule } from '../user-activity/user-activity.module';
+import { SmartfloModule } from '../smartflo/smartflo.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -15,6 +16,7 @@ import { UserActivityModule } from '../user-activity/user-activity.module';
     ]),
     ProfileModule,
     UserActivityModule,
+    SmartfloModule,
   ],
   controllers: [UserController],
   providers: [UserLogic, UserData],

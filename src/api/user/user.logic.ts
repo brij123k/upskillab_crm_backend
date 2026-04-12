@@ -18,6 +18,7 @@ import { ChangeUserDto } from 'src/dto/user/userupdate.dto';
 import { User } from 'src/schema/user.schema';
 import { RegisterUserDto } from 'src/dto/user/register-user.dto';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
+import { SmartfloService } from '../smartflo/smartflo.service';
 
 @Injectable()
 export class UserLogic {
@@ -41,7 +42,7 @@ export class UserLogic {
     private readonly profileLogic: ProfileLogic,
     private readonly profileData: ProfileData,
     private readonly userActivityLogic: UserActivityLogic,
-
+    private readonly smartfloService:SmartfloService,
   ) { }
 
   async register(dto: RegisterUserDto) {
@@ -144,6 +145,7 @@ export class UserLogic {
     const payload = {
       userId: user._id,
       name: user.name,
+      number: user.number,
       email: user.email,
       roleId: role._id,
       roleRealName: role.name,
@@ -174,6 +176,8 @@ export class UserLogic {
           roleRealName: role.name,
           isSuperAdmin: role.isSuperAdmin,
         },
+        CallerIds:user.CallerIds,
+        IVREnabled:user.IVREnabled,
         permissions: finalPermissions,
         isBlocked: user.isBlocked,
         lastLoginAt: user.lastLoginAt,
@@ -414,6 +418,7 @@ export class UserLogic {
     };
   }
 
+  // async addIVRUser()
 
 
   async getUsersUnder(userId: string) {
@@ -455,4 +460,18 @@ export class UserLogic {
     return this.profileData.getBydepId(departmentId)
   }
 
+ async createIVRUser(dto:any){
+  const user = await this.smartfloService.createIVRUser({
+  name: dto.name,
+  phone: dto.phone,
+  email: dto.email,
+  login_id:dto.login_id,
+  password:dto.password,
+  caller_ids:dto.caller_ids
+});
+await this.userData.update(new Types.ObjectId(dto.UserId),{IVREnabled:true,CallerIds:dto.caller_ids})
+return user
+ }
+
+ 
 }

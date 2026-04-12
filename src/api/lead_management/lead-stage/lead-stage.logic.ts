@@ -14,7 +14,6 @@ export class LeadStageLogic {
     const exists =
       await this.leadStageData.findByNameAndDepartment(
         dto.name,
-        dto.departmentId,
       );
 
     if (exists) {

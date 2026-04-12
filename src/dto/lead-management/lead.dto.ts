@@ -15,6 +15,11 @@ export class CreateLeadDto {
   @IsOptional()
   email?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  address:string;
+
   @ApiProperty({ enum: LeadSource })
   @IsEnum(LeadSource)
   source: LeadSource;
@@ -56,6 +61,10 @@ export class CreateLeadDto {
   @ApiPropertyOptional()
   @IsOptional()
   source_campaign?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  createdAt:Date;
 }
 export class UpdateLeadDto extends PartialType(CreateLeadDto) {}
 

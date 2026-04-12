@@ -151,4 +151,12 @@ return this.logic.updateUserAndProfile(userId,dto)
     return this.logic.getUserByDepartmentId(departmentId)
   }
 
+
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles('Admin')
+@Post('IVR')
+createIVRUser(@Body() dto:any){
+  console.log(dto)
+  return this.logic.createIVRUser(dto)
+}
 }

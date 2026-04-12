@@ -12,10 +12,6 @@ export class CreateLeadStageDto {
   @ApiProperty({ example: 1 })
   @IsNumber()
   order: number;
-
-  @ApiProperty({ example: '65fa1c9b2a3f1e00123abcd' })
-  @IsString()
-  departmentId: string;
 }
 
 export class UpdateLeadStageDto extends PartialType(

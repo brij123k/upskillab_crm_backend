@@ -33,7 +33,7 @@ export class LeadStageData {
     return this.leadStageModel.findByIdAndDelete(id);
   }
 
-  findByNameAndDepartment(name: string, departmentId: string) {
-    return this.leadStageModel.findOne({ name, departmentId });
+  findByNameAndDepartment(name: string) {
+    return this.leadStageModel.findOne({ name});
   }
 }
