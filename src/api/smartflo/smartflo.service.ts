@@ -1,7 +1,7 @@
 import { Injectable, HttpException, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import axios from 'axios';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CallLog } from 'src/schema/call-log.schema';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { SocketGateway } from '../socket/socket.gateway';
@@ -198,7 +198,7 @@ async updateCallLog(body:any){
     // 🔥 update lead stage
     await this.leadModel.updateOne(
       { leadId: call.leadId },
-      { stageId }
+      { stageId:new Types.ObjectId(stageId) }
     );
 
     await this.leadHistoryLogic.log({
