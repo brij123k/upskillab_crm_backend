@@ -6,7 +6,7 @@ export class CallLogReview extends Document {
   @Prop({ required: true })
   leadId: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'CallLog', required: true, unique: true })
+  @Prop({ type: Types.ObjectId, ref: 'CallLog', required: true })
   callLogId: Types.ObjectId;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
