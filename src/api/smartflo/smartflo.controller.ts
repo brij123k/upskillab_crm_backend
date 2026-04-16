@@ -8,6 +8,7 @@ import {
   Param,
   UseGuards,
   Req,
+  Query,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { SmartfloService } from './smartflo.service';
@@ -42,6 +43,18 @@ export class IVRController {
     await this.smartfloService.hanldeWebhook(body)
     return { success: true };
   }
+
+@Get('webhook/smartflo/callback')
+async handleWebhookCallBack(@Query() query: any) {
+  await this.smartfloService.hanldeWebhookCallBack(query);
+  return { success: true };
+}
+
+@Get('webhook/smartflo/callDone')
+async handleWebhookCallDone(@Query() query: any) {
+  await this.smartfloService.hanldeWebhookCallDone(query);
+  return { success: true };
+}
 
   @Post('submit-call-log')
   async submitCallLog(@Body() body: any) {

@@ -51,6 +51,7 @@ export class SocketGateway
   }
 
   emitToUser(userId: string, event: string, payload: any) {
+    console.log(userId,event,payload)
     this.server.to(`user:${userId}`).emit(event, payload);
   }
   emitToRole(roleName: string, event: string, payload: any) {

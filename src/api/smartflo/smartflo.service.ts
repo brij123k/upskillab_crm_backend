@@ -9,6 +9,7 @@ import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.l
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
+import { User } from 'src/schema/user.schema';
 
 @Injectable()
 export class SmartfloService {
@@ -17,6 +18,9 @@ export class SmartfloService {
     private readonly callLogModel: Model<CallLog>,
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
+
+    @InjectModel(User.name)
+    private readonly userModel: Model<Lead>,
     private readonly socketGateway: SocketGateway,
 
     private readonly leadHistoryLogic: LeadHistoryLogic,
@@ -181,6 +185,118 @@ async hanldeWebhook(body:any){
   );
     return true
 }
+
+async hanldeWebhookCallBack(body: any) {
+  let {
+    caller_id_number,
+    customer_no_with_prefix,
+  } = body;
+
+  // 🔍 Step 1: Try with country code
+  let lead = await this.leadModel.findOne({
+    phone: customer_no_with_prefix,
+  });
+
+  // 🔍 Step 2: Fallback → without country code
+  if (!lead) {
+    lead = await this.leadModel.findOne({
+      phone: caller_id_number,
+    });
+  }
+
+  if (!lead) {
+    return false;
+  }
+  if(lead.assignedTo){
+  this.socketGateway.emitToUser(
+    lead.assignedTo?.toString(),
+    'callBack-received',
+    {
+      leadId: lead.leadId,
+      leadName:lead.name,
+      lead:lead
+    },
+  );
+}
+  return true;
+}
+
+
+async hanldeWebhookCallDone(body: any) {
+  // 🔹 Extract agent number (handle both formats)
+  const agentNumber =
+    body['answered_agent[agent_number]'] ||
+    body['answered_agent[number]'];
+
+  const callerNumber = body?.caller_id_number;
+  const fullNumber = body?.customer_no_with_prefix;
+  const duration = body?.duration;
+  const startStamp = body?.start_stamp;
+  const recording_url=body?.recording_url;
+console.log(agentNumber)
+  // 🔹 Normalize numbers
+  const normalize = (num: string) =>
+    num?.replace(/\D/g, '').slice(-10);
+
+  // 🔍 Find lead (single query - optimized)
+  let lead = await this.leadModel.findOne({
+    phone: { $in: [fullNumber, callerNumber] },
+  });
+
+  // ❌ Lead not found → unknown call
+  if (!lead) {
+    const user = await this.userModel.findOne({
+      number: { $in: [agentNumber, normalize(agentNumber)] },
+    });
+
+    if (!user) return false;
+
+    this.socketGateway.emitToUser(
+      user._id.toString(),
+      'Unknow-call',
+      {
+        message: 'You got an unknown call....',
+        number: callerNumber,
+        duration:duration,
+        startStamp,
+        recording_url,
+      },
+    );
+
+    return true;
+  }
+
+  // ✅ Create call log
+  const call = await this.callLogModel.create({
+    leadId: lead.leadId,
+    userId: lead.assignedTo?.toString(),
+    agentNumber: normalize(agentNumber),
+    customerNumber: callerNumber,
+    duration: duration,
+    isFormSubmitted: false,
+    recording_url,
+    startedAt: new Date(startStamp),
+  });
+
+  // 🔔 Notify user
+  if (call.userId) {
+    this.socketGateway.emitToUser(
+      call.userId.toString(),
+      'call-completed',
+    {
+      callId: call._id,
+      leadId: call.leadId,
+      duration: call.duration,
+      call:call
+    },
+    );
+  }
+
+  console.log('Lead Found:', lead);
+
+  return true;
+}
+
 
 async updateCallLog(body:any){
   const { callId, outcome, stageId,remark } = body;
