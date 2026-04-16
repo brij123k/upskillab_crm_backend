@@ -1,11 +1,14 @@
 import { JwtService } from '@nestjs/jwt';
+import { InjectModel } from '@nestjs/mongoose';
 import {
   WebSocketGateway,
   WebSocketServer,
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
+import { Model } from 'mongoose';
 import { Server, Socket } from 'socket.io';
+import { CallEventQueue } from 'src/schema/call-event-queue.schema';
 
 @WebSocketGateway({
   cors: {
@@ -18,9 +21,12 @@ export class SocketGateway
   @WebSocketServer()
   server: Server;
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(private readonly jwtService: JwtService,
+  @InjectModel(CallEventQueue.name)
+  private readonly callEventQueueModel: Model<CallEventQueue>,
+  ) {}
 
-  handleConnection(client: Socket) {
+ async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token;
       if (!token) throw new Error('No token');
@@ -37,6 +43,13 @@ export class SocketGateway
       client.data.userId = userId;
 
       console.log(`🟢 Socket connected | userId=${userId}`);
+
+      const item = await this.callEventQueueModel.findOne({ userId });
+      if(item){
+        client.emit(item.event, item.payload);
+        await this.callEventQueueModel.deleteMany({ userId });
+      }
+
     } catch (error) {
       console.error('Socket connection error', error.message);
       client.disconnect();
@@ -51,10 +64,28 @@ export class SocketGateway
   }
 
   emitToUser(userId: string, event: string, payload: any) {
-    console.log(userId,event,payload)
     this.server.to(`user:${userId}`).emit(event, payload);
   }
   emitToRole(roleName: string, event: string, payload: any) {
     this.server.to(`role:${roleName}`).emit(event, payload);
   }
+
+  async emitCallEvent(userId: string, event: string, payload: any) {
+  // 🔍 Check if user is online
+  const sockets = await this.server.in(`user:${userId}`).fetchSockets();
+
+  if (sockets.length > 0) {
+    // ✅ User online → send directly
+    this.server.to(`user:${userId}`).emit(event, payload);
+  } else {
+    // ❌ User offline → store in queue
+    await this.callEventQueueModel.create({
+      userId,
+      event,
+      payload,
+    });
+
+    console.log('📦 Stored in offline queue:', userId);
+  }
+}
 }

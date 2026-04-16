@@ -173,7 +173,7 @@ async hanldeWebhook(body:any){
     call.recording_url=recording_url
     await call.save();
     // 🔥 trigger frontend
-  this.socketGateway.emitToUser(
+  this.socketGateway.emitCallEvent(
     call.userId.toString(),
     'call-completed',
     {
@@ -280,7 +280,7 @@ console.log(agentNumber)
 
   // 🔔 Notify user
   if (call.userId) {
-    this.socketGateway.emitToUser(
+    this.socketGateway.emitCallEvent(
       call.userId.toString(),
       'call-completed',
     {
