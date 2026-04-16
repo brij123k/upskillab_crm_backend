@@ -40,18 +40,21 @@ export class IVRController {
 
   @Post('webhook/smartflo')
   async handleWebhook(@Body() body: any) {
+    console.log('webhook/smartflo')
     await this.smartfloService.hanldeWebhook(body)
     return { success: true };
   }
 
 @Get('webhook/smartflo/callback')
 async handleWebhookCallBack(@Query() query: any) {
+    console.log('webhook/smartflo/callback')
   await this.smartfloService.hanldeWebhookCallBack(query);
   return { success: true };
 }
 
 @Get('webhook/smartflo/callDone')
 async handleWebhookCallDone(@Query() query: any) {
+    console.log('webhook/smartflo/callback')
   await this.smartfloService.hanldeWebhookCallDone(query);
   return { success: true };
 }
