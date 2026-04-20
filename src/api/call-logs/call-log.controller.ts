@@ -97,6 +97,18 @@ async getreviewbycallId(
     return this.logic.update(id, dto, user.userId);
   }
 
+  @Get('report/employee-pool-daily-utilization')
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+    PERMISSIONS.Calls.MODULE,
+    PERMISSIONS.Calls.ACTIONS.READ,
+  )
+  @ApiOperation({ summary: 'Get daily pool-wise employee utilization report with call logs, leads, and conversion metrics' })
+  employeePoolDailyUtilizationReport(@Query() query: any) {
+    return this.logic.employeePoolDailyUtilizationReport(query);
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete call log' })
   delete(

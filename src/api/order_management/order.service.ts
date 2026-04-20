@@ -13,6 +13,10 @@ import { UserLogic } from '../user/user.logic';
 import { EmailService } from 'src/common/services/email.service';
 import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.logic';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
+import { Lead } from 'src/schema/lead_management/lead.schema';
+import { CallLog } from 'src/schema/call-log.schema';
+import { Role } from 'src/schema/role.schema';
+import { User } from 'src/schema/user.schema';
 
 @Injectable()
 export class OrderService {
@@ -21,6 +25,10 @@ export class OrderService {
     @InjectModel(Pool.name) private poolModel: Model<Pool>,
     @InjectModel(LoanEmi.name) private emiModel: Model<LoanEmi>,
     @InjectModel(Subscription.name) private subscriptionModel: Model<Subscription>,
+    @InjectModel(Lead.name) private readonly leadModel: Model<Lead>,
+    @InjectModel(CallLog.name) private readonly callLogModel: Model<CallLog>,
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    @InjectModel(Role.name) private readonly roleModel: Model<Role>,
     private readonly userLogic: UserLogic,
     private readonly emailService: EmailService,
     private readonly userActivityLogic: UserActivityLogic,
@@ -159,7 +167,7 @@ async createOrder(dto: CreateOrderDto, userId: string) {
       });
 
     return order;
-  } catch (error) {
+  } catch (error: any) {
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern || {})[0];
       throw new BadRequestException(`${field} already exists`);
@@ -358,6 +366,1272 @@ async findAll(filters: any, user: any) {
         },
       },
     ]);
+  }
+
+  async consultantPerformanceReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    const filterCounsellorId = query.counsellorId
+      ? new Types.ObjectId(query.counsellorId)
+      : undefined;
+
+    const leadMatch: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+    };
+    if (filterCounsellorId) leadMatch.assignedTo = filterCounsellorId;
+
+    const leadStats = await this.leadModel.aggregate([
+      { $match: leadMatch },
+      {
+        $group: {
+          _id: '$assignedTo',
+          totalLeadAssigned: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const orderMatch: any = {
+      orderDate: { $gte: startDate, $lte: endDate },
+    };
+    if (filterCounsellorId) orderMatch.counsellorId = filterCounsellorId;
+
+    const orderStats = await this.orderModel.aggregate([
+      { $match: orderMatch },
+      { $sort: { feeDepositDate: -1, updatedAt: -1, createdAt: -1 } },
+      {
+        $group: {
+          _id: '$counsellorId',
+          registrationDone: {
+            $sum: {
+              $cond: [{ $gt: ['$registrationAmount', 0] }, 1, 0],
+            },
+          },
+          admDone: {
+            $sum: {
+              $cond: ['$Approved', 1, 0],
+            },
+          },
+          bookedRevenue: { $sum: { $ifNull: ['$finalFee', 0] } },
+          realisedRevenue: {
+            $sum: { $ifNull: ['$lumpsumDetails.totalReceived', 0] },
+          },
+          unrealisedRevenue: {
+            $sum: { $ifNull: ['$lumpsumDetails.pendingAmount', 0] },
+          },
+          lastSalePunchDate: { $first: '$feeDepositDate' },
+          lastRevenuePunched: {
+            $first: { $ifNull: ['$lumpsumDetails.totalReceived', 0] },
+          },
+          totalOrders: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const monthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    const lastMonthMatch: any = {
+      feeDepositDate: { $gte: monthStart, $lte: monthEnd },
+    };
+    if (filterCounsellorId) lastMonthMatch.counsellorId = filterCounsellorId;
+
+    const lastMonthStats = await this.orderModel.aggregate([
+      { $match: lastMonthMatch },
+      {
+        $group: {
+          _id: '$counsellorId',
+          tillDateRealisedInLastMonth: {
+            $sum: { $ifNull: ['$lumpsumDetails.totalReceived', 0] },
+          },
+        },
+      },
+    ]);
+
+    const statsByConsultant = new Map<string, any>();
+
+    leadStats.forEach((item) => {
+      if (!item._id) return;
+      const id = item._id.toString();
+      statsByConsultant.set(id, {
+        consultantId: id,
+        totalLeadAssigned: item.totalLeadAssigned,
+        registrationDone: 0,
+        admDone: 0,
+        bookedRevenue: 0,
+        unrealisedRevenue: 0,
+        realisedRevenue: 0,
+        lastSalePunchDate: null,
+        lastRevenuePunched: 0,
+        tillDateRealisedInLastMonth: 0,
+      });
+    });
+
+    orderStats.forEach((item) => {
+      if (!item._id) return;
+      const id = item._id.toString();
+      const existing = statsByConsultant.get(id) || {
+        consultantId: id,
+        totalLeadAssigned: 0,
+      };
+      statsByConsultant.set(id, {
+        ...existing,
+        registrationDone: item.registrationDone,
+        admDone: item.admDone,
+        bookedRevenue: item.bookedRevenue,
+        unrealisedRevenue: item.unrealisedRevenue,
+        realisedRevenue: item.realisedRevenue,
+        lastSalePunchDate: item.lastSalePunchDate,
+        lastRevenuePunched: item.lastRevenuePunched,
+        totalLeadAssigned: existing.totalLeadAssigned || 0,
+      });
+    });
+
+    lastMonthStats.forEach((item) => {
+      if (!item._id) return;
+      const id = item._id.toString();
+      const existing = statsByConsultant.get(id) || {
+        consultantId: id,
+        totalLeadAssigned: 0,
+        registrationDone: 0,
+        admDone: 0,
+        bookedRevenue: 0,
+        unrealisedRevenue: 0,
+        realisedRevenue: 0,
+        lastSalePunchDate: null,
+        lastRevenuePunched: 0,
+      };
+      statsByConsultant.set(id, {
+        ...existing,
+        tillDateRealisedInLastMonth: item.tillDateRealisedInLastMonth,
+      });
+    });
+
+    const consultantIds = Array.from(statsByConsultant.keys()).map(
+      (id) => new Types.ObjectId(id),
+    );
+
+    const users = consultantIds.length
+      ? await this.userModel
+          .find({ _id: { $in: consultantIds } })
+          .select('name email employeeId')
+          .lean()
+      : [];
+
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    const report = Array.from(statsByConsultant.values()).map((item) => {
+      const user = usersById.get(item.consultantId);
+      const lastSalePunchDate = item.lastSalePunchDate
+        ? new Date(item.lastSalePunchDate)
+        : null;
+      const numberOfDaysOnZero = lastSalePunchDate
+        ? Math.max(
+            0,
+            Math.floor(
+              (now.getTime() - lastSalePunchDate.getTime()) /
+                (1000 * 60 * 60 * 24),
+            ),
+          )
+        : null;
+
+      const monthlyRevenueTarget = null;
+      const achievementPercentage = monthlyRevenueTarget
+        ? Number(
+            ((item.realisedRevenue / monthlyRevenueTarget) * 100).toFixed(2),
+          )
+        : null;
+
+      return {
+        consultantId: item.consultantId,
+        consultantName: user?.name || 'Unknown',
+        consultantEmail: user?.email || null,
+        employeeId: user?.employeeId || null,
+        totalLeadAssigned: item.totalLeadAssigned,
+        monthlyRevenueTarget,
+        registrationDone: item.registrationDone,
+        admDone: item.admDone,
+        bookedRevenue: item.bookedRevenue,
+        unrealisedRevenue: item.unrealisedRevenue,
+        realisedRevenue: item.realisedRevenue,
+        achievementPercentage,
+        tillDateRealisedInLastMonth:
+          item.tillDateRealisedInLastMonth || 0,
+        lastSalePunchDate,
+        lastRevenuePunched: item.lastRevenuePunched,
+        numberOfDaysOnZero,
+      };
+    });
+
+    return report.sort((a, b) =>
+      a.consultantName.localeCompare(b.consultantName),
+    );
+  }
+
+  async poolWiseDataReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    const allPools = await this.poolModel.find().lean();
+    const poolIds = allPools.map((p) => p._id);
+
+    const totalLeadsPerPool = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          totalLead: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const cblLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          status: 'Callback',
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          CBL: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const negotiationDoneLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          stageId: { $exists: true, $ne: null },
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+      {
+        $match: {
+          'stage.name': 'Negotiation Done',
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          negotiationDone: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const dnpLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          status: 'DNP',
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          DNP: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const otInterestedLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          status: 'NOT Interested',
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          NOT_INTERESTED: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const newLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          status: 'New Lead',
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          newLead: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const pcatScheduledLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          pcatScheduledDate: { $exists: true, $ne: null },
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          pcatScheduled: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const pcatDoneLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          poolId: { $in: poolIds },
+          pcatDoneDate: { $exists: true, $ne: null },
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $group: {
+          _id: '$poolId',
+          pcatDone: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const leadStatsMap = new Map();
+    totalLeadsPerPool.forEach((item) => {
+      leadStatsMap.set(item._id.toString(), {
+        totalLead: item.totalLead,
+        CBL: 0,
+        negotiationDone: 0,
+        DNP: 0,
+        NOT_INTERESTED: 0,
+        newLead: 0,
+        pcatScheduled: 0,
+        pcatDone: 0,
+      });
+    });
+
+    cblLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.CBL = item.CBL;
+      leadStatsMap.set(key, existing);
+    });
+
+    negotiationDoneLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.negotiationDone = item.negotiationDone;
+      leadStatsMap.set(key, existing);
+    });
+
+    dnpLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.DNP = item.DNP;
+      leadStatsMap.set(key, existing);
+    });
+
+    otInterestedLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.NOT_INTERESTED = item.NOT_INTERESTED;
+      leadStatsMap.set(key, existing);
+    });
+
+    newLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.newLead = item.newLead;
+      leadStatsMap.set(key, existing);
+    });
+
+    pcatScheduledLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.pcatScheduled = item.pcatScheduled;
+      leadStatsMap.set(key, existing);
+    });
+
+    pcatDoneLeads.forEach((item) => {
+      const key = item._id.toString();
+      const existing = leadStatsMap.get(key) || { totalLead: 0 };
+      existing.pcatDone = item.pcatDone;
+      leadStatsMap.set(key, existing);
+    });
+
+    const report = allPools.map((pool) => {
+      const stats = leadStatsMap.get(pool._id.toString()) || {
+        totalLead: 0,
+        CBL: 0,
+        negotiationDone: 0,
+        DNP: 0,
+        NOT_INTERESTED: 0,
+        newLead: 0,
+        pcatScheduled: 0,
+        pcatDone: 0,
+      };
+
+      const totalProcessed =
+        stats.CBL +
+        stats.negotiationDone +
+        stats.DNP +
+        stats.NOT_INTERESTED +
+        stats.newLead +
+        stats.pcatDone;
+
+      const coverage = stats.totalLead > 0 
+        ? Number(((totalProcessed / stats.totalLead) * 100).toFixed(2))
+        : 0;
+
+      return {
+        poolName: pool.name || 'Unknown',
+        poolId: pool._id.toString(),
+        totalLead: stats.totalLead,
+        CBL: stats.CBL,
+        negotiationDone: stats.negotiationDone,
+        DNP: stats.DNP,
+        NOT_INTERESTED: stats.NOT_INTERESTED,
+        newLead: stats.newLead,
+        pcatScheduled: stats.pcatScheduled,
+        pcatDone: stats.pcatDone,
+        coverage: `${coverage}%`,
+      };
+    });
+
+    return {
+      startDate,
+      endDate,
+      poolWiseData: report,
+    };
+  }
+
+  async employeePoolUtilizationReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+    let pools: any[] = [];
+    if(query.poolId=="all")
+    pools = await this.poolModel.find().lean();
+    const poolIds = pools.map((pool) => pool._id);
+
+    const leadMatch: any = {
+      poolId: { $in: poolIds },
+      createdAt: { $gte: startDate, $lte: endDate },
+      assignedTo: { $ne: null },
+    };
+    if (query.poolId) {
+      leadMatch.poolId = new Types.ObjectId(query.poolId);
+    }
+    if (query.counsellorId) {
+      leadMatch.assignedTo = new Types.ObjectId(query.counsellorId);
+    }
+
+    const leadAssignments = await this.leadModel.aggregate([
+      { $match: leadMatch },
+      {
+        $group: {
+          _id: {
+            poolId: '$poolId',
+            employeeId: '$assignedTo',
+          },
+          totalAssigned: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const orderConversionMatch: any = {
+      courseVertical: { $in: poolIds },
+      orderDate: { $gte: startDate, $lte: endDate },
+    };
+    if (query.poolId) {
+      orderConversionMatch.courseVertical = new Types.ObjectId(query.poolId);
+    }
+    if (query.counsellorId) {
+      orderConversionMatch.counsellorId = new Types.ObjectId(query.counsellorId);
+    }
+
+    const conversions = await this.orderModel.aggregate([
+      { $match: orderConversionMatch },
+      {
+        $group: {
+          _id: {
+            poolId: '$courseVertical',
+            employeeId: '$counsellorId',
+          },
+          convert: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const pcatScheduledMatch = {
+      ...leadMatch,
+      pcatScheduledDate: { $exists: true, $ne: null },
+    };
+    const pcatScheduled = await this.leadModel.aggregate([
+      { $match: pcatScheduledMatch },
+      {
+        $group: {
+          _id: '$assignedTo',
+          pcatScheduled: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const pcatDoneMatch = {
+      ...leadMatch,
+      pcatDoneDate: { $exists: true, $ne: null },
+    };
+    const pcatDone = await this.leadModel.aggregate([
+      { $match: pcatDoneMatch },
+      {
+        $group: {
+          _id: '$assignedTo',
+          pcatDone: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const callMatch: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+      userId: { $exists: true, $ne: null },
+    };
+    if (query.counsellorId) {
+      callMatch.userId = query.counsellorId;
+    }
+
+    const callStats = await this.callLogModel.aggregate([
+      { $match: callMatch },
+      {
+        $group: {
+          _id: '$userId',
+          totalDial: { $sum: 1 },
+          answeredTalkTime: {
+            $sum: {
+              $cond: [{ $gt: ['$duration', 0] }, '$duration', 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const orderMatch: any = {
+      orderDate: { $gte: startDate, $lte: endDate },
+    };
+    if (query.poolId) {
+      orderMatch.courseVertical = new Types.ObjectId(query.poolId);
+    }
+    if (query.counsellorId) {
+      orderMatch.counsellorId = new Types.ObjectId(query.counsellorId);
+    }
+
+    const orderStats = await this.orderModel.aggregate([
+      { $match: orderMatch },
+      {
+        $group: {
+          _id: '$counsellorId',
+          registrationDone: {
+            $sum: {
+              $cond: [{ $gt: ['$registrationAmount', 0] }, 1, 0],
+            },
+          },
+          admissionDone: {
+            $sum: {
+              $cond: ['$Approved', 1, 0],
+            },
+          },
+        },
+      },
+    ]);
+
+    const leadAssignmentByEmployee = new Map<string, number>();
+    leadAssignments.forEach((item) => {
+      const employeeId = item._id.employeeId?.toString();
+      if (!employeeId) return;
+      const current = leadAssignmentByEmployee.get(employeeId) || 0;
+      leadAssignmentByEmployee.set(employeeId, current + item.totalAssigned);
+    });
+
+    const pcatScheduledByEmployee = new Map<string, number>();
+    pcatScheduled.forEach((item) => {
+      if (!item._id) return;
+      pcatScheduledByEmployee.set(item._id.toString(), item.pcatScheduled);
+    });
+
+    const pcatDoneByEmployee = new Map<string, number>();
+    pcatDone.forEach((item) => {
+      if (!item._id) return;
+      pcatDoneByEmployee.set(item._id.toString(), item.pcatDone);
+    });
+
+    const callStatsByEmployee = new Map<string, any>();
+    callStats.forEach((item) => {
+      if (!item._id) return;
+      callStatsByEmployee.set(item._id.toString(), {
+        totalDial: item.totalDial,
+        answeredTalkTime: item.answeredTalkTime,
+      });
+    });
+
+    const orderStatsByEmployee = new Map<string, any>();
+    orderStats.forEach((item) => {
+      if (!item._id) return;
+      orderStatsByEmployee.set(item._id.toString(), {
+        registrationDone: item.registrationDone,
+        admissionDone: item.admissionDone,
+      });
+    });
+
+    const employeeIds = new Set<string>();
+    leadAssignmentByEmployee.forEach((value, key) => employeeIds.add(key));
+    pcatScheduledByEmployee.forEach((value, key) => employeeIds.add(key));
+    pcatDoneByEmployee.forEach((value, key) => employeeIds.add(key));
+    callStatsByEmployee.forEach((value, key) => employeeIds.add(key));
+    orderStatsByEmployee.forEach((value, key) => employeeIds.add(key));
+
+    const poolAssignmentMap = new Map<string, number>();
+    leadAssignments.forEach((item) => {
+      const employeeId = item._id.employeeId?.toString();
+      const poolId = item._id.poolId?.toString();
+      if (!employeeId || !poolId) return;
+      poolAssignmentMap.set(`${employeeId}_${poolId}`, item.totalAssigned);
+    });
+
+    const poolConversionMap = new Map<string, number>();
+    conversions.forEach((item) => {
+      if (!item._id.employeeId || !item._id.poolId) return;
+      poolConversionMap.set(
+        `${item._id.employeeId.toString()}_${item._id.poolId.toString()}`,
+        item.convert,
+      );
+    });
+
+    const users = employeeIds.size
+      ? await this.userModel
+          .find({ _id: { $in: Array.from(employeeIds).map((id) => new Types.ObjectId(id)) } })
+          .select('name email number employeeId role createdAt')
+          .lean()
+      : [];
+
+    const roleIds = Array.from(new Set(users.map((user) => user.role?.toString()).filter(Boolean)));
+    const roles = roleIds.length
+      ? await this.roleModel.find({ _id: { $in: roleIds.map((id) => new Types.ObjectId(id)) } }).select('name').lean()
+      : [];
+
+    const rolesById = new Map(roles.map((role) => [role._id.toString(), role.name]));
+    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+
+    const calculateVintage = (createdAt?: Date) => {
+      if (!createdAt) return null;
+      const start = new Date(createdAt);
+      const diff = now.getTime() - start.getTime();
+      const months = Math.floor(diff / (1000 * 60 * 60 * 24 * 30));
+      const years = Math.floor(months / 12);
+      const remainingMonths = months % 12;
+      if (years > 0) {
+        return remainingMonths > 0 ? `${years}y ${remainingMonths}m` : `${years}y`;
+      }
+      return `${remainingMonths}m`;
+    };
+
+    const employees = Array.from(employeeIds).map((employeeId) => {
+      const user = usersById.get(employeeId);
+      const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
+      const callStats = callStatsByEmployee.get(employeeId) || { totalDial: 0, answeredTalkTime: 0 };
+      const orderStats = orderStatsByEmployee.get(employeeId) || { registrationDone: 0, admissionDone: 0 };
+      const totalLeadAssigned = leadAssignmentByEmployee.get(employeeId) || 0;
+
+      return {
+        employeeId,
+        employeeName: user?.name || 'Unknown',
+        designation: roleName || null,
+        vintage: calculateVintage(user?.createdAt),
+        leadAssigned: totalLeadAssigned,
+        totalDial: callStats.totalDial || 0,
+        answeredTalkTime: callStats.answeredTalkTime || 0,
+        pcatScheduled: pcatScheduledByEmployee.get(employeeId) || 0,
+        pcatDone: pcatDoneByEmployee.get(employeeId) || 0,
+        registrationDone: orderStats.registrationDone || 0,
+        admissionDone: orderStats.admissionDone || 0,
+        employeeEmail: user?.email || null,
+        employeeNumber: user?.number || null,
+        employeeEmployeeId: user?.employeeId || null,
+        pools: pools.map((pool) => {
+          const key = `${employeeId}_${pool._id.toString()}`;
+          const totalAssigned = poolAssignmentMap.get(key) || 0;
+          const convert = poolConversionMap.get(key) || 0;
+          const conversionRate = totalAssigned > 0 ? Number(((convert / totalAssigned) * 100).toFixed(2)) : 0;
+          return {
+            poolId: pool._id.toString(),
+            poolName: pool.name || 'Unknown',
+            totalLeadAssigned: totalAssigned,
+            convert,
+            conversionPercentage: `${conversionRate}%`,
+          };
+        }),
+      };
+    });
+
+    return {
+      startDate,
+      endDate,
+      employees,
+      pools: pools.map((pool) => ({ poolId: pool._id.toString(), poolName: pool.name || 'Unknown' })),
+    };
+  }
+
+  async sourceCampaignWiseLeadRevenueReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    // Date filter (today/week/month/year)
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    // Month filter (specific month-year)
+    if (query.month) {
+      const [year, month] = query.month.split('-').map(Number);
+      startDate = new Date(year, month - 1, 1);
+      endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    }
+
+    // From/To date range
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    // Get all leads in date range
+    const leadMatch: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+      status: 'converted', // Only converted leads
+    };
+
+    if (query.source) {
+      leadMatch.source = query.source.toLowerCase();
+    }
+    if (query.campaign) {
+      leadMatch.source_campaign = query.campaign;
+    }
+
+    // Fetch leads
+    const leads = await this.leadModel.find(leadMatch).lean();
+    const leadIds = leads.map((l) => l._id);
+
+    if (!leadIds.length) {
+      return {
+        startDate,
+        endDate,
+        data: [],
+        summary: {},
+      };
+    }
+
+    // Fetch orders for these leads (need to match by student somehow - using email/phone)
+    const leadPhones = leads.map((l) => l.phone);
+    const orders = await this.orderModel
+      .find({
+        mobile: { $in: leadPhones },
+        orderDate: { $gte: startDate, $lte: endDate },
+      })
+      .lean();
+
+    // Create a map of phone -> orders for quick lookup
+    const ordersByPhone = new Map<string, any[]>();
+    orders.forEach((order) => {
+      if (!ordersByPhone.has(order.mobile)) {
+        ordersByPhone.set(order.mobile, []);
+      }
+      const phoneOrders = ordersByPhone.get(order.mobile);
+      if (phoneOrders) {
+        phoneOrders.push(order);
+      }
+    });
+
+    // Get pool names
+    const poolIds = new Set<string>();
+    leads.forEach((lead) => {
+      poolIds.add(lead.poolId.toString());
+    });
+
+    const pools = await this.poolModel
+      .find({ _id: { $in: Array.from(poolIds).map((id) => new Types.ObjectId(id)) } })
+      .lean();
+    const poolsById = new Map(pools.map((p) => [p._id.toString(), p.name]));
+
+    // Group by source and pool
+    const groupedData = new Map<string, any>();
+
+    leads.forEach((lead) => {
+      const source = lead.source || 'Unknown';
+      const poolId = lead.poolId.toString();
+      const poolName = poolsById.get(poolId) || 'Unknown';
+      const key = `${source}`;
+
+      if (!groupedData.has(key)) {
+        groupedData.set(key, {
+          source,
+          campaigns: new Map(),
+        });
+      }
+
+      if (!groupedData.get(key).campaigns.has(poolName)) {
+        groupedData.get(key).campaigns.set(poolName, {
+          poolName,
+          totalLead: 0,
+          revenue: 0,
+        });
+      }
+
+      const campaign = groupedData.get(key).campaigns.get(poolName);
+      campaign.totalLead += 1;
+
+      // Add revenue from orders
+      const ordersForLead = ordersByPhone.get(lead.phone) || [];
+      ordersForLead.forEach((order) => {
+        campaign.revenue += order.countedRevenue || order.finalFee || 0;
+      });
+    });
+
+    // Build response in Excel format
+    const allCampaigns = new Set<string>();
+    const sourceNames: string[] = [];
+
+    groupedData.forEach((data) => {
+      sourceNames.push(data.source);
+      data.campaigns.forEach((campaign) => {
+        allCampaigns.add(campaign.poolName);
+      });
+    });
+
+    const campaigns = Array.from(allCampaigns).sort();
+    const response: any = {
+      startDate,
+      endDate,
+      campaigns,
+      data: [],
+      totals: {
+        total: { totalLead: 0, revenue: 0 },
+        byCampaign: {},
+      },
+    };
+
+    // Add rows for each source
+    sourceNames.sort().forEach((source) => {
+      const sourceData = groupedData.get(source);
+      const row: any = {
+        source,
+      };
+
+      campaigns.forEach((campaign) => {
+        const campaignData = sourceData.campaigns.get(campaign);
+        if (campaignData) {
+          row[`${campaign}_lead`] = campaignData.totalLead;
+          row[`${campaign}_revenue`] = campaignData.revenue;
+
+          // Update campaign totals
+          if (!response.totals.byCampaign[campaign]) {
+            response.totals.byCampaign[campaign] = { totalLead: 0, revenue: 0 };
+          }
+          response.totals.byCampaign[campaign].totalLead += campaignData.totalLead;
+          response.totals.byCampaign[campaign].revenue += campaignData.revenue;
+
+          // Update grand total
+          response.totals.total.totalLead += campaignData.totalLead;
+          response.totals.total.revenue += campaignData.revenue;
+        } else {
+          row[`${campaign}_lead`] = 0;
+          row[`${campaign}_revenue`] = 0;
+        }
+      });
+
+      // Calculate source totals
+      row.totalLead = campaigns.reduce((sum, campaign) => sum + (row[`${campaign}_lead`] || 0), 0);
+      row.totalRevenue = campaigns.reduce((sum, campaign) => sum + (row[`${campaign}_revenue`] || 0), 0);
+
+      response.data.push(row);
+    });
+
+    return response;
+  }
+
+  async employeePoolRevenueReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    const match: any = {
+      orderDate: { $gte: startDate, $lte: endDate },
+      courseVertical: { $exists: true, $ne: null },
+    };
+    if (query.poolId) {
+      match.courseVertical = new Types.ObjectId(query.poolId);
+    }
+    if (query.counsellorId) {
+      match.counsellorId = new Types.ObjectId(query.counsellorId);
+    }
+
+    const revenueRows = await this.orderModel.aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          normalizedPoolId: {
+            $cond: [
+              { $eq: [{ $type: '$courseVertical' }, 'objectId'] },
+              '$courseVertical',
+              {
+                $cond: [
+                  { $and: [
+                    { $ne: ['$courseVertical', null] },
+                    { $ne: ['$courseVertical', ''] },
+                  ] },
+                  { $toObjectId: '$courseVertical' },
+                  null,
+                ],
+              },
+            ],
+          },
+          normalizedEmployeeId: {
+            $cond: [
+              { $eq: [{ $type: '$counsellorId' }, 'objectId'] },
+              '$counsellorId',
+              {
+                $cond: [
+                  { $and: [
+                    { $ne: ['$counsellorId', null] },
+                    { $ne: ['$counsellorId', ''] },
+                  ] },
+                  { $toObjectId: '$counsellorId' },
+                  null,
+                ],
+              },
+            ],
+          },
+          monthLabel: {
+            $concat: [
+              {
+                $dateToString: {
+                  format: '%b',
+                  date: '$orderDate',
+                },
+              },
+              "'",
+              {
+                $substr: [
+                  { $toString: { $year: '$orderDate' } },
+                  2,
+                  2,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            poolId: '$normalizedPoolId',
+            employeeId: '$normalizedEmployeeId',
+            month: '$monthLabel',
+          },
+          revenue: { $sum: { $ifNull: ['$finalFee', 0] } },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id.employeeId',
+          foreignField: '_id',
+          as: 'employee',
+        },
+      },
+      { $unwind: { path: '$employee', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'pools',
+          localField: '_id.poolId',
+          foreignField: '_id',
+          as: 'pool',
+        },
+      },
+      { $unwind: { path: '$pool', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          poolId: '$_id.poolId',
+          poolName: { $ifNull: ['$pool.name', 'Unknown'] },
+          employeeId: '$_id.employeeId',
+          employeeName: { $ifNull: ['$employee.name', 'Unknown'] },
+          employeeEmail: '$employee.email',
+          employeeNumber: '$employee.number',
+          employeeEmployeeId: '$employee.employeeId',
+          month: '$_id.month',
+          revenue: 1,
+        },
+      },
+      { $sort: { employeeName: 1, poolName: 1, month: 1 } },
+    ]);
+
+    const months = Array.from(new Set(revenueRows.map((row) => row.month))).sort((a, b) => {
+      const monthOrder = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const [ma, ya] = a.split("'");
+      const [mb, yb] = b.split("'");
+      const valueA = Number(`20${ya}`) * 100 + monthOrder.indexOf(ma);
+      const valueB = Number(`20${yb}`) * 100 + monthOrder.indexOf(mb);
+      return valueA - valueB;
+    });
+
+    const employeeMap = new Map<string, any>();
+    revenueRows.forEach((row) => {
+      if (!row.employeeId) return;
+      const empId = row.employeeId.toString();
+      const existing = employeeMap.get(empId) || {
+        employeeId: empId,
+        employeeName: row.employeeName || 'Unknown',
+        employeeEmail: row.employeeEmail || null,
+        employeeNumber: row.employeeNumber || null,
+        employeeEmployeeId: row.employeeEmployeeId || null,
+        poolData: new Map<string, any>(),
+      };
+
+      const poolId = row.poolId?.toString() || 'unknown';
+      const poolEntry = existing.poolData.get(poolId) || {
+        poolId,
+        poolName: row.poolName || 'Unknown',
+        revenueByMonth: {},
+      };
+      poolEntry.revenueByMonth[row.month] = row.revenue;
+      existing.poolData.set(poolId, poolEntry);
+      employeeMap.set(empId, existing);
+    });
+
+    const employees = Array.from(employeeMap.values()).map((emp) => ({
+      employeeId: emp.employeeId,
+      employeeName: emp.employeeName,
+      employeeEmail: emp.employeeEmail,
+      employeeNumber: emp.employeeNumber,
+      employeeEmployeeId: emp.employeeEmployeeId,
+      pools: Array.from(emp.poolData.values()).map((pool: any) => ({
+        poolId: pool.poolId,
+        poolName: pool.poolName,
+        revenueByMonth: months.map((month) => ({
+          month,
+          revenue: pool.revenueByMonth[month] || 0,
+        })),
+      })),
+    }));
+
+    const pools = Array.from(new Set(revenueRows.map((row) => row.poolId?.toString()))).map((poolId) => {
+      const row = revenueRows.find((r) => r.poolId?.toString() === poolId);
+      return {
+        poolId,
+        poolName: row?.poolName || 'Unknown',
+      };
+    });
+
+    return {
+      startDate,
+      endDate,
+      months,
+      pools,
+      employees,
+    };
   }
 
   async applyPayment(orderId: string, amount: number) {

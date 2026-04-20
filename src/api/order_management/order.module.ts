@@ -12,6 +12,10 @@ import { UserModule } from '../user/user.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { SubscriptionsPlan, SubscriptionsPlanSchema } from 'src/schema/order_Management/subscriptions-plan.schema';
 import { UserActivityModule } from '../user-activity/user-activity.module';
+import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
+import { User, UserSchema } from 'src/schema/user.schema';
+import { CallLog, CallLogSchema } from 'src/schema/call-log.schema';
+import { Role, RoleSchema } from 'src/schema/role.schema';
 @Module({
   imports: [
     UserModule,
@@ -21,6 +25,10 @@ import { UserActivityModule } from '../user-activity/user-activity.module';
       { name: LoanEmi.name, schema: LoanEmiSchema },
       { name: Subscription.name, schema: SubscriptionSchema },
       { name: SubscriptionsPlan.name, schema: SubscriptionsPlanSchema },
+      { name: Lead.name, schema: LeadSchema },
+      { name: User.name, schema: UserSchema },
+      { name: CallLog.name, schema: CallLogSchema },
+      { name: Role.name, schema: RoleSchema },
     ]),
     UserActivityModule,
   ],

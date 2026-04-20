@@ -154,6 +154,240 @@ if (Pool?._id) {
     );
   }
 
+  async stageSummaryReport(query: any, user: any) {
+    const now = new Date();
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    if (query.date) {
+      const singleDate = new Date(query.date);
+      if (!Number.isNaN(singleDate.getTime())) {
+        startDate = new Date(singleDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(singleDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    } else if (query.dateFilter) {
+      const dateFilter = query.dateFilter.toString().toLowerCase();
+      if (dateFilter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (dateFilter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate && query.toDate) {
+      const from = new Date(query.fromDate);
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    if (!startDate || !endDate) {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    }
+
+    const match: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+    };
+
+    if (query.status) match.status = query.status;
+    if (query.source) match.source = query.source;
+    if (query.stageId) match.stageId = new Types.ObjectId(query.stageId);
+    if (query.poolId) match.poolId = new Types.ObjectId(query.poolId);
+    if (query.assignedTo) match.assignedTo = query.assignedTo;
+    if (query.counsellorId) match.assignedTo = query.counsellorId;
+
+    if (!user.isSuperAdmin) {
+      const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
+      const users = await this.userLogic.getUsersUnder(user.userId);
+      const accessibleUserIds = users.map((u) => u._id.toString());
+      accessibleUserIds.push(user.userId);
+
+      if (Pool?._id) {
+        match.$or = [
+          { assignedTo: { $in: accessibleUserIds } },
+          { poolId: Pool._id },
+        ];
+      } else {
+        match.assignedTo = { $in: accessibleUserIds };
+      }
+    }
+
+    const stageResults = await this.leadModel.aggregate([
+      { $match: match },
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+      { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: { $ifNull: ['$stage.name', 'Unknown'] },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id': 1 } },
+    ]);
+
+    const totalLead = stageResults.reduce((sum, item) => sum + item.count, 0);
+    const report = stageResults.map((item) => ({
+      leadStage: item._id,
+      count: item.count,
+    }));
+
+    return {
+      totalLead,
+      startDate,
+      endDate,
+      report,
+    };
+  }
+
+  async allEmployeesStagesReport(user: any) {
+    const match: any = {};
+
+    if (!user.isSuperAdmin) {
+      const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
+      const users = await this.userLogic.getUsersUnder(user.userId);
+      const accessibleUserIds = users.map((u) => u._id.toString());
+      accessibleUserIds.push(user.userId);
+
+      if (Pool?._id) {
+        match.$or = [
+          { assignedTo: { $in: accessibleUserIds } },
+          { poolId: Pool._id },
+        ];
+      } else {
+        match.assignedTo = { $in: accessibleUserIds };
+      }
+    }
+
+    const employeeResults = await this.leadModel.aggregate([
+      { $match: match },
+      {
+        $addFields: {
+          employeeLookupId: {
+            $cond: [
+              { $and: [
+                { $ne: ['$assignedTo', null] },
+                { $ne: ['$assignedTo', false] },
+                { $eq: [{ $type: '$assignedTo' }, 'objectId'] },
+              ] },
+              '$assignedTo',
+              {
+                $cond: [
+                  { $and: [
+                    { $ne: ['$assignedTo', null] },
+                    { $ne: ['$assignedTo', false] },
+                  ] },
+                  { $toObjectId: '$assignedTo' },
+                  null,
+                ],
+              },
+            ],
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'employeeLookupId',
+          foreignField: '_id',
+          as: 'employee',
+        },
+      },
+      { $unwind: { path: '$employee', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+      { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            employeeId: {
+              $cond: [
+                { $ifNull: ['$assignedTo', false] },
+                { $toString: '$assignedTo' },
+                'unassigned',
+              ],
+            },
+            employeeName: { $ifNull: ['$employee.name', 'Unassigned'] },
+            employeeEmail: '$employee.email',
+            employeeNumber: '$employee.number',
+            employeeEmployeeId: '$employee.employeeId',
+            stageName: { $ifNull: ['$stage.name', 'Unknown'] },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: {
+          '_id.employeeName': 1,
+          '_id.stageName': 1,
+        },
+      },
+    ]);
+
+    const grouped = new Map<string, any>();
+    employeeResults.forEach((item) => {
+      const empId = item._id.employeeId;
+      const existing = grouped.get(empId) || {
+        employeeId: empId,
+        employeeName: item._id.employeeName,
+        employeeEmail: item._id.employeeEmail || null,
+        employeeNumber: item._id.employeeNumber || null,
+        employeeEmployeeId: item._id.employeeEmployeeId || null,
+        totalLead: 0,
+        stages: [],
+      };
+
+      existing.stages.push({
+        leadStage: item._id.stageName,
+        count: item.count,
+      });
+      existing.totalLead += item.count;
+      grouped.set(empId, existing);
+    });
+
+    const employees = Array.from(grouped.values());
+    const totalLeads = employees.reduce((sum, emp) => sum + emp.totalLead, 0);
+
+    return {
+      totalLeads,
+      totalEmployees: employees.length,
+      employees: employees.sort((a, b) => b.totalLead - a.totalLead),
+    };
+  }
 
   async findOne(id: string) {
     const lead = await this.leadData.findById(id);

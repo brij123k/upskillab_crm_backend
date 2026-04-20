@@ -1,14 +1,19 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CallLogData } from './call-log.data';
 import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { LeadLogic } from '../lead_management/lead/lead.logic';
-import { Types } from 'mongoose';
 import { UserLogic } from '../user/user.logic';
+import { CallLog } from 'src/schema/call-log.schema';
+import { Lead } from 'src/schema/lead_management/lead.schema';
+import { Order } from 'src/schema/order_Management/order.schema';
+import { Pool } from 'src/schema/Pool.schema';
+import { User } from 'src/schema/user.schema';
+import { Role } from 'src/schema/role.schema';
 
 @Injectable()
 export class CallLogLogic {
@@ -21,6 +26,12 @@ export class CallLogLogic {
 
     @InjectModel(CallLogReview.name)
     private readonly model: Model<CallLogReview>,
+    @InjectModel(CallLog.name) private callLogModel: Model<CallLog>,
+    @InjectModel(Lead.name) private leadModel: Model<Lead>,
+    @InjectModel(Order.name) private orderModel: Model<Order>,
+    @InjectModel(Pool.name) private poolModel: Model<Pool>,
+    @InjectModel(User.name) private userModel: Model<User>,
+    @InjectModel(Role.name) private roleModel: Model<Role>,
   ) {}
 
   async create(dto: any, currentUserId: string) {
@@ -238,6 +249,369 @@ async getreviewbycallId(callId: string): Promise<any> {
       callLogId: { $in: callLogIds },
     });
   }
+
+  async employeePoolDailyUtilizationReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    // Pool filter is optional
+    let poolId: Types.ObjectId | null = null;
+    let pool: any = null;
+
+    if (query.poolId) {
+      poolId = new Types.ObjectId(query.poolId);
+      pool = await this.poolModel.findById(poolId).lean();
+      if (!pool) {
+        throw new BadRequestException('Pool not found');
+      }
+    }
+
+    // Generate array of dates between startDate and endDate
+    const dates: Date[] = [];
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      dates.push(new Date(d));
+    }
+
+    const allEmployees = new Set<string>();
+    const dailyMetrics = new Map<string, any>(); // key: "dateString_employeeId"
+
+    for (const date of dates) {
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // Call dials and talk time (always fetch)
+      const callMatch: any = {
+        createdAt: { $gte: dayStart, $lte: dayEnd },
+        userId: { $exists: true, $ne: null },
+      };
+      if (query.counsellorId) {
+        callMatch.userId = query.counsellorId;
+      }
+
+      const calls = await this.callLogModel.aggregate([
+        { $match: callMatch },
+        {
+          $group: {
+            _id: '$userId',
+            dialCount: { $sum: 1 },
+            answeredCount: {
+              $sum: {
+                $cond: [{ $gt: ['$duration', 0] }, 1, 0],
+              },
+            },
+            talkTime: {
+              $sum: {
+                $cond: [{ $gt: ['$duration', 0] }, '$duration', 0],
+              },
+            },
+          },
+        },
+      ]);
+
+      calls.forEach((call) => {
+        if (!call._id) return;
+        const employeeId = call._id.toString();
+        allEmployees.add(employeeId);
+        const dateStr = date.toISOString().split('T')[0];
+        const key = `${dateStr}_${employeeId}`;
+        const existing = dailyMetrics.get(key) || {};
+        existing.dial = call.dialCount;
+        existing.answered = call.answeredCount;
+        existing.talkTime = call.talkTime;
+        dailyMetrics.set(key, existing);
+      });
+
+      // If poolId filter is provided, fetch pool-related data
+      if (poolId) {
+        // Lead assignments for this pool
+        const leadMatch: any = {
+          poolId: poolId,
+          createdAt: { $gte: dayStart, $lte: dayEnd },
+          assignedTo: { $ne: null },
+        };
+        if (query.counsellorId) {
+          leadMatch.assignedTo = query.counsellorId;
+        }
+
+        const leads = await this.leadModel.aggregate([
+          { $match: leadMatch },
+          {
+            $group: {
+              _id: '$assignedTo',
+              leadCount: { $sum: 1 },
+            },
+          },
+        ]);
+
+        leads.forEach((lead) => {
+          const employeeId = lead._id?.toString();
+          if (!employeeId) return;
+          allEmployees.add(employeeId);
+          const dateStr = date.toISOString().split('T')[0];
+          const key = `${dateStr}_${employeeId}`;
+          const existing = dailyMetrics.get(key) || {};
+          existing.lead = lead.leadCount;
+          dailyMetrics.set(key, existing);
+        });
+
+        // PCAT scheduled
+        const pcatScheduledMatch: any = {
+          poolId: poolId,
+          createdAt: { $gte: dayStart, $lte: dayEnd },
+          assignedTo: { $ne: null },
+          pcatScheduledDate: { $exists: true, $ne: null },
+        };
+        if (query.counsellorId) {
+          pcatScheduledMatch.assignedTo = query.counsellorId;
+        }
+
+        const pcatScheduled = await this.leadModel.aggregate([
+          { $match: pcatScheduledMatch },
+          {
+            $group: {
+              _id: '$assignedTo',
+              pcatScheduledCount: { $sum: 1 },
+            },
+          },
+        ]);
+
+        pcatScheduled.forEach((item) => {
+          const employeeId = item._id?.toString();
+          if (!employeeId) return;
+          allEmployees.add(employeeId);
+          const dateStr = date.toISOString().split('T')[0];
+          const key = `${dateStr}_${employeeId}`;
+          const existing = dailyMetrics.get(key) || {};
+          existing.pcatScheduled = item.pcatScheduledCount;
+          dailyMetrics.set(key, existing);
+        });
+
+        // PCAT done
+        const pcatDoneMatch: any = {
+          poolId: poolId,
+          createdAt: { $gte: dayStart, $lte: dayEnd },
+          assignedTo: { $ne: null },
+          pcatDoneDate: { $exists: true, $ne: null },
+        };
+        if (query.counsellorId) {
+          pcatDoneMatch.assignedTo = query.counsellorId;
+        }
+
+        const pcatDone = await this.leadModel.aggregate([
+          { $match: pcatDoneMatch },
+          {
+            $group: {
+              _id: '$assignedTo',
+              pcatDoneCount: { $sum: 1 },
+            },
+          },
+        ]);
+
+        pcatDone.forEach((item) => {
+          const employeeId = item._id?.toString();
+          if (!employeeId) return;
+          allEmployees.add(employeeId);
+          const dateStr = date.toISOString().split('T')[0];
+          const key = `${dateStr}_${employeeId}`;
+          const existing = dailyMetrics.get(key) || {};
+          existing.pcatDone = item.pcatDoneCount;
+          dailyMetrics.set(key, existing);
+        });
+
+        // Registration done
+        const registrationMatch: any = {
+          courseVertical: poolId,
+          orderDate: { $gte: dayStart, $lte: dayEnd },
+          registrationAmount: { $gt: 0 },
+        };
+        if (query.counsellorId) {
+          registrationMatch.counsellorId = query.counsellorId;
+        }
+
+        const registrations = await this.orderModel.aggregate([
+          { $match: registrationMatch },
+          {
+            $group: {
+              _id: '$counsellorId',
+              registrationCount: { $sum: 1 },
+            },
+          },
+        ]);
+
+        registrations.forEach((item) => {
+          const employeeId = item._id?.toString();
+          if (!employeeId) return;
+          allEmployees.add(employeeId);
+          const dateStr = date.toISOString().split('T')[0];
+          const key = `${dateStr}_${employeeId}`;
+          const existing = dailyMetrics.get(key) || {};
+          existing.registrationDone = item.registrationCount;
+          dailyMetrics.set(key, existing);
+        });
+
+        // Admission done
+        const admissionMatch: any = {
+          courseVertical: poolId,
+          orderDate: { $gte: dayStart, $lte: dayEnd },
+          Approved: true,
+        };
+        if (query.counsellorId) {
+          admissionMatch.counsellorId = query.counsellorId;
+        }
+
+        const admissions = await this.orderModel.aggregate([
+          { $match: admissionMatch },
+          {
+            $group: {
+              _id: '$counsellorId',
+              admissionCount: { $sum: 1 },
+            },
+          },
+        ]);
+
+        admissions.forEach((item) => {
+          const employeeId = item._id?.toString();
+          if (!employeeId) return;
+          allEmployees.add(employeeId);
+          const dateStr = date.toISOString().split('T')[0];
+          const key = `${dateStr}_${employeeId}`;
+          const existing = dailyMetrics.get(key) || {};
+          existing.admissionDone = item.admissionCount;
+          dailyMetrics.set(key, existing);
+        });
+      }
+    }
+
+    // Fetch user data for all employees
+    const userIds = Array.from(allEmployees).map((id) => new Types.ObjectId(id));
+    const users = userIds.length
+      ? await this.userModel
+          .find({ _id: { $in: userIds } })
+          .select('name email number employeeId role createdAt')
+          .lean()
+      : [];
+
+    const roleIds = Array.from(new Set(users.map((u) => u.role?.toString()).filter(Boolean)));
+    const roles = roleIds.length
+      ? await this.roleModel.find({ _id: { $in: roleIds.map((id) => new Types.ObjectId(id)) } }).select('name').lean()
+      : [];
+
+    const rolesById = new Map(roles.map((r) => [r._id.toString(), r.name]));
+    const usersById = new Map(users.map((u) => [u._id.toString(), u]));
+
+    const calculateVintage = (createdAt?: Date) => {
+      if (!createdAt) return null;
+      const start = new Date(createdAt);
+      const diff = now.getTime() - start.getTime();
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      if (days >= 365) {
+        const years = Math.floor(days / 365);
+        const remainingDays = days % 365;
+        if (remainingDays === 0) return `${years}Y`;
+        return `${years}Y ${remainingDays}D`;
+      }
+      return `${days}D`;
+    };
+
+    // Build rows with employees and columns with daily metrics
+    const dateStrings = dates.map((d) => d.toISOString().split('T')[0]).reverse(); // Most recent first
+
+    const employees = Array.from(allEmployees).map((employeeId) => {
+      const user = usersById.get(employeeId);
+      const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
+      const vintage = calculateVintage(user?.createdAt);
+
+      const metrics = dateStrings.map((dateStr) => {
+        const key = `${dateStr}_${employeeId}`;
+        const metric = dailyMetrics.get(key) || {};
+        const row: any = {
+          date: dateStr,
+          dial: metric.dial || 0,
+          answered: metric.answered || 0,
+          talkTime: metric.talkTime || 0,
+        };
+
+        // Add pool-related metrics if pool filter is applied
+        if (poolId) {
+          row.lead = metric.lead || 0;
+          row.pcatScheduled = metric.pcatScheduled || 0;
+          row.pcatDone = metric.pcatDone || 0;
+          row.registrationDone = metric.registrationDone || 0;
+          row.admissionDone = metric.admissionDone || 0;
+        }
+
+        return row;
+      });
+
+      const row: any = {
+        employeeId,
+        employeeName: user?.name || 'Unknown',
+        designation: roleName || null,
+        vintage,
+        dailyMetrics: metrics,
+      };
+
+      return row;
+    });
+
+    const response: any = {
+      startDate,
+      endDate,
+      dateStrings,
+      employees: employees.sort((a, b) => (a.employeeName || '').localeCompare(b.employeeName || '')),
+    };
+
+    // Add pool info if filter is applied
+    if (pool) {
+      response.pool = {
+        poolId: pool._id.toString(),
+        poolName: pool.name,
+      };
+    }
+
+    return response;
+  }
+
 //   async getWithReviews(filters: any, userId?: string) {
 //   const result = await this.callLogData.findWithPagination(
 //     filters,

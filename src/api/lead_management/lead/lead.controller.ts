@@ -58,19 +58,42 @@ export class LeadController {
         return this.logic.findAll(query,req.user);
     }
 
-
-    
-    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
-    @Roles('Admin', 'bd')
-    @RequirePermission(
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
-    @Get(':id')
-    @ApiOperation({ summary: 'Get lead by ID' })
-    findOne(@Param('id') id: string) {
-        return this.logic.findOne(id);
-    }
+  @Get('report/stage-summary')
+  @ApiOperation({ summary: 'Get lead stage summary report' })
+  stageSummaryReport(@Query() query: LeadFilterDto, @Req() req: any) {
+      return this.logic.stageSummaryReport(query, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
+  @Get('report/all-employees-stages')
+  @ApiOperation({ summary: 'Get all employees with all stages breakdown' })
+  allEmployeesStagesReport(@Req() req: any) {
+      return this.logic.allEmployeesStagesReport(req.user);
+  }
+
+  
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @Get(':id')
+  @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
+  @ApiOperation({ summary: 'Get lead by id' })
+  findOne(@Param('id') id: string) {
+      return this.logic.findOne(id);
+  }
 
    
     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)

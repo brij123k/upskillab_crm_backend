@@ -69,6 +69,16 @@ export class LeadFilterDto {
   @IsOptional()
   toDate?: string;
 
+  @ApiPropertyOptional({ example: '2026-01-15' })
+  @IsOptional()
+  @IsString()
+  date?: string;
+
+  @ApiPropertyOptional({ example: 'employee' })
+  @IsOptional()
+  @IsString()
+  groupBy?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   connected?:boolean;

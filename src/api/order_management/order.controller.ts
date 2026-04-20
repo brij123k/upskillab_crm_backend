@@ -9,7 +9,7 @@ import {
     Req,
     UseGuards,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { OrderService } from './order.service';
 import { CreateOrderDto, UpdateOrderDto } from 'src/dto/order_management/create-order.dto';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -95,6 +95,64 @@ getAll(@Query() query: any, @Req() req) {
     @Get('report/payment')
     report() {
         return this.service.paymentReport();
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @Get('report/consultant-performance')
+    consultantPerformanceReport(@Query() query: any) {
+        return this.service.consultantPerformanceReport(query);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @Get('report/pool-wise-data')
+    poolWiseDataReport(@Query() query: any) {
+        return this.service.poolWiseDataReport(query);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @ApiOperation({ summary: 'Get employee utilization report with lead assignment, dial metrics, PCAT, registration, and admission counts' })
+    @Get('report/employee-pool-utilization')
+    employeePoolUtilizationReport(@Query() query: any) {
+        return this.service.employeePoolUtilizationReport(query);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @Get('report/source-campaign-wise-lead-revenue')
+    @ApiOperation({ summary: 'Get source and campaign wise lead and revenue report' })
+    sourceCampaignWiseLeadRevenueReport(@Query() query: any) {
+        return this.service.sourceCampaignWiseLeadRevenueReport(query);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @Get('report/employee-pool-revenue')
+    @ApiOperation({ summary: 'Get employee pool revenue report grouped by month' })
+    employeePoolRevenueReport(@Query() query: any) {
+        return this.service.employeePoolRevenueReport(query);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)

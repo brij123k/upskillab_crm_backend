@@ -11,6 +11,10 @@ import { CallLogReview,CallLogReviewSchema } from 'src/schema/all-log-review.sch
 import { LeadModule } from '../lead_management/lead/lead.module';
 import { UserModule } from '../user/user.module';
 import { LeadStage, LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
+import { Order, OrderSchema } from 'src/schema/order_Management/order.schema';
+import { Pool, PoolSchema } from 'src/schema/Pool.schema';
+import { User, UserSchema } from 'src/schema/user.schema';
+import { Role, RoleSchema } from 'src/schema/role.schema';
 
 @Module({
   imports: [
@@ -19,6 +23,10 @@ import { LeadStage, LeadStageSchema } from 'src/schema/lead_management/lead-stag
       { name: CallLogReview.name, schema: CallLogReviewSchema },
       { name: Lead.name, schema: LeadSchema },
       {name:LeadStage.name, schema:LeadStageSchema},
+      { name: Order.name, schema: OrderSchema },
+      { name: Pool.name, schema: PoolSchema },
+      { name: User.name, schema: UserSchema },
+      { name: Role.name, schema: RoleSchema },
     ]),
     LeadHistoryModule,
     UserActivityModule,
