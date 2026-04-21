@@ -82,6 +82,16 @@ export class LeadController {
       return this.logic.allEmployeesStagesReport(req.user);
   }
 
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
+    @Get('report/pool-wise-data')
+    poolWiseDataReport(@Query() query: any) {
+        return this.logic.poolWiseDataReport(query);
+    }
   
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin', 'bd')

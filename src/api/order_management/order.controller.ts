@@ -114,17 +114,6 @@ getAll(@Query() query: any, @Req() req) {
                    PERMISSIONS.Orders.MODULE,
                    PERMISSIONS.Orders.ACTIONS.READ,
                  )
-    @Get('report/pool-wise-data')
-    poolWiseDataReport(@Query() query: any) {
-        return this.service.poolWiseDataReport(query);
-    }
-
-    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-    @Roles('Admin', 'bd')
-    @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
     @ApiOperation({ summary: 'Get employee utilization report with lead assignment, dial metrics, PCAT, registration, and admission counts' })
     @Get('report/employee-pool-utilization')
     employeePoolUtilizationReport(@Query() query: any) {

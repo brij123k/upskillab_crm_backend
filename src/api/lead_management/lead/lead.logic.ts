@@ -389,6 +389,142 @@ if (Pool?._id) {
     };
   }
 
+ async poolWiseDataReport(query: any) {
+  const now = new Date();
+  let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+  // ✅ Date Filters (keep same)
+  if (query.dateFilter) {
+    const filter = query.dateFilter.toLowerCase();
+
+    if (filter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (filter === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    }
+  }
+
+  if (query.fromDate) {
+    const from = new Date(query.fromDate);
+    if (!Number.isNaN(from.getTime())) {
+      startDate = new Date(from);
+      startDate.setHours(0, 0, 0, 0);
+    }
+  }
+
+  if (query.toDate) {
+    const to = new Date(query.toDate);
+    if (!Number.isNaN(to.getTime())) {
+      endDate = new Date(to);
+      endDate.setHours(23, 59, 59, 999);
+    }
+  }
+
+  // ✅ Get all pools
+  const allPools = await this.poolModel.find().lean();
+
+  // ✅ Aggregate leads dynamically by stage
+  const stageData = await this.leadModel.aggregate([
+    {
+      $match: {
+        createdAt: { $gte: startDate, $lte: endDate },
+      },
+    },
+    {
+      $lookup: {
+        from: 'leadstages',
+        localField: 'stageId',
+        foreignField: '_id',
+        as: 'stage',
+      },
+    },
+    {
+      $unwind: {
+        path: '$stage',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $group: {
+        _id: {
+          poolId: '$poolId',
+          stageName: { $ifNull: ['$stage.name', 'Unknown'] },
+        },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  // ✅ Total leads per pool
+  const totalLeads = await this.leadModel.aggregate([
+    {
+      $match: {
+        createdAt: { $gte: startDate, $lte: endDate },
+      },
+    },
+    {
+      $group: {
+        _id: '$poolId',
+        totalLead: { $sum: 1 },
+      },
+    },
+  ]);
+
+  // ✅ Convert to maps
+  const totalMap = new Map();
+  totalLeads.forEach((t) => {
+    totalMap.set(t._id?.toString(), t.totalLead);
+  });
+
+  const stageMap = new Map();
+
+  stageData.forEach((item) => {
+    const poolId = item._id.poolId?.toString();
+    if (!stageMap.has(poolId)) {
+      stageMap.set(poolId, []);
+    }
+
+    stageMap.get(poolId).push({
+      stage: item._id.stageName,
+      count: item.count,
+    });
+  });
+
+  // ✅ Final response
+  const report = allPools.map((pool) => {
+    const poolId = pool._id.toString();
+    const stages = stageMap.get(poolId) || [];
+    const totalLead = totalMap.get(poolId) || 0;
+
+    return {
+      poolId,
+      poolName: pool.name || 'Unknown',
+      totalLead,
+      stages,
+    };
+  });
+
+  return {
+    startDate,
+    endDate,
+    poolWiseData: report,
+  };
+}
+
   async findOne(id: string) {
     const lead = await this.leadData.findById(id);
     if (!lead) throw new NotFoundException('Lead not found');
