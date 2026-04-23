@@ -11,7 +11,6 @@ import { LoanEmi } from 'src/schema/order_Management/loan-emi.schema';
 import { Subscription } from 'src/schema/order_Management/subscription.schema';
 import { UserLogic } from '../user/user.logic';
 import { EmailService } from 'src/common/services/email.service';
-import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.logic';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { CallLog } from 'src/schema/call-log.schema';
@@ -634,112 +633,42 @@ async findAll(filters: any, user: any) {
       }
     }
 
-    if (query.fromDate) {
-      const from = new Date(query.fromDate);
+    if (query.startDate) {
+      const from = new Date(query.startDate);
       if (!Number.isNaN(from.getTime())) {
         startDate = new Date(from);
         startDate.setHours(0, 0, 0, 0);
       }
     }
-    if (query.toDate) {
-      const to = new Date(query.toDate);
+    if (query.endDate) {
+      const to = new Date(query.endDate);
       if (!Number.isNaN(to.getTime())) {
         endDate = new Date(to);
         endDate.setHours(23, 59, 59, 999);
       }
     }
-    let pools: any[] = [];
-    if(query.poolId=="all")
-    pools = await this.poolModel.find().lean();
-    const poolIds = pools.map((pool) => pool._id);
-
-    const leadMatch: any = {
-      poolId: { $in: poolIds },
-      createdAt: { $gte: startDate, $lte: endDate },
-      assignedTo: { $ne: null },
-    };
-    if (query.poolId) {
-      leadMatch.poolId = new Types.ObjectId(query.poolId);
-    }
-    if (query.counsellorId) {
-      leadMatch.assignedTo = new Types.ObjectId(query.counsellorId);
-    }
 
     const leadAssignments = await this.leadModel.aggregate([
-      { $match: leadMatch },
+      {
+        $match: {
+          assignedTo: { $exists: true, $ne: null },
+        },
+      },
       {
         $group: {
-          _id: {
-            poolId: '$poolId',
-            employeeId: '$assignedTo',
-          },
+          _id: '$assignedTo',
           totalAssigned: { $sum: 1 },
         },
       },
     ]);
 
-    const orderConversionMatch: any = {
-      courseVertical: { $in: poolIds },
-      orderDate: { $gte: startDate, $lte: endDate },
-    };
-    if (query.poolId) {
-      orderConversionMatch.courseVertical = new Types.ObjectId(query.poolId);
-    }
-    if (query.counsellorId) {
-      orderConversionMatch.counsellorId = new Types.ObjectId(query.counsellorId);
-    }
-
-    const conversions = await this.orderModel.aggregate([
-      { $match: orderConversionMatch },
-      {
-        $group: {
-          _id: {
-            poolId: '$courseVertical',
-            employeeId: '$counsellorId',
-          },
-          convert: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const pcatScheduledMatch = {
-      ...leadMatch,
-      pcatScheduledDate: { $exists: true, $ne: null },
-    };
-    const pcatScheduled = await this.leadModel.aggregate([
-      { $match: pcatScheduledMatch },
-      {
-        $group: {
-          _id: '$assignedTo',
-          pcatScheduled: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const pcatDoneMatch = {
-      ...leadMatch,
-      pcatDoneDate: { $exists: true, $ne: null },
-    };
-    const pcatDone = await this.leadModel.aggregate([
-      { $match: pcatDoneMatch },
-      {
-        $group: {
-          _id: '$assignedTo',
-          pcatDone: { $sum: 1 },
-        },
-      },
-    ]);
-
-    const callMatch: any = {
-      createdAt: { $gte: startDate, $lte: endDate },
-      userId: { $exists: true, $ne: null },
-    };
-    if (query.counsellorId) {
-      callMatch.userId = query.counsellorId;
-    }
-
     const callStats = await this.callLogModel.aggregate([
-      { $match: callMatch },
+      {
+        $match: {
+          createdAt:{ $gte: startDate, $lte: endDate },
+          userId: { $exists: true, $ne: null },
+        },
+      },
       {
         $group: {
           _id: '$userId',
@@ -753,53 +682,55 @@ async findAll(filters: any, user: any) {
       },
     ]);
 
-    const orderMatch: any = {
-      orderDate: { $gte: startDate, $lte: endDate },
-    };
-    if (query.poolId) {
-      orderMatch.courseVertical = new Types.ObjectId(query.poolId);
-    }
-    if (query.counsellorId) {
-      orderMatch.counsellorId = new Types.ObjectId(query.counsellorId);
-    }
-
-    const orderStats = await this.orderModel.aggregate([
-      { $match: orderMatch },
+    const stageUpdates = await this.leadModel.aggregate([
       {
-        $group: {
-          _id: '$counsellorId',
-          registrationDone: {
-            $sum: {
-              $cond: [{ $gt: ['$registrationAmount', 0] }, 1, 0],
-            },
+        $match: {
+          assignedTo: { $exists: true, $ne: null },
+          $expr: {
+            $and: [
+              {
+                $gte: [
+                  { $ifNull: ['$modifiedAt', '$updatedAt'] },
+                  startDate,
+                ],
+              },
+              {
+                $lte: [
+                  { $ifNull: ['$modifiedAt', '$updatedAt'] },
+                  endDate,
+                ],
+              },
+            ],
           },
-          admissionDone: {
-            $sum: {
-              $cond: ['$Approved', 1, 0],
-            },
-          },
+          stageId: { $exists: true, $ne: null },
         },
       },
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+      { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            employeeId: '$assignedTo',
+            stageName: { $ifNull: ['$stage.name', 'Unknown'] },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.stageName': 1 } },
     ]);
 
     const leadAssignmentByEmployee = new Map<string, number>();
     leadAssignments.forEach((item) => {
-      const employeeId = item._id.employeeId?.toString();
+      const employeeId = item._id?.toString();
       if (!employeeId) return;
-      const current = leadAssignmentByEmployee.get(employeeId) || 0;
-      leadAssignmentByEmployee.set(employeeId, current + item.totalAssigned);
-    });
-
-    const pcatScheduledByEmployee = new Map<string, number>();
-    pcatScheduled.forEach((item) => {
-      if (!item._id) return;
-      pcatScheduledByEmployee.set(item._id.toString(), item.pcatScheduled);
-    });
-
-    const pcatDoneByEmployee = new Map<string, number>();
-    pcatDone.forEach((item) => {
-      if (!item._id) return;
-      pcatDoneByEmployee.set(item._id.toString(), item.pcatDone);
+      leadAssignmentByEmployee.set(employeeId, item.totalAssigned || 0);
     });
 
     const callStatsByEmployee = new Map<string, any>();
@@ -811,38 +742,38 @@ async findAll(filters: any, user: any) {
       });
     });
 
-    const orderStatsByEmployee = new Map<string, any>();
-    orderStats.forEach((item) => {
-      if (!item._id) return;
-      orderStatsByEmployee.set(item._id.toString(), {
-        registrationDone: item.registrationDone,
-        admissionDone: item.admissionDone,
-      });
+    const stageCountsByEmployee = new Map<string, Map<string, number>>();
+    stageUpdates.forEach((item) => {
+      const employeeId = item._id.employeeId?.toString();
+      const stageName = item._id.stageName?.toString() || 'Unknown';
+      if (!employeeId) return;
+
+      if (!stageCountsByEmployee.has(employeeId)) {
+        stageCountsByEmployee.set(employeeId, new Map<string, number>());
+      }
+      const existing = stageCountsByEmployee.get(employeeId)?.get(stageName.toLowerCase()) || 0;
+      stageCountsByEmployee.get(employeeId)?.set(stageName.toLowerCase(), existing + item.count);
     });
+
+    const getStageCount = (employeeId: string, stageName: string) => {
+      return stageCountsByEmployee.get(employeeId)?.get(stageName.toLowerCase()) || 0;
+    };
+
+    const sumMatchingStageCounts = (employeeId: string, patterns: RegExp[]) => {
+      const stages = stageCountsByEmployee.get(employeeId);
+      if (!stages) return 0;
+
+      return Array.from(stages.entries()).reduce((total, [stageName, count]) => {
+        return patterns.some((pattern) => pattern.test(stageName))
+          ? total + count
+          : total;
+      }, 0);
+    };
 
     const employeeIds = new Set<string>();
     leadAssignmentByEmployee.forEach((value, key) => employeeIds.add(key));
-    pcatScheduledByEmployee.forEach((value, key) => employeeIds.add(key));
-    pcatDoneByEmployee.forEach((value, key) => employeeIds.add(key));
+    stageCountsByEmployee.forEach((value, key) => employeeIds.add(key));
     callStatsByEmployee.forEach((value, key) => employeeIds.add(key));
-    orderStatsByEmployee.forEach((value, key) => employeeIds.add(key));
-
-    const poolAssignmentMap = new Map<string, number>();
-    leadAssignments.forEach((item) => {
-      const employeeId = item._id.employeeId?.toString();
-      const poolId = item._id.poolId?.toString();
-      if (!employeeId || !poolId) return;
-      poolAssignmentMap.set(`${employeeId}_${poolId}`, item.totalAssigned);
-    });
-
-    const poolConversionMap = new Map<string, number>();
-    conversions.forEach((item) => {
-      if (!item._id.employeeId || !item._id.poolId) return;
-      poolConversionMap.set(
-        `${item._id.employeeId.toString()}_${item._id.poolId.toString()}`,
-        item.convert,
-      );
-    });
 
     const users = employeeIds.size
       ? await this.userModel
@@ -863,20 +794,14 @@ async findAll(filters: any, user: any) {
       if (!createdAt) return null;
       const start = new Date(createdAt);
       const diff = now.getTime() - start.getTime();
-      const months = Math.floor(diff / (1000 * 60 * 60 * 24 * 30));
-      const years = Math.floor(months / 12);
-      const remainingMonths = months % 12;
-      if (years > 0) {
-        return remainingMonths > 0 ? `${years}y ${remainingMonths}m` : `${years}y`;
-      }
-      return `${remainingMonths}m`;
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      return `${days}d`;
     };
 
     const employees = Array.from(employeeIds).map((employeeId) => {
       const user = usersById.get(employeeId);
       const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
       const callStats = callStatsByEmployee.get(employeeId) || { totalDial: 0, answeredTalkTime: 0 };
-      const orderStats = orderStatsByEmployee.get(employeeId) || { registrationDone: 0, admissionDone: 0 };
       const totalLeadAssigned = leadAssignmentByEmployee.get(employeeId) || 0;
 
       return {
@@ -887,34 +812,20 @@ async findAll(filters: any, user: any) {
         leadAssigned: totalLeadAssigned,
         totalDial: callStats.totalDial || 0,
         answeredTalkTime: callStats.answeredTalkTime || 0,
-        pcatScheduled: pcatScheduledByEmployee.get(employeeId) || 0,
-        pcatDone: pcatDoneByEmployee.get(employeeId) || 0,
-        registrationDone: orderStats.registrationDone || 0,
-        admissionDone: orderStats.admissionDone || 0,
+        pcatScheduled: sumMatchingStageCounts(employeeId, [/pcat.*schedul/i]),
+        pcatDone: sumMatchingStageCounts(employeeId, [/pcat.*done/i, /pcat.*complete/i]),
+        registrationDone: getStageCount(employeeId, 'Registration Done'),
+        admissionDone: getStageCount(employeeId, 'Admission Done'),
         employeeEmail: user?.email || null,
         employeeNumber: user?.number || null,
         employeeEmployeeId: user?.employeeId || null,
-        pools: pools.map((pool) => {
-          const key = `${employeeId}_${pool._id.toString()}`;
-          const totalAssigned = poolAssignmentMap.get(key) || 0;
-          const convert = poolConversionMap.get(key) || 0;
-          const conversionRate = totalAssigned > 0 ? Number(((convert / totalAssigned) * 100).toFixed(2)) : 0;
-          return {
-            poolId: pool._id.toString(),
-            poolName: pool.name || 'Unknown',
-            totalLeadAssigned: totalAssigned,
-            convert,
-            conversionPercentage: `${conversionRate}%`,
-          };
-        }),
       };
-    });
+    }).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 
     return {
       startDate,
       endDate,
       employees,
-      pools: pools.map((pool) => ({ poolId: pool._id.toString(), poolName: pool.name || 'Unknown' })),
     };
   }
 

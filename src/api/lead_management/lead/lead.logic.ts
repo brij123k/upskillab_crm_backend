@@ -714,7 +714,7 @@ if (Pool?._id) {
       },
     });
 
-        await this.userActivityLogic.log({
+  await this.userActivityLogic.log({
     userId: userId,
     action: 'Lead_Stage',
     referenceType: 'LEAD',

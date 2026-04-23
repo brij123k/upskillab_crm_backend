@@ -66,9 +66,9 @@ export class CallLogController {
     return this.logic.getByUser(params,req?.user.userId);
   }
 
-    @Get('users')
-   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
-   @Roles('bd','Admin')
+  @Get('users')
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('bd','Admin')
   @ApiOperation({ summary: 'Get call logs by userId' })
   @RequirePermission(
          PERMISSIONS.Calls.MODULE,
