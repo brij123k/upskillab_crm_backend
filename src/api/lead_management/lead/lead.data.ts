@@ -47,6 +47,12 @@ export class LeadData {
       dateFilter,
       fromDate,
       toDate,
+      city,
+      state,
+      location,
+      assignedDateFilter,
+      assignedDateFrom,
+      assignedDateTo,
       sort = 'new',
       page = 1,
       limit = 10,
@@ -60,6 +66,8 @@ export class LeadData {
         { phone: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { address: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } },
       ];
 
       // 🔢 employeeId lives in assignedTo (User collection)
@@ -85,6 +93,17 @@ export class LeadData {
     if (isActive !== undefined)
       query.isActive = isActive === 'true';
 
+    // 🏙️ LOCATION FILTERS
+    if (city) query.city = { $regex: city, $options: 'i' };
+    if (state) query.state = { $regex: state, $options: 'i' };
+    if (location) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { city: { $regex: location, $options: 'i' } },
+        { state: { $regex: location, $options: 'i' } },
+      );
+    }
+
     // 📅 DATE FILTERS
     const now = new Date();
     if (dateFilter) {
@@ -108,12 +127,41 @@ export class LeadData {
       }
     }
 
+    if (assignedDateFilter) {
+      let assignedDatestart: Date | null = null;
+
+      if (assignedDateFilter === 'today') {
+        assignedDatestart = new Date(now.setHours(0, 0, 0, 0));
+      } else if (assignedDateFilter === 'week') {
+        assignedDatestart = new Date();
+        assignedDatestart.setDate(assignedDatestart.getDate() - 7);
+      } else if (assignedDateFilter === 'month') {
+        assignedDatestart = new Date();
+        assignedDatestart.setMonth(assignedDatestart.getMonth() - 1);
+      } else if (assignedDateFilter === 'year') {
+        assignedDatestart = new Date();
+        assignedDatestart.setFullYear(assignedDatestart.getFullYear() - 1);
+      }
+
+      if (assignedDatestart) {
+        query.assignedDate = { $gte: assignedDatestart };
+      }
+    }
+
+
     // 📅 CUSTOM DATE RANGE
     if (fromDate && toDate) {
       query.createdAt = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate),
       };
+    }
+
+    // 📅 ASSIGNED DATE RANGE
+    if (assignedDateFrom || assignedDateTo) {
+      query.assignedDate = {};
+      if (assignedDateFrom) query.assignedDate.$gte = new Date(assignedDateFrom);
+      if (assignedDateTo) query.assignedDate.$lte = new Date(assignedDateTo);
     }
 
     // 📊 SORTING
@@ -158,6 +206,12 @@ export class LeadData {
       dateFilter,
       fromDate,
       toDate,
+      city,
+      state,
+      location,
+      assignedDateFilter,
+      assignedDateFrom,
+      assignedDateTo,
       connected,
       scheduler,
       sort = 'new',
@@ -184,6 +238,8 @@ export class LeadData {
         { phone: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { address: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } },
       ];
       if (!isNaN(Number(search))) {
         searchConditions.push({ leadId: Number(search) });
@@ -210,6 +266,18 @@ export class LeadData {
     if (poolId) query.poolId = new Types.ObjectId(poolId);
     if (modifiedBy) query.modifiedBy = modifiedBy;
     if (isActive !== undefined) query.isActive = isActive === 'true';
+
+    // 🏙️ LOCATION FILTERS
+    if (city) query.city = { $regex: city, $options: 'i' };
+    if (state) query.state = { $regex: state, $options: 'i' };
+    if (location) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { city: { $regex: location, $options: 'i' } },
+        { state: { $regex: location, $options: 'i' } },
+      );
+    }
+
     const now = new Date();
 
     if (dateFilter) {
@@ -223,11 +291,30 @@ export class LeadData {
       if (start) query.createdAt = { $gte: start };
     }
 
+    if (assignedDateFilter) {
+      let assignedDatestart: Date | null = null;
+
+      if (assignedDateFilter === 'today') assignedDatestart = new Date(now.setHours(0, 0, 0, 0));
+      else if (assignedDateFilter === 'week') assignedDatestart = new Date(now.setDate(now.getDate() - 7));
+      else if (assignedDateFilter === 'month') assignedDatestart = new Date(now.setMonth(now.getMonth() - 1));
+      else if (assignedDateFilter === 'year') assignedDatestart = new Date(now.setFullYear(now.getFullYear() - 1));
+
+      if (assignedDatestart) query.assignedDate = { $gte: assignedDatestart };
+    }
+
+
     if (fromDate && toDate) {
       query.createdAt = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate),
       };
+    }
+
+    // 📅 ASSIGNED DATE RANGE
+    if (assignedDateFrom || assignedDateTo) {
+      query.assignedDate = {};
+      if (assignedDateFrom) query.assignedDate.$gte = new Date(assignedDateFrom);
+      if (assignedDateTo) query.assignedDate.$lte = new Date(assignedDateTo);
     }
 
     /* ================= DERIVED FILTERS ================= */
@@ -319,6 +406,12 @@ export class LeadData {
       dateFilter,
       fromDate,
       toDate,
+      city,
+      state,
+      location,
+      assignedDateFilter,
+      assignedDateFrom,
+      assignedDateTo,
       sort = 'new',
       page = 1,
       limit = 10,
@@ -332,6 +425,8 @@ export class LeadData {
         { name: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
+        { city: { $regex: search, $options: 'i' } },
+        { state: { $regex: search, $options: 'i' } },
       ];
       // ✅ Add leadId search
       if (!isNaN(Number(search))) {
@@ -351,6 +446,17 @@ export class LeadData {
     if (modifiedBy) query.modifiedBy = modifiedBy;
     if (isActive !== undefined)
       query.isActive = isActive === 'true';
+
+    // 🏙️ LOCATION FILTERS
+    if (city) query.city = { $regex: city, $options: 'i' };
+    if (state) query.state = { $regex: state, $options: 'i' };
+    if (location) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { city: { $regex: location, $options: 'i' } },
+        { state: { $regex: location, $options: 'i' } },
+      );
+    }
 
     // 📅 DATE FILTERS
     const now = new Date();
@@ -375,12 +481,40 @@ export class LeadData {
       }
     }
 
+    if (assignedDateFilter) {
+      let assignedDatestart: Date | null = null;
+
+      if (assignedDateFilter === 'today') {
+        assignedDatestart = new Date(now.setHours(0, 0, 0, 0));
+      } else if (assignedDateFilter === 'week') {
+        assignedDatestart = new Date();
+        assignedDatestart.setDate(assignedDatestart.getDate() - 7);
+      } else if (assignedDateFilter === 'month') {
+        assignedDatestart = new Date();
+        assignedDatestart.setMonth(assignedDatestart.getMonth() - 1);
+      } else if (assignedDateFilter === 'year') {
+        assignedDatestart = new Date();
+        assignedDatestart.setFullYear(assignedDatestart.getFullYear() - 1);
+      }
+
+      if (assignedDatestart) {
+        query.assignedDate = { $gte: assignedDatestart };
+      }
+    }
+
     // 📅 CUSTOM DATE RANGE
     if (fromDate && toDate) {
       query.createdAt = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate),
       };
+    }
+
+    // 📅 ASSIGNED DATE RANGE
+    if (assignedDateFrom || assignedDateTo) {
+      query.assignedDate = {};
+      if (assignedDateFrom) query.assignedDate.$gte = new Date(assignedDateFrom);
+      if (assignedDateTo) query.assignedDate.$lte = new Date(assignedDateTo);
     }
 
     // 📊 SORTING
@@ -458,6 +592,7 @@ export class LeadData {
       {
         $set: {
           assignedTo,
+          assignedDate: new Date(),
           modifiedBy,
           modifiedAt: new Date(),
         },
@@ -491,6 +626,7 @@ export class LeadData {
       {
         $set: {
           assignedTo: newAssignedTo,
+          assignedDate: new Date(),
           modifiedBy,
           modifiedAt: new Date(),
         },

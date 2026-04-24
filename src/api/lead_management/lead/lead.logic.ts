@@ -45,11 +45,15 @@ export class LeadLogic {
   ) { }
 
   async create(dto: CreateLeadDto, userId: string) {
+    const assignedTo = dto.assignedTo ? dto.assignedTo : userId;
     const lead = await this.leadData.create({
       ...dto,
+      city: dto.city,
+      state: dto.state,
       modifiedBy: userId,
       stageId:new Types.ObjectId(dto.stageId),
-      assignedTo:dto.assignedTo?dto.assignedTo:userId,
+      assignedTo,
+      assignedDate: dto.assignedDate ? new Date(dto.assignedDate) : new Date(),
       poolId:new Types.ObjectId(dto.poolId),
       modifiedAt: new Date(),
     });
@@ -77,7 +81,6 @@ await this.notificationEngine.handleEvent({
       recipients: {
         userIds: [dto.assignedTo],
       },
-
       title: 'Lead Assigned',
       message: `A lead has been assigned to You.`,
       entity: {
@@ -131,9 +134,9 @@ await this.notificationEngine.handleEvent({
     const Pool= await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
     let poolId: string | undefined = undefined;
 
-if (Pool?._id) {
-  poolId = Pool._id.toString();
-}
+    if (Pool?._id) {
+      poolId = Pool._id.toString();
+    }
 
     const users = await this.userLogic.getUsersUnder(user.userId);
     const accessibleUserIds = users.map((u) => u._id.toString());
@@ -535,14 +538,20 @@ if (Pool?._id) {
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
 
-    const lead = await this.leadData.update(id, {
+    const updateData: any = {
       ...dto,
-      assignedTo:dto.assignedTo===""?existingLead.assignedTo:dto.assignedTo,
-      stageId:new Types.ObjectId(dto.stageId),
-      poolId:new Types.ObjectId(dto.poolId),
+      assignedTo: dto.assignedTo === "" ? existingLead.assignedTo : dto.assignedTo,
+      stageId: dto.stageId ? new Types.ObjectId(dto.stageId) : existingLead.stageId,
+      poolId: dto.poolId ? new Types.ObjectId(dto.poolId) : existingLead.poolId,
       modifiedBy: userId,
       modifiedAt: new Date(),
-    });
+    };
+
+    if (dto.assignedTo && dto.assignedTo !== existingLead.assignedTo?.toString()) {
+      updateData.assignedDate = new Date();
+    }
+
+    const lead = await this.leadData.update(id, updateData);
     if (!lead) {
       throw new NotFoundException("Lead Not found")
     }
@@ -759,17 +768,6 @@ if (Pool?._id) {
       modifiedBy: currentUserId,
     };
 
-    // 🔹 CASE 1: ONLY assignTo
-    // if (assignedTo && !departmentId) {
-    //   updatePayload.assignedTo = assignedTo;
-    // }
-
-    // 🔹 CASE 2: ONLY departmentId
-    // if (departmentId && !assignedTo) {
-    //   updatePayload.departmentId = departmentId;
-    // }
-
-    // 🔹 CASE 3: BOTH assignTo + departmentId
     if (assignedTo) {
       // 🔥 validate user department
       const user = await this.profileData.findByUserId(assignedTo);
@@ -780,6 +778,7 @@ if (Pool?._id) {
       }
 
       updatePayload.assignedTo = assignedTo;
+      updatePayload.assignedDate = new Date();
       updatePayload.departmentId = departmentId;
    
 

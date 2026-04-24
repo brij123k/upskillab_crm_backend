@@ -87,6 +87,36 @@ export class LeadFilterDto {
   @IsOptional()
   scheduler?:boolean;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @ApiPropertyOptional({ description: 'Search across city and state' })
+  @IsOptional()
+  @IsString()
+  location?: string;
+
+  @ApiPropertyOptional({
+    example: 'today | week | month | year',
+  })
+  @IsOptional()
+  @IsString()
+  assignedDateFilter?:string;
+
+  @ApiPropertyOptional({ example: '2026-01-01' })
+  @IsOptional()
+  assignedDateFrom?: string;
+
+  @ApiPropertyOptional({ example: '2026-01-31' })
+  @IsOptional()
+  assignedDateTo?: string;
+
   @ApiPropertyOptional({ example: 'new | old' })
   @IsOptional()
   sort?: string;

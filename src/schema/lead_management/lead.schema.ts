@@ -30,9 +30,12 @@ export class Lead extends Document {
 
   @Prop()
   email?: string;
+  
+  @Prop()
+  city?: string;
 
   @Prop()
-  address?: string;
+  state?: string;
 
   @Prop({ enum: LeadSource, required: true, default: LeadSource.MANUAL })
   source: LeadSource;
@@ -43,6 +46,9 @@ export class Lead extends Document {
 
   @Prop({ type: Types.ObjectId, ref: 'User' })
   assignedTo?: Types.ObjectId;
+
+  @Prop({type:Date})
+  assignedDate?:Date;
 
   @Prop({ type: Types.ObjectId, ref: 'LeadStage', required: true })
   stageId: Types.ObjectId;

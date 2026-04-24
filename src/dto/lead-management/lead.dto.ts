@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { IsEnum, IsMongoId, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsEnum, IsMongoId, IsNotEmpty, IsNumber, IsOptional, IsString, IsDateString } from 'class-validator';
 import { LeadSource, LeadStatus } from 'src/schema/lead_management/lead.schema';
 
 export class CreateLeadDto {
@@ -11,14 +11,20 @@ export class CreateLeadDto {
   @IsString()
   phone: string;
 
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  city: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  state: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   email?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  address:string;
 
   @ApiProperty({ enum: LeadSource })
   @IsEnum(LeadSource)
@@ -33,6 +39,11 @@ export class CreateLeadDto {
   @ApiPropertyOptional()
   @IsOptional()
   assignedTo?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  assignedDate?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
