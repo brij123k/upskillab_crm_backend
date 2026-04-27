@@ -229,12 +229,12 @@ export class PaymentController {
     return this.paymentService.togglePlanStatus(planId);
   }
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'bd')
-  @Post('subscription')
-  createSubscription(@Body() body: CreateSubscriptionDto) {
-    return this.paymentService.createSubscription(body);
-  }
+  // @UseGuards(JwtAuthGuard, RoleGuard)
+  // @Roles('Admin', 'bd')
+  // @Post('subscription')
+  // createSubscription(@Body() body: CreateSubscriptionDto) {
+  //   return this.paymentService.createSubscription(body);
+  // }
   async getSubscriptionLink(subscriptionSessionId: string) {
     return `https://sandbox.cashfree.com/pg/subscriptions/authorize/${subscriptionSessionId}`;
   }

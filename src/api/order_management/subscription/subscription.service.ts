@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import axios from 'axios';
 import { Subscription } from 'src/schema/order_Management/subscription.schema';
 import { CreateSubscriptionDto } from 'src/dto/order_management/createsubscription.dto';
@@ -42,9 +42,10 @@ export class SubscriptionService {
     const order = await this.orderModel.findById(dto.orderId);
     if (!order) throw new BadRequestException('Order not found');
 
-    const paymentMethod = dto.payment_methods[0];
-    this.validatePayment(paymentMethod, dto.payment_details);
-
+    const exist = await this.subModel.findOne({orderId:dto.orderId})
+    if(exist){
+      return exist
+    }
     // 🔥 PLAN HANDLING
     let planDetails;
 
@@ -62,11 +63,8 @@ export class SubscriptionService {
         plan_currency: 'INR',
       };
     } else {
-      if (!dto.amount)
-        throw new BadRequestException('Amount required without plan');
-
       planDetails = {
-        plan_name: 'Custom Plan',
+        plan_name: `plan_${Date.now()}`,
         plan_amount: order.subscriptionDetails.installmentAmount,
         plan_max_amount: (order.subscriptionDetails.installmentAmount)*(order.subscriptionDetails.numberOfInstallments),
         plan_max_cycles: order.subscriptionDetails.numberOfInstallments,
@@ -79,24 +77,14 @@ export class SubscriptionService {
     const subscriptionId = `sub_${Date.now()}`;
     const now = new Date();
       const firstChargeDate = new Date();
-firstChargeDate.setDate(firstChargeDate.getDate() + 1);
+      firstChargeDate.setDate(firstChargeDate.getDate() + 1);
     // // 🔥 CASHFREE PAYLOAD
     const payload = {
       subscription_id: subscriptionId,
-
       customer_details: {
         customer_name: order.studentName,
         customer_email: order.email,
         customer_phone: order.mobile,
-
-        customer_bank_account_number:
-          dto.payment_details.accountNumber,
-        customer_bank_ifsc: dto.payment_details.ifsc,
-        customer_bank_code: dto.payment_details.bankCode,
-        customer_bank_account_type:
-          dto.payment_details.accountType,
-        customer_bank_account_holder_name:
-          dto.payment_details.accountHolderName,
       },
 
       plan_details: {
@@ -105,15 +93,15 @@ firstChargeDate.setDate(firstChargeDate.getDate() + 1);
       },
 
       authorization_details: {
-        authorization_amount: planDetails.plan_amount,
+        authorization_amount: 1,
         authorization_amount_refund: true,
-        payment_methods: dto.payment_methods,
+        payment_methods: ["upi","enach","pnach","card"]
       },
 
-      subscription_meta: {
-        return_url: `https://c7ce-103-82-150-251.ngrok-free.app/subscription/webhook/cashfree`,
-        notification_channel: ['EMAIL', 'SMS'],
-      },
+      // subscription_meta: {
+      //   return_url: process.env.CASHFREE_NOTIFY_URL,
+      //   notification_channel: ['EMAIL', 'SMS'],
+      // },
 
       subscription_first_charge_time: firstChargeDate.toISOString(),
       subscription_expiry_time: '2100-01-01T23:00:08+05:30',
@@ -123,38 +111,21 @@ firstChargeDate.setDate(firstChargeDate.getDate() + 1);
         },
     };
 
-
     // // 🔥 CASHFREE CALL
     const res = await axios.post(
-      'https://sandbox.cashfree.com/pg/subscriptions',
+      `${process.env.CASHFREE_URL}`,
       payload,
       {
         headers: {
           'x-client-id': process.env.CASHFREE_APP_ID,
           'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-          'x-api-version': '2025-01-01',
+          'x-api-version': process.env.CASHFREE_API_VERSION,
           'Content-Type': 'application/json',
         },
       },
     );
-    
-    const authRes = await axios.post(
-  `https://sandbox.cashfree.com/pg/subscriptions/${subscriptionId}/authorize`,
-  {
-    subscription_session_id: res.data.subscription_session_id,
-  },
-  {
-    headers: {
-      'x-client-id': process.env.CASHFREE_APP_ID,
-      'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-      'x-api-version': '2025-01-01',
-      'Content-Type': 'application/json',
-    },
-  },
-);
-
-const authLink = authRes.data?.auth_link;
-
+    const data = res?.data;
+    const cashfreeSubscriptionId = data?.subscription_session_id 
     // 🔥 INSTALLMENTS CREATE
     const installments: any[] = [];
     const start = new Date();
@@ -173,7 +144,7 @@ const authLink = authRes.data?.auth_link;
     const subscription = await this.subModel.create({
       orderId: order._id,
       subscriptionId,
-      cashfreeSubscriptionId: subscriptionId,
+      cashfreeSubscriptionId: cashfreeSubscriptionId,
       studentName: order.studentName,
       mobile: order.mobile,
       email: order.email,
@@ -182,29 +153,26 @@ const authLink = authRes.data?.auth_link;
       installmentAmount: planDetails.plan_amount,
       numberOfInstallments: planDetails.plan_max_cycles,
       installments,
-      paymentMethod,
-      paymentDetails: dto.payment_details,
-      authLink,
       status: 'PENDING_AUTH',
     });
 
     // 🔥 UPDATE ORDER
-    // order.subscriptionDetails = {
-    //   subscriptionId,
-    //   gateway: 'Cashfree',
-    //   installmentAmount: planDetails.plan_amount,
-    // };
-    // await order.save();
-    
-    return {
-      authLink,
-      subscription,
+    order.subscriptionDetails = {
+      cashfreeSubscriptionId,
+      gateway: 'Cashfree',
+      installmentAmount: planDetails.plan_amount,
     };
+    await order.save();
+    
+   return {
+  cashfreeSubscriptionId,
+};
     // return { message: 'Subscription creation is currently disabled' };
   }
 
   // 🔁 WEBHOOK
   async webhook(body: any) {
+    console.log(body)
     const subId = body?.data?.subscription?.subscription_id;
 
     const subscription = await this.subModel.findOne({
@@ -238,5 +206,11 @@ const authLink = authRes.data?.auth_link;
     subscription.webhookLogs.push(body);
 
     await subscription.save();
+  }
+
+  async getSubscription(orderId:string){
+    const exist = await this.orderModel.findById(orderId)
+    if(!exist){throw new NotFoundException("Order Not Found")}
+    return await this.subModel.findOne({orderId:new Types.ObjectId(orderId)})
   }
 }

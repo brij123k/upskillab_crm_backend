@@ -336,7 +336,7 @@ async findAll(filters: any, user: any) {
     return this.orderModel.findByIdAndUpdate(id, dto, { new: true });
   }
 
-  async approveOrder(id: string, approvedBy: string) {
+async approveOrder(id: string, approvedBy: string) {
     const order= await this.orderModel.findByIdAndUpdate(
       id,
       { Approved: true, approvedBy },

@@ -24,8 +24,6 @@ export class Subscription {
     email: string;
     
     @Prop()
-    authLink: string;
-    @Prop()
     counselorName: string;
 
     @Prop()

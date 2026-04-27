@@ -126,7 +126,7 @@ export class Order {
   // Subscription
   @Prop({
     type: {
-      subscriptionId: String,
+      cashfreeSubscriptionId: String,
       gateway: String,
       installmentAmount: Number,
       firstInstallmentDate: Date,

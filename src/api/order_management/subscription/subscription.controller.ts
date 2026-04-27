@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from 'src/dto/order_management/createsubscription.dto';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -18,6 +18,16 @@ export class SubscriptionController {
 
   @Post('webhook/cashfree')
   webhook(@Req() req: any) {
+        console.log(req)
     return this.service.webhook(req.body);
   }
+
+
+  @Get(":orderId")
+  getSubscription(@Param('orderId') orderId:string){
+
+    return this.service.getSubscription(orderId)
+  }
+
+
 }

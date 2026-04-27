@@ -340,102 +340,102 @@ async getPaymentById(orderId: string) {
     }
   }
 
-  async createSubscription(data: any) {
-    try {
-      const {
-        name,
-        email,
-        phone,
-        orderId,
-        planId, // optional if using existing plan
-        amount,
-      } = data;
+  // async createSubscription(data: any) {
+  //   try {
+  //     const {
+  //       name,
+  //       email,
+  //       phone,
+  //       orderId,
+  //       planId, // optional if using existing plan
+  //       amount,
+  //     } = data;
 
-      // 🔹 Validate Order mapping
-      const subscription = await this.subscriptionModel.findOne({
-        orderId: new Types.ObjectId(orderId),
-      });
+  //     // 🔹 Validate Order mapping
+  //     const subscription = await this.subscriptionModel.findOne({
+  //       orderId: new Types.ObjectId(orderId),
+  //     });
 
-      if (!subscription) {
-        throw new BadRequestException('Subscription not found');
-      }
+  //     if (!subscription) {
+  //       throw new BadRequestException('Subscription not found');
+  //     }
 
-      const subscriptionId = `sub_${Date.now()}`;
-      const now = new Date();
-      now.setHours(now.getHours() + 1);
+  //     const subscriptionId = `sub_${Date.now()}`;
+  //     const now = new Date();
+  //     now.setHours(now.getHours() + 1);
 
-      const firstChargeTime = now.toISOString();
-      const payload: any = {
-        subscription_id: subscriptionId,
+  //     const firstChargeTime = now.toISOString();
+  //     const payload: any = {
+  //       subscription_id: subscriptionId,
 
-        customer_details: {
-          customer_name: name,
-          customer_email: email,
-          customer_phone: phone,
-        },
+  //       customer_details: {
+  //         customer_name: name,
+  //         customer_email: email,
+  //         customer_phone: phone,
+  //       },
 
-        // ✅ If using existing plan
-        ...(planId && { plan_id: planId }),
+  //       // ✅ If using existing plan
+  //       ...(planId && { plan_id: planId }),
 
-        // ✅ If creating dynamic plan (optional)
-        ...(!planId && {
-          plan_details: {
-            plan_name: `Plan_${Date.now()}`,
-            plan_type: 'PERIODIC',
-            plan_amount: subscription.installmentAmount || 100,
-            plan_currency: 'INR',
-            plan_interval_type: 'MONTH',
-            plan_intervals: 1,
-            plan_max_amount: subscription.totalAmount,
-          },
-        }),
+  //       // ✅ If creating dynamic plan (optional)
+  //       ...(!planId && {
+  //         plan_details: {
+  //           plan_name: `Plan_${Date.now()}`,
+  //           plan_type: 'PERIODIC',
+  //           plan_amount: subscription.installmentAmount || 100,
+  //           plan_currency: 'INR',
+  //           plan_interval_type: 'MONTH',
+  //           plan_intervals: 1,
+  //           plan_max_amount: subscription.totalAmount,
+  //         },
+  //       }),
 
-        authorization_details: {
-          authorization_amount: amount || 100,
-          authorization_amount_refund: true,
-          payment_methods: ['upi', 'card', 'netbanking', 'enach'],
-        },
+  //       authorization_details: {
+  //         authorization_amount: amount || 100,
+  //         authorization_amount_refund: true,
+  //         payment_methods: ['upi', 'card', 'netbanking', 'enach'],
+  //       },
 
-        subscription_meta: {
-          // return_url: `https://your-frontend.com/payment-success?order_id=${orderId}`,
-          notify_url: `https://8514-103-82-149-53.ngrok-free.app/payment/webhook`,
-          notification_channel: ['EMAIL', 'SMS'],
-        },
+  //       subscription_meta: {
+  //         // return_url: `https://your-frontend.com/payment-success?order_id=${orderId}`,
+  //         notify_url: `https://6d8d-106-0-57-26.ngrok-free.app/payment/webhook`,
+  //         notification_channel: ['EMAIL', 'SMS'],
+  //       },
 
-        subscription_expiry_time: '2100-01-01T23:00:08+05:30',
-        subscription_first_charge_time: firstChargeTime,
+  //       subscription_expiry_time: '2100-01-01T23:00:08+05:30',
+  //       subscription_first_charge_time: firstChargeTime,
 
-        subscription_tags: {
-          order_id: orderId,
-        },
-      };
+  //       subscription_tags: {
+  //         order_id: orderId,
+  //       },
+  //     };
 
-      const response = await axios.post(
-        'https://sandbox.cashfree.com/pg/subscriptions',
-        payload,
-        { headers: this.getCashfreeHeaders() },
-      );
+  //     const response = await axios.post(
+  //       'https://sandbox.cashfree.com/pg/subscriptions',
+  //       payload,
+  //       { headers: this.getCashfreeHeaders() },
+  //     );
 
-      const sessionId = response.data.subscription_session_id;
+  //     const sessionId = response.data.subscription_session_id;
 
-      const authLink = `https://sandbox.cashfree.com/api/v1/${sessionId}`;
-      // 🔥 Save in DB
-      subscription.subscriptionId = response.data.subscription_id;
-      subscription.planId = planId || null;
-      subscription.authLink = authLink;
+  //     const authLink = `https://sandbox.cashfree.com/api/v1/${sessionId}`;
+  //     // 🔥 Save in DB
+  //     subscription.subscriptionId = response.data.subscription_id;
+  //     subscription.planId = planId || null;
+  //     subscription.authLink = authLink;
 
-      await subscription.save();
+  //     await subscription.save();
 
-      return {
-        authLink: authLink,
-        subscriptionId: response.data.subscription_id,
-      };
-    } catch (err) {
-      console.error(err.response?.data);
-      throw new BadRequestException(
-        err.response?.data || 'Subscription creation failed',
-      );
-    }
-  }
+  //     return {
+  //       authLink: authLink,
+  //       subscriptionId: response.data.subscription_id,
+  //     };
+  //   } catch (err) {
+  //     console.error(err.response?.data);
+  //     throw new BadRequestException(
+  //       err.response?.data || 'Subscription creation failed',
+  //     );
+  //   }
+  // }
 
 }

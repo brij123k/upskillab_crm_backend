@@ -38,7 +38,7 @@ export class OrderController {
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('Admin', 'bd')
 @Get()
- @RequirePermission(
+@RequirePermission(
                    PERMISSIONS.Orders.MODULE,
                    PERMISSIONS.Orders.ACTIONS.READ,
                  )
