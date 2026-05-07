@@ -12,13 +12,15 @@ import { AppError } from 'src/common/constants/error.constants';
 import { Types } from 'mongoose';
 import { ToggleDashboardDto } from 'src/dto/user/toggle-dashboard.dto';
 import { ProfileLogic } from '../profile/profile.logic';
-import { profile } from 'console';
 import { ProfileData } from '../profile/profile.data';
 import { ChangeUserDto } from 'src/dto/user/userupdate.dto';
 import { User } from 'src/schema/user.schema';
 import { RegisterUserDto } from 'src/dto/user/register-user.dto';
 import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { SmartfloService } from '../smartflo/smartflo.service';
+import { UserLogLogic } from '../user-logs/user-log.logic';
+import { UserLogAction, UserLogStatus } from 'src/schema/user-log.schema';
+import { AttendanceLogic } from '../attendance/attendance.logic';
 
 @Injectable()
 export class UserLogic {
@@ -43,7 +45,32 @@ export class UserLogic {
     private readonly profileData: ProfileData,
     private readonly userActivityLogic: UserActivityLogic,
     private readonly smartfloService:SmartfloService,
+    private readonly userLogLogic: UserLogLogic,
+    private readonly attendanceLogic: AttendanceLogic,
   ) { }
+
+  private getRequestMeta(req?: any) {
+    const forwardedFor = req?.headers?.['x-forwarded-for'];
+    const ipAddress =
+      (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.toString()?.split(',')[0]?.trim() ||
+      req?.ip ||
+      req?.connection?.remoteAddress ||
+      req?.socket?.remoteAddress ||
+      null;
+
+    return {
+      ip: ipAddress,
+      device: req?.headers?.['user-agent'] || req?.headers?.['device'] || 'Unknown',
+    };
+  }
+
+  private async safeLog(payload: any) {
+    try {
+      await this.userLogLogic.logEvent(payload);
+    } catch {
+      // Logging must never block auth flow.
+    }
+  }
 
   async register(dto: RegisterUserDto) {
     // 1️⃣ Check email
@@ -70,39 +97,44 @@ export class UserLogic {
     return user;
   }
 
-  async login(dto: any) {
-    const user = await this.userData.findByEmailWithRole(dto.email);
-    if (!user) {
-      throw new UnauthorizedException('User not Exist');
-    }
-    if (user.isBlocked) {
-      throw new UnauthorizedException('User is blocked');
-    }
+  async login(dto: any, req?: any) {
+    const requestMeta = this.getRequestMeta(req);
+    let user: any = null;
 
-    const match = await bcrypt.compare(dto.password, user.password);
-    if (!match) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    try {
+      user = await this.userData.findByEmailWithRole(dto.email);
+      if (!user) {
+        throw new UnauthorizedException('User not Exist');
+      }
+      if (user.isBlocked) {
+        throw new UnauthorizedException('User is blocked');
+      }
 
-    if (user.status.toLowerCase() !== 'active') {
-      throw new UnauthorizedException('Your Account is not Active');
-    }
+      const match = await bcrypt.compare(dto.password, user.password);
+      if (!match) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
 
-    if (!user.isDashboardEnabled) {
-      throw new UnauthorizedException("You don't have Dashboard Access");
-    }
+      if (user.status.toLowerCase() !== 'active') {
+        throw new UnauthorizedException('Your Account is not Active');
+      }
+
+      if (!user.isDashboardEnabled) {
+        throw new UnauthorizedException("You don't have Dashboard Access");
+      }
 
     // ✅ Update last login
     await this.userData.update(user._id, {
       lastLoginAt: new Date(),
     });
-    await this.userActivityLogic.log({
-      userId: user._id.toString(),
-      action: 'USER_LOGIN',
-      referenceType: 'Login',
-      referenceId: null,
-      meta: { LoginAt: new Date() },
-    });
+      await this.userActivityLogic.log({
+        userId: user._id.toString(),
+        action: 'USER_LOGIN',
+        referenceType: 'Login',
+        referenceId: null,
+        meta: { LoginAt: new Date() },
+      });
+      await this.attendanceLogic.recordLogin(user._id.toString(), new Date());
 
     const role = user.role as any;
 
@@ -158,46 +190,109 @@ export class UserLogic {
       isDashboardEnabled: user.isDashboardEnabled,
     };
 
-    const access_token = this.jwtService.sign(payload);
+      const access_token = this.jwtService.sign(payload);
 
-    return {
-      access_token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        number: user.number,
-        status: user.status,
-        role: {
-          id: role._id,
-          name: (role.name === 'Admin' || role.name === 'hr')
-            ? role.name
-            : 'bd',
-          roleRealName: role.name,
-          isSuperAdmin: role.isSuperAdmin,
+      await this.safeLog({
+        userId: user._id.toString(),
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.LOGIN,
+        status: UserLogStatus.SUCCESS,
+        log: 'User logged in successfully',
+        meta: {
+          email: user.email,
         },
-        CallerIds:user.CallerIds,
-        IVREnabled:user.IVREnabled,
-        permissions: finalPermissions,
-        isBlocked: user.isBlocked,
-        lastLoginAt: user.lastLoginAt,
-        isDashboardEnabled: user.isDashboardEnabled,
-        createdAt: user.createdAt,
-      },
-    };
+      });
+
+      return {
+        access_token,
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          number: user.number,
+          status: user.status,
+          role: {
+            id: role._id,
+            name: (role.name === 'Admin' || role.name === 'hr')
+              ? role.name
+              : 'bd',
+            roleRealName: role.name,
+            isSuperAdmin: role.isSuperAdmin,
+          },
+          CallerIds:user.CallerIds,
+          IVREnabled:user.IVREnabled,
+          permissions: finalPermissions,
+          isBlocked: user.isBlocked,
+          lastLoginAt: user.lastLoginAt,
+          isDashboardEnabled: user.isDashboardEnabled,
+          createdAt: user.createdAt,
+        },
+      };
+    } catch (error: any) {
+      await this.safeLog({
+        userId: user?._id?.toString(),
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.LOGIN,
+        status: UserLogStatus.FAILED,
+        log: 'User login failed',
+        reason: error?.message || 'Login failed',
+        meta: {
+          email: dto.email,
+        },
+      });
+      throw error;
+    }
   }
 
-  async logout(user: any) {
-    await this.userActivityLogic.log({
-      userId: user.userId.toString(),
-      action: 'USER_Logout',
-      referenceType: 'Logout',
-      referenceId: null,
-      meta: {
-        logoutAt: new Date()
-      },
-    });
-    return { success: true, message: "Logged Out Successfully" }
+  async logout(user: any, req?: any) {
+    const requestMeta = this.getRequestMeta(req);
+    const authHeader = req?.headers?.authorization || req?.headers?.Authorization;
+    const token = typeof authHeader === 'string' ? authHeader.split(' ')[1] : null;
+
+    try {
+      const decoded: any = token ? this.jwtService.verify(token) : null;
+      const userId = user?.userId?.toString() || decoded?.userId?.toString();
+
+      if (!userId) {
+        throw new UnauthorizedException('Invalid logout token');
+      }
+
+      await this.userActivityLogic.log({
+        userId,
+        action: 'USER_Logout',
+        referenceType: 'Logout',
+        referenceId: null,
+        meta: {
+          logoutAt: new Date()
+        },
+      });
+      await this.attendanceLogic.recordLogout(userId, new Date());
+      await this.safeLog({
+        userId,
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.LOGOUT,
+        status: UserLogStatus.SUCCESS,
+        log: 'User logged out successfully',
+        meta: {
+          logoutAt: new Date(),
+        },
+      });
+      return { success: true, message: "Logged Out Successfully" }
+    } catch (error: any) {
+      await this.safeLog({
+        userId: user?.userId?.toString(),
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.LOGOUT,
+        status: UserLogStatus.FAILED,
+        log: 'User logout failed',
+        reason: error?.message || 'Logout failed',
+      });
+      throw new UnauthorizedException(error?.message || 'Logout failed');
+    }
   }
 
   async sendOtp(email: string) {
@@ -222,20 +317,55 @@ export class UserLogic {
     return { valid: true };
   }
 
-  async resetPassword(email: string, otp: string, newPassword: string) {
-    const user = await this.userData.findByEmail(email);
-    if (!user || user.otp !== otp) {
-      throw new BadRequestException('Invalid OTP');
+  async resetPassword(email: string, otp: string, newPassword: string, req?: any) {
+    const requestMeta = this.getRequestMeta(req);
+    let user: any = null;
+
+    try {
+      user = await this.userData.findByEmail(email);
+      if (!user || user.otp !== otp) {
+        throw new BadRequestException('Invalid OTP');
+      }
+
+      if (user.otpExpiry && user.otpExpiry < new Date()) {
+        throw new BadRequestException('OTP expired');
+      }
+
+      const hashed = await bcrypt.hash(newPassword, 10);
+      await this.userData.update(user._id, {
+        password: hashed,
+        otp: null,
+        otpExpiry: null,
+      });
+
+      await this.safeLog({
+        userId: user._id.toString(),
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.RESET_PASSWORD,
+        status: UserLogStatus.SUCCESS,
+        log: 'Password reset successfully',
+        meta: {
+          email: user.email,
+        },
+      });
+
+      return { message: 'Password updated successfully' };
+    } catch (error: any) {
+      await this.safeLog({
+        userId: user?._id?.toString(),
+        ip: requestMeta.ip,
+        device: requestMeta.device,
+        action: UserLogAction.RESET_PASSWORD,
+        status: UserLogStatus.FAILED,
+        log: 'Password reset failed',
+        reason: error?.message || 'Password reset failed',
+        meta: {
+          email,
+        },
+      });
+      throw error;
     }
-
-    const hashed = await bcrypt.hash(newPassword, 10);
-    await this.userData.update(user._id, {
-      password: hashed,
-      otp: null,
-      otpExpiry: null,
-    });
-
-    return { message: 'Password updated successfully' };
   }
   async changeStatus(userId: string, status: string) {
     const user = await this.userData.updateStatus(userId, status);
@@ -329,21 +459,23 @@ export class UserLogic {
         profile: profileMap.get(user._id.toString()) || null,
       }));
     }
-    const users = await this.getUsersUnder(user.userId);
-
+    const users = await this.getUsersUnder(user);
     const userIds = users.map((u) => u._id);
-
+    
     const profiles =
-      await this.profileLogic.getProfilesByUserIds(userIds);
+    await this.profileLogic.getProfilesByUserIds(userIds);
+    console.log("Users under:", profiles);
 
     const profileMap = new Map(
       profiles.map((p) => [p.userId.toString(), p]),
     );
-
-    return users.map((user) => ({
+    
+    const res= users.map((user) => ({
       ...user,
       profile: profileMap.get(user._id.toString()) || null,
     }));
+    console.log("response:", res);
+    return res;
   }
 
   async updateUserAndProfile(
@@ -421,7 +553,11 @@ export class UserLogic {
   // async addIVRUser()
 
 
-  async getUsersUnder(userId: string) {
+  async getUsersUnder(user: any) {
+    if(user.roleName.toLowerCase() == "admin"){
+      return this.userData.getAllUsers();
+    }
+    const userId = user._id || user.userId;
     // 1️⃣ Get profile of requested user
     const profile = await this.profileData.findByUserId(userId);
     if (!profile || !profile.departmentId) {

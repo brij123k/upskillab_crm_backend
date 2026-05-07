@@ -218,7 +218,7 @@ async findAll(filters: any, user: any) {
   let accessibleUserIds: string[] = [];
 
   if (group === true || group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user.userId);
+    const users = await this.userLogic.getUsersUnder(user);
     accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId);
 
@@ -880,24 +880,33 @@ async approveOrder(id: string, approvedBy: string) {
       }
     }
 
-    // Get all leads in date range
     const leadMatch: any = {
       createdAt: { $gte: startDate, $lte: endDate },
-      status: 'converted', // Only converted leads
+      // status: 'active', 
     };
 
     if (query.source) {
       leadMatch.source = query.source.toLowerCase();
     }
-    if (query.campaign) {
-      leadMatch.source_campaign = query.campaign;
+    if (query.state) {
+      leadMatch.state = query.state;
+    }
+    if (query.stageId) {
+      leadMatch.stageId = new Types.ObjectId(query.stageId);
     }
 
     // Fetch leads
-    const leads = await this.leadModel.find(leadMatch).lean();
-    const leadIds = leads.map((l) => l._id);
+    const leads = await this.leadModel
+      .find(leadMatch)
+      .populate('stageId', 'name order')
+      .lean();
 
-    if (!leadIds.length) {
+    const filteredLeads = query.stage
+      ? leads.filter((lead: any) =>
+          String(lead?.stageId?.name || '').toLowerCase().includes(String(query.stage).toLowerCase()),
+        )
+      : leads;
+    if (!filteredLeads.length) {
       return {
         startDate,
         endDate,
@@ -907,7 +916,7 @@ async approveOrder(id: string, approvedBy: string) {
     }
 
     // Fetch orders for these leads (need to match by student somehow - using email/phone)
-    const leadPhones = leads.map((l) => l.phone);
+    const leadPhones = filteredLeads.map((l) => l.phone);
     const orders = await this.orderModel
       .find({
         mobile: { $in: leadPhones },
@@ -927,24 +936,12 @@ async approveOrder(id: string, approvedBy: string) {
       }
     });
 
-    // Get pool names
-    const poolIds = new Set<string>();
-    leads.forEach((lead) => {
-      poolIds.add(lead.poolId.toString());
-    });
-
-    const pools = await this.poolModel
-      .find({ _id: { $in: Array.from(poolIds).map((id) => new Types.ObjectId(id)) } })
-      .lean();
-    const poolsById = new Map(pools.map((p) => [p._id.toString(), p.name]));
-
-    // Group by source and pool
+    // Group by source and source campaign
     const groupedData = new Map<string, any>();
 
-    leads.forEach((lead) => {
+    filteredLeads.forEach((lead: any) => {
       const source = lead.source || 'Unknown';
-      const poolId = lead.poolId.toString();
-      const poolName = poolsById.get(poolId) || 'Unknown';
+      const campaignName = lead.source_campaign || 'Unknown';
       const key = `${source}`;
 
       if (!groupedData.has(key)) {
@@ -954,15 +951,15 @@ async approveOrder(id: string, approvedBy: string) {
         });
       }
 
-      if (!groupedData.get(key).campaigns.has(poolName)) {
-        groupedData.get(key).campaigns.set(poolName, {
-          poolName,
+      if (!groupedData.get(key).campaigns.has(campaignName)) {
+        groupedData.get(key).campaigns.set(campaignName, {
+          campaignName,
           totalLead: 0,
           revenue: 0,
         });
       }
 
-      const campaign = groupedData.get(key).campaigns.get(poolName);
+      const campaign = groupedData.get(key).campaigns.get(campaignName);
       campaign.totalLead += 1;
 
       // Add revenue from orders
@@ -979,7 +976,7 @@ async approveOrder(id: string, approvedBy: string) {
     groupedData.forEach((data) => {
       sourceNames.push(data.source);
       data.campaigns.forEach((campaign) => {
-        allCampaigns.add(campaign.poolName);
+        allCampaigns.add(campaign.campaignName);
       });
     });
 
@@ -992,6 +989,11 @@ async approveOrder(id: string, approvedBy: string) {
       totals: {
         total: { totalLead: 0, revenue: 0 },
         byCampaign: {},
+      },
+      stats: {
+        totalLead: filteredLeads.length,
+        totalRevenue: 0,
+        totalOrders: orders.length,
       },
     };
 
@@ -1018,6 +1020,7 @@ async approveOrder(id: string, approvedBy: string) {
           // Update grand total
           response.totals.total.totalLead += campaignData.totalLead;
           response.totals.total.revenue += campaignData.revenue;
+          response.stats.totalRevenue += campaignData.revenue;
         } else {
           row[`${campaign}_lead`] = 0;
           row[`${campaign}_revenue`] = 0;
@@ -1032,6 +1035,183 @@ async approveOrder(id: string, approvedBy: string) {
     });
 
     return response;
+  }
+
+  async stateLeadStageRevenueReport(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    if (query.dateFilter) {
+      const filter = query.dateFilter.toString().toLowerCase();
+      if (filter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(now.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (filter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (filter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate) {
+      const from = new Date(query.fromDate);
+      if (!Number.isNaN(from.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+      }
+    }
+
+    if (query.toDate) {
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(to.getTime())) {
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    const leadMatch: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+    };
+
+    if (query.state) {
+      leadMatch.state = { $regex: query.state, $options: 'i' };
+    }
+
+    const leads = await this.leadModel
+      .find(leadMatch)
+      .populate('stageId', 'name order')
+      .select('phone state stageId')
+      .lean();
+
+    const filteredLeads = query.leadStage
+      ? leads.filter((lead) => {
+          const stageName = String((lead.stageId as any)?.name || '').toLowerCase();
+          return stageName.includes(String(query.leadStage).toLowerCase());
+        })
+      : leads;
+
+    if (!filteredLeads.length) {
+      return {
+        startDate,
+        endDate,
+        filters: {
+          state: query.state || null,
+          leadStage: query.leadStage || null,
+        },
+        states: [],
+        leadStages: [],
+        data: [],
+        summary: {
+          totalRevenue: 0,
+          totalLeads: 0,
+          totalOrders: 0,
+        },
+      };
+    }
+
+    const leadPhones = filteredLeads.map((lead) => lead.phone).filter(Boolean);
+    const orders = await this.orderModel
+      .find({
+        mobile: { $in: leadPhones },
+        orderDate: { $gte: startDate, $lte: endDate },
+      })
+      .lean();
+
+    const ordersByPhone = new Map<string, any[]>();
+    orders.forEach((order) => {
+      const key = String(order.mobile || '');
+      if (!key) return;
+      if (!ordersByPhone.has(key)) {
+        ordersByPhone.set(key, []);
+      }
+      ordersByPhone.get(key)?.push(order);
+    });
+
+    const stateSet = new Set<string>();
+    const stageSet = new Set<string>();
+    const rowMap = new Map<string, any>();
+
+    const getRevenueForLead = (phone: string) => {
+      const leadOrders = ordersByPhone.get(phone) || [];
+      return leadOrders.reduce((sum, order) => sum + (order.countedRevenue || order.finalFee || 0), 0);
+    };
+
+    filteredLeads.forEach((lead: any) => {
+      const state = lead.state || 'Unknown';
+      const stageName = (lead.stageId as any)?.name || 'Unknown';
+      const stageOrder = Number((lead.stageId as any)?.order || 999999);
+      const revenue = getRevenueForLead(String(lead.phone || ''));
+
+      stateSet.add(state);
+      stageSet.add(stageName);
+
+      const rowKey = stageName;
+      const existing = rowMap.get(rowKey) || {
+        leadStage: stageName,
+        stageOrder,
+        totalRevenue: 0,
+        totalLeads: 0,
+      };
+
+      existing[state] = (existing[state] || 0) + revenue;
+      existing.totalRevenue += revenue;
+      existing.totalLeads += 1;
+      existing.stageOrder = Math.min(existing.stageOrder || 999999, stageOrder);
+      rowMap.set(rowKey, existing);
+    });
+
+    const states = Array.from(stateSet).sort((a, b) => a.localeCompare(b));
+    const leadStages = Array.from(stageSet).sort((a, b) => a.localeCompare(b));
+
+    const data = Array.from(rowMap.values())
+      .map((row: any) => {
+        const finalRow: any = {
+          leadStage: row.leadStage,
+          totalRevenue: row.totalRevenue,
+          totalLeads: row.totalLeads,
+        };
+
+        states.forEach((state) => {
+          finalRow[state] = row[state] || 0;
+        });
+
+        return finalRow;
+      })
+      .sort((a, b) => {
+        const aRow = rowMap.get(a.leadStage);
+        const bRow = rowMap.get(b.leadStage);
+        return (aRow?.stageOrder || 999999) - (bRow?.stageOrder || 999999);
+      });
+
+    const summary = {
+      totalRevenue: orders.reduce((sum, order) => sum + (order.countedRevenue || order.finalFee || 0), 0),
+      totalLeads: filteredLeads.length,
+      totalOrders: orders.length,
+    };
+
+    return {
+      startDate,
+      endDate,
+      filters: {
+        state: query.state || null,
+        leadStage: query.leadStage || null,
+      },
+      states,
+      leadStages,
+      data,
+      summary,
+    };
   }
 
   async employeePoolRevenueReport(query: any) {
@@ -1278,7 +1458,7 @@ async getAllEmi(query: any, user: any) {
   let accessibleUserIds: string[] = [];
 
   if (group === true || group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user.userId);
+    const users = await this.userLogic.getUsersUnder(user);
 
     accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId);

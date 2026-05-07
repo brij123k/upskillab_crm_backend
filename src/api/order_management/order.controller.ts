@@ -138,6 +138,18 @@ getAll(@Query() query: any, @Req() req) {
                    PERMISSIONS.Orders.MODULE,
                    PERMISSIONS.Orders.ACTIONS.READ,
                  )
+    @Get('report/state-lead-stage-revenue')
+    @ApiOperation({ summary: 'Get state and lead stage wise revenue report' })
+    stateLeadStageRevenueReport(@Query() query: any) {
+        return this.service.stateLeadStageRevenueReport(query);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+                   PERMISSIONS.Orders.MODULE,
+                   PERMISSIONS.Orders.ACTIONS.READ,
+                 )
     @Get('report/employee-pool-revenue')
     @ApiOperation({ summary: 'Get employee pool revenue report grouped by month' })
     employeePoolRevenueReport(@Query() query: any) {

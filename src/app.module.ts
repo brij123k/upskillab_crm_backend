@@ -23,6 +23,9 @@ import { PaymentModule } from './api/order_management/payment/payment.module';
 import { LoanPartnerModule } from './api/order_management/loan-partner/loan-partner.module';
 import { SubscriptionModule } from './api/order_management/subscription/subscription.module';
 import { SmartfloModule } from './api/smartflo/smartflo.module';
+import { TaskModule } from './api/tasks/task.module';
+import { AnnouncementModule } from './api/announcements/announcement.module';
+import { PerformanceWarningModule } from './api/performance-warnings/performance-warning.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -49,6 +52,9 @@ ConfigModule.forRoot({
     LoanPartnerModule,
     SubscriptionModule,
     SmartfloModule,
+    TaskModule,
+    AnnouncementModule,
+    PerformanceWarningModule,
   ],
   controllers: [AppController],
   providers: [AppService],

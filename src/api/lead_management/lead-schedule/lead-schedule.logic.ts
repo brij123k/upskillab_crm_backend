@@ -43,7 +43,7 @@ export class LeadScheduleLogic {
 
 async getSchedules(filters: any, user: any) {
   if (filters.group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user.userId);
+    const users = await this.userLogic.getUsersUnder(user);
 
     const userIds = users.map(u => u._id.toString());
     userIds.push(user.userId);

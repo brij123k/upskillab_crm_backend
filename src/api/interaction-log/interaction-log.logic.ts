@@ -70,11 +70,11 @@ export class InteractionLogLogic {
     return this.data.update(id, dto);
   }
 
-  async getByUsers(filter: any, userId: string) {
-
+  async getByUsers(filter: any, user: any) {
+    const userId = user.userId;
   if (filter.group == 'true') {
 
-    const users = await this.userLogic.getUsersUnder(userId);
+    const users = await this.userLogic.getUsersUnder(user);
 
     const accessibleUserIds = users.map((u) =>
       u._id.toString(),

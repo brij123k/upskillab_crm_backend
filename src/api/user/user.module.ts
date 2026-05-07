@@ -8,6 +8,8 @@ import { ProfileModule } from '../profile/profile.module';
 import { Profile,ProfileSchema } from 'src/schema/profile.schema';
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { SmartfloModule } from '../smartflo/smartflo.module';
+import { UserLogModule } from '../user-logs/user-log.module';
+import { AttendanceModule } from '../attendance/attendance.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -17,6 +19,8 @@ import { SmartfloModule } from '../smartflo/smartflo.module';
     ProfileModule,
     UserActivityModule,
     SmartfloModule,
+    UserLogModule,
+    AttendanceModule,
   ],
   controllers: [UserController],
   providers: [UserLogic, UserData],

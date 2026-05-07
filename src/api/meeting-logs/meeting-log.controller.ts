@@ -78,7 +78,7 @@ export class MeetingLogController {
            PERMISSIONS.Meeting.ACTIONS.READ,
          )
   getWithFeedbacks(@Query() query: any,@Req() req) {
-    return this.logic.getMeetingsByUsers(query,req.user.userId);
+    return this.logic.getMeetingsByUsers(query,req.user);
   }@Post('feeback')
   @UseGuards(JwtAuthGuard,RoleGuard)
   @Roles('Admin','bd')

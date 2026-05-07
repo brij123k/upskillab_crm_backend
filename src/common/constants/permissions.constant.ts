@@ -21,6 +21,7 @@ export const PERMISSIONS = {
       UPDATE: 'update',
       DELETE: 'delete',
       BLOCK: 'block',
+      USER_ACTIVITY: 'user_activity',
     },
   },
 
@@ -87,6 +88,22 @@ export const PERMISSIONS = {
       UPDATE:'update',
       APPROVE:'approve',
       TOGGLESTATUS:'toggle_status',
+    }
+  },
+  TASK:{
+    MODULE:'task',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+      UPDATE:'update',
+      CHANGE_STATUS:'change_status',
+    }
+  },
+  ANNOUNCEMENT:{
+    MODULE:'announcement',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
     }
   }
 } as const;

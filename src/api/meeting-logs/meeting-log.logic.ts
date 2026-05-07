@@ -103,9 +103,10 @@ export class MeetingLogLogic {
     return this.data.findByUser(user.userId);
   }
 
-async getMeetingsByUsers(filter: any, userId: string) {
+async getMeetingsByUsers(filter: any, user: any) {
+  const userId = user.userId;
   if (filter.group == 'true') {
-    const users = await this.userLogic.getUsersUnder(userId);
+    const users = await this.userLogic.getUsersUnder(user);
 
     const accessibleUserIds = users.map(u => u._id.toString());
     accessibleUserIds.push(userId);

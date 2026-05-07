@@ -134,7 +134,7 @@ async getAllPayments(filters: any, user: any) {
   let accessibleUserIds: string[] = [];
 
   if (group === true || group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user.userId);
+    const users = await this.userLogic.getUsersUnder(user);
     accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId);
   } else if (user.roleName === 'bd') {

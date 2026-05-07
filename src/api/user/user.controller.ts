@@ -29,8 +29,8 @@ export class UserController {
   }
 
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.logic.login(dto);
+  login(@Body() dto: LoginDto, @Req() req: any) {
+    return this.logic.login(dto, req);
   }
 
   @Post('forget-password')
@@ -44,14 +44,13 @@ export class UserController {
   }
 
   @Post('reset-password')
-  reset(@Body() dto: ResetPasswordDto) {
-    return this.logic.resetPassword(dto.email, dto.otp, dto.newPassword);
+  reset(@Body() dto: ResetPasswordDto, @Req() req: any) {
+    return this.logic.resetPassword(dto.email, dto.otp, dto.newPassword, req);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Post('Logout')
   logout(@Req() req:any) {
-    return this.logic.logout(req.user);
+    return this.logic.logout(req.user, req);
   }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
@@ -98,7 +97,7 @@ toggleDashboard(
   summary:"get all user detail"
 })
 getAllUsers(@Req() req:any){
-return this.logic.getUsersUnder(req.user.userId)
+return this.logic.getUsersUnder(req.user)
 }
 
 

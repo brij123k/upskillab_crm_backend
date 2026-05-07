@@ -156,9 +156,11 @@ async getByLead(leadId: number) {
   };
 }
 
-async getByUsers(filter: any, userId: string){
+async getByUsers(filter: any, user: any){
+  const userId = user._id || user.userId;
   if(filter.group=='true'){
-    const users = await this.userLogic.getUsersUnder(userId);
+    let users: any[] = [];
+    users = await this.userLogic.getUsersUnder(user);
     const accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(userId)
     if (!accessibleUserIds || !accessibleUserIds.length) {
@@ -167,7 +169,6 @@ async getByUsers(filter: any, userId: string){
         [userId],
       );
     }
-
     // 🔥 Apply hierarchy filter
     return this.callLogData.findAllWithUserIds(
       filter,

@@ -76,6 +76,18 @@ export class LeadController {
       PERMISSIONS.LEAD.MODULE,
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
+  @Get('report/source-campaign-stage-summary')
+  @ApiOperation({ summary: 'Get source campaign wise lead stage summary report' })
+  sourceCampaignStageSummaryReport(@Query() query: LeadFilterDto, @Req() req: any) {
+      return this.logic.sourceCampaignStageSummaryReport(query, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
   @Get('report/all-employees-stages')
   @ApiOperation({ summary: 'Get all employees with all stages breakdown' })
   allEmployeesStagesReport(@Req() req: any) {

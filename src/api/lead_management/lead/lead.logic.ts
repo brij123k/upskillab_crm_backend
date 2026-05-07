@@ -138,7 +138,7 @@ await this.notificationEngine.handleEvent({
       poolId = Pool._id.toString();
     }
 
-    const users = await this.userLogic.getUsersUnder(user.userId);
+    const users = await this.userLogic.getUsersUnder(user);
     const accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId)
     if (!accessibleUserIds || !accessibleUserIds.length) {
@@ -223,7 +223,7 @@ await this.notificationEngine.handleEvent({
 
     if (!user.isSuperAdmin) {
       const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
-      const users = await this.userLogic.getUsersUnder(user.userId);
+      const users = await this.userLogic.getUsersUnder(user);
       const accessibleUserIds = users.map((u) => u._id.toString());
       accessibleUserIds.push(user.userId);
 
@@ -271,12 +271,174 @@ await this.notificationEngine.handleEvent({
     };
   }
 
+  async sourceCampaignStageSummaryReport(query: any, user: any) {
+    const now = new Date();
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    if (query.date) {
+      const singleDate = new Date(query.date);
+      if (!Number.isNaN(singleDate.getTime())) {
+        startDate = new Date(singleDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(singleDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    } else if (query.dateFilter) {
+      const dateFilter = query.dateFilter.toString().toLowerCase();
+      if (dateFilter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (dateFilter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+    }
+
+    if (query.fromDate && query.toDate) {
+      const from = new Date(query.fromDate);
+      const to = new Date(query.toDate);
+      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+        startDate = new Date(from);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(to);
+        endDate.setHours(23, 59, 59, 999);
+      }
+    }
+
+    if (!startDate || !endDate) {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    }
+
+    const match: any = {
+      createdAt: { $gte: startDate, $lte: endDate },
+    };
+
+    if (query.status) match.status = query.status;
+    if (query.source) match.source = query.source;
+    if (query.stageId) match.stageId = new Types.ObjectId(query.stageId);
+    if (query.poolId) match.poolId = new Types.ObjectId(query.poolId);
+    if (query.assignedTo) match.assignedTo = query.assignedTo;
+    if (query.counsellorId) match.assignedTo = query.counsellorId;
+    if (query.source_campaign) {
+      match.source_campaign = { $regex: query.source_campaign, $options: 'i' };
+    }
+
+    if (!user.isSuperAdmin) {
+      const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
+      const users = await this.userLogic.getUsersUnder(user);
+      const accessibleUserIds = users.map((u) => u._id.toString());
+      accessibleUserIds.push(user.userId);
+
+      if (Pool?._id) {
+        match.$or = [
+          { assignedTo: { $in: accessibleUserIds } },
+          { poolId: Pool._id },
+        ];
+      } else {
+        match.assignedTo = { $in: accessibleUserIds };
+      }
+    }
+
+    const rows = await this.leadModel.aggregate([
+      { $match: match },
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+      { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+      {
+        $group: {
+          _id: {
+            stageId: { $ifNull: ['$stage._id', null] },
+            stageName: { $ifNull: ['$stage.name', 'Unknown'] },
+            stageOrder: { $ifNull: ['$stage.order', 999999] },
+            campaign: { $ifNull: ['$source_campaign', 'Unknown'] },
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.stageOrder': 1, '_id.stageName': 1, '_id.campaign': 1 } },
+    ]);
+
+    const campaigns = Array.from(
+      new Set(rows.map((item) => item._id.campaign).filter(Boolean)),
+    ).sort((a, b) => String(a).localeCompare(String(b)));
+
+    const stageMap = new Map<string, any>();
+    rows.forEach((item) => {
+      const key = item._id.stageName;
+      const existing = stageMap.get(key) || {
+        sourceCampaignName: key,
+        stageOrder: item._id.stageOrder,
+        total: 0,
+      };
+      existing[item._id.campaign] = item.count;
+      existing.total += item.count;
+      stageMap.set(key, existing);
+    });
+
+    const data = Array.from(stageMap.values()).map((row: any) => {
+      const finalRow: any = {
+        sourceCampaignName: row.sourceCampaignName,
+        total: row.total,
+      };
+
+      campaigns.forEach((campaign) => {
+        finalRow[campaign] = row[campaign] || 0;
+      });
+
+      return finalRow;
+    }).sort((a, b) => {
+      const aRow = stageMap.get(a.sourceCampaignName);
+      const bRow = stageMap.get(b.sourceCampaignName);
+      return (aRow?.stageOrder || 999999) - (bRow?.stageOrder || 999999);
+    });
+
+    const totalsByCampaign: Record<string, number> = {};
+    campaigns.forEach((campaign) => {
+      totalsByCampaign[campaign] = rows
+        .filter((row) => row._id.campaign === campaign)
+        .reduce((sum, row) => sum + row.count, 0);
+    });
+
+    const grandTotal = rows.reduce((sum, row) => sum + row.count, 0);
+
+    return {data:{
+      startDate,
+      endDate,
+      sourceCampaigns: campaigns,
+      data,
+      totalsByCampaign,
+      grandTotal,
+    }
+    };
+  }
+
   async allEmployeesStagesReport(user: any) {
     const match: any = {};
 
     if (!user.isSuperAdmin) {
       const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
-      const users = await this.userLogic.getUsersUnder(user.userId);
+      const users = await this.userLogic.getUsersUnder(user);
       const accessibleUserIds = users.map((u) => u._id.toString());
       accessibleUserIds.push(user.userId);
 

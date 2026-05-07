@@ -54,6 +54,6 @@ getByUsers(
   @Query() query: any,
   @Req() req: any,
 ) {
-  return this.logic.getByUsers(query, req.user.userId);
+  return this.logic.getByUsers(query, req.user);
 }
 }

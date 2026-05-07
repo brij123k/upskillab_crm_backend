@@ -55,10 +55,14 @@ findByIds(userIds: string[]) {
       { _id: { $in: userIds } },
       { name: 1, email: 1, number: 1, role: 1, employeeId: 1 },
     )
+    .select(
+        'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
+      )
     .populate({
-      path: 'role',
-      select: 'name',
-    });
+        path: 'role',
+        select: 'name isSuperAdmin permissions',
+      })
+    .lean();
 }
 findUserDepartmentById(id: string) {
   return this.userModel
