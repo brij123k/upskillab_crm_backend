@@ -16,7 +16,7 @@ export class SubscriptionCronService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const subs = await this.model.find({ status: 'Active' });
+    const subs = await this.model.find({ status: 'ACTIVE' });
 
     for (const sub of subs) {
       for (const inst of sub.installments) {

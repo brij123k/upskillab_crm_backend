@@ -27,8 +27,6 @@ export class AttendanceLogic {
   async recordLogin(userId: string, loginTime = new Date()) {
     const date = this.startOfDay(loginTime);
     const existing = await this.data.findByUserAndDate(userId, date);
-    console.log('recordLogin - existing attendance:', existing);
-    console.log(date);
     if (existing) {
       if (!existing.loginTime) {
         return this.data.update(existing._id.toString(), {

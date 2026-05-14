@@ -51,8 +51,14 @@ export class Subscription {
                 isPaid: { type: Boolean, default: false },
                 paidAt: Date,
                 reminderSent: { type: Boolean, default: false },
+                paymentRecordId: { type: Types.ObjectId, ref: 'SubscriptionPayment' },
+                failedAt: Date,
+                failureReason: String,
+                paymentStatus: String,
+                lastEventType: String,
             },
         ],
+        default: [],
     })
     installments: any[];
 
@@ -71,7 +77,10 @@ export class Subscription {
     @Prop({ type: Array, default: [] })
     webhookLogs: any[];
 
-    @Prop({ default: 'Active' })
+    @Prop({ type: [{ type: Types.ObjectId, ref: 'SubscriptionPayment' }], default: [] })
+    paymentRecords: Types.ObjectId[];
+
+    @Prop({ default: 'PENDING_AUTH' })
     status: string;
 }
 

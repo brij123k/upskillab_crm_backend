@@ -190,7 +190,7 @@ async applySubscriptionPayment(orderId: string, amount: number) {
   }
 
   const allPaid = sub.installments.every(i => i.isPaid);
-  if (allPaid) sub.status = 'Completed';
+  if (allPaid) sub.status = 'COMPLETED';
 
   await sub.save();
 
@@ -1419,12 +1419,19 @@ async approveOrder(id: string, approvedBy: string) {
     };
   }
 
-  async applyPayment(orderId: string, amount: number) {
-    const order = await this.orderModel.findById(orderId);
-    if (!order) throw new BadRequestException('Order not found');
+async applyPayment(orderId: string, amount: number) {
+  const order = await this.orderModel.findById(orderId);
+  if (!order) throw new BadRequestException('Order not found');
 
-    order.lumpsumDetails.totalReceived += amount;
-    order.lumpsumDetails.pendingAmount = order.finalFee - order.lumpsumDetails.totalReceived;
+  order.lumpsumDetails = order.lumpsumDetails || {
+    registrationDate: order.feeDepositDate || new Date(),
+    registrationAmount: 0,
+    totalReceived: 0,
+    pendingAmount: order.finalFee || 0,
+    paymentType: 'Subscription',
+  };
+  order.lumpsumDetails.totalReceived += amount;
+  order.lumpsumDetails.pendingAmount = order.finalFee - order.lumpsumDetails.totalReceived;
 
     if (order.lumpsumDetails.pendingAmount <= 0) {
       order.status = OrderStatus.FULLY_PAID;
@@ -1587,7 +1594,7 @@ async updateInstallments(dto: any, user: any,id: string) {
   const existing = await this.emiModel.findById(id);
   if (!existing) throw new Error('Loan not found');
 
-  if (existing.status === 'Completed') {
+  if (existing.status === 'COMPLETED') {
     throw new Error('Loan Completed');
   }
 

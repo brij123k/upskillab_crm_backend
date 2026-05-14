@@ -166,7 +166,7 @@ export class PaymentController {
           }
 
           const allPaid = sub.installments.every(i => i.isPaid);
-          if (allPaid) sub.status = 'Completed';
+          if (allPaid) sub.status = 'COMPLETED';
 
           await sub.save();
 

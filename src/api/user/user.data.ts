@@ -75,7 +75,6 @@ async findByEmployeeId(employeeId: number) {
 }
 
   update(id: any, data: any) {
-    console.log(id,data)
     return this.userModel.findByIdAndUpdate(id, data, { new: true });
   }
 

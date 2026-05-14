@@ -132,6 +132,8 @@ export class Order {
       firstInstallmentDate: Date,
       lastInstallmentDate: Date,
       numberOfInstallments: Number,
+      status: String,
+      lastPaymentAt: Date,
     },
   })
   subscriptionDetails: any;

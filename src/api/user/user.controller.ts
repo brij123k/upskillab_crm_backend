@@ -155,7 +155,6 @@ return this.logic.updateUserAndProfile(userId,dto)
 @Roles('Admin')
 @Post('IVR')
 createIVRUser(@Body() dto:any){
-  console.log(dto)
   return this.logic.createIVRUser(dto)
 }
 }

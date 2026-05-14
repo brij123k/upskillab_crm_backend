@@ -464,7 +464,6 @@ export class UserLogic {
     
     const profiles =
     await this.profileLogic.getProfilesByUserIds(userIds);
-    console.log("Users under:", profiles);
 
     const profileMap = new Map(
       profiles.map((p) => [p.userId.toString(), p]),
@@ -474,7 +473,6 @@ export class UserLogic {
       ...user,
       profile: profileMap.get(user._id.toString()) || null,
     }));
-    console.log("response:", res);
     return res;
   }
 

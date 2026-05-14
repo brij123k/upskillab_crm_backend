@@ -29,13 +29,11 @@ export class NotificationGateway
       const payload = this.jwtService.verify(token);
         // console.log(payload)
       const {userId, roleName } = payload;
-        console.log(userId)
       client.join(`user:${userId}`);
       client.join(`role:${roleName}`);
 
       client.data.userId = userId;
 
-      console.log(`🔌 User connected: ${userId}`);
     } catch (err) {
       client.disconnect();
     }
