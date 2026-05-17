@@ -19,6 +19,16 @@ export class PerformanceWarningData {
       .populate('issuedBy', 'name email employeeId');
   }
 
+  findByUserAndId(userId: string, id: string) {
+    return this.model
+      .findOne({
+        _id: new Types.ObjectId(id),
+        userId: new Types.ObjectId(userId),
+      })
+      .populate('userId', 'name email employeeId')
+      .populate('issuedBy', 'name email employeeId');
+  }
+
   async findAll(filters: any = {}) {
   const query: any = {};
 

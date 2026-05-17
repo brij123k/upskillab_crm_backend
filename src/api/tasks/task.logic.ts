@@ -111,6 +111,19 @@ export class TaskLogic {
     };
   }
 
+  async updateMyStatus(id: string, status: TaskStatus, userId: string) {
+    const task = await this.data.findByUserAndId(userId, id);
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const updated = await this.data.update(id, { status });
+    return {
+      success: true,
+      data: updated,
+    };
+  }
+
   delete(id: string) {
     return this.data.delete(id);
   }
@@ -121,6 +134,10 @@ export class TaskLogic {
 
   getMyTasks(userId: string, filters: any = {}) {
     return this.data.findAllByUser(userId, filters);
+  }
+
+  getMyTaskById(userId: string, id: string) {
+    return this.data.findByUserAndId(userId, id);
   }
 
   getById(id: string) {

@@ -50,6 +50,13 @@ export class TaskController {
     return this.logic.getMyTasks(req.user.userId, query);
   }
 
+  @Get('me/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get a task assigned to the current user by id' })
+  getMyTaskById(@Param('id') id: string, @Req() req: any) {
+    return this.logic.getMyTaskById(req.user.userId, id);
+  }
+
       @RequirePermission(
          PERMISSIONS.TASK.MODULE,
          PERMISSIONS.TASK.ACTIONS.READ,
@@ -78,6 +85,14 @@ export class TaskController {
   @ApiOperation({ summary: 'Update task status' })
   updateStatus(@Param('id') id: string, @Body() body: { status: TaskStatus }) {
     return this.logic.updateStatus(id, body.status);
+  }
+
+  @Patch('me/:id/status')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('bd')
+  @ApiOperation({ summary: 'Update your assigned task status' })
+  updateMyStatus(@Param('id') id: string, @Body() body: { status: TaskStatus }, @Req() req: any) {
+    return this.logic.updateMyStatus(id, body.status, req.user.userId);
   }
 
   // @Delete(':id')

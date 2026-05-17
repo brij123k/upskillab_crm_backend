@@ -28,7 +28,11 @@ export class AnnouncementLogic {
 
     if (dto.audience === AnnouncementAudience.SELECTED_USERS) {
       const userIds = [...new Set((dto.userIds || []).map((id) => id.toString()))];
-      return userIds.filter((id) => id !== creatorObjectId);
+      const users = await this.userData.findByIds(userIds);
+      return users
+        .filter((user) => !this.isAdminRole(user.role))
+        .map((user) => user._id.toString())
+        .filter((id) => id !== creatorObjectId);
     }
 
     if (dto.audience === AnnouncementAudience.DEPARTMENT) {
@@ -68,6 +72,7 @@ export class AnnouncementLogic {
       },
       metadata: {
         announcementId: announcement._id.toString(),
+        redirectUrl: `/bd/my-announcements/${announcement._id.toString()}`,
         audience: announcement.audience,
         departmentId: announcement.departmentId?.toString() || null,
         userIds: recipientIds,
@@ -107,6 +112,18 @@ export class AnnouncementLogic {
 
   async findAll(query: any) {
     return this.data.findAll(query);
+  }
+
+  async findForUser(userId: string, query: any) {
+    return this.data.findForUser(userId, query);
+  }
+
+  async findMyAnnouncement(userId: string, id: string) {
+    const announcement = await this.data.findByUserAndId(userId, id);
+    if (!announcement) {
+      throw new NotFoundException('Announcement not found');
+    }
+    return announcement;
   }
 
   async findOne(id: string) {

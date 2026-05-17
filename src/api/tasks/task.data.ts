@@ -19,6 +19,13 @@ export class TaskData {
       .populate('assignedBy', 'name email employeeId');
   }
 
+  findByUserAndId(userId: string, id: string) {
+    return this.model
+      .findOne({ _id: id, assignTo: new Types.ObjectId(userId) })
+      .populate('assignTo', 'name email employeeId')
+      .populate('assignedBy', 'name email employeeId');
+  }
+
   update(id: string, data: any) {
     return this.model
       .findByIdAndUpdate(id, data, { new: true })

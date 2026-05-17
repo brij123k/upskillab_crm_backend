@@ -16,54 +16,56 @@ export class AnnouncementData {
     return this.model.findById(id);
   }
 
- async findAll(filters: any = {}) {
+  findByUserAndId(userId: string, id: string) {
+    return this.model
+      .findOne({
+        _id: new Types.ObjectId(id),
+        $or: [
+          { createdBy: new Types.ObjectId(userId) },
+          { recipientUserIds: new Types.ObjectId(userId) },
+        ],
+      })
+      .populate('createdBy', 'name email employeeId')
+      .populate('departmentId', 'name');
+  }
+
+  async findAll(filters: any = {}) {
     const query: any = {};
+    const andConditions: any[] = [];
 
-  // 🔹 Audience filter
-  if (filters.audience) {
-    query.audience = filters.audience;
-  }
+    if (filters.audience) {
+      query.audience = filters.audience;
+    }
 
-  // 🔹 Department filter
-  if (filters.departmentId) {
-    query.departmentId = new Types.ObjectId(filters.departmentId);
-  }
+    if (filters.departmentId) {
+      query.departmentId = new Types.ObjectId(filters.departmentId);
+    }
 
-  // 🔹 Created By
-  if (filters.createdBy) {
-    query.createdBy = new Types.ObjectId(filters.createdBy);
-  }
+    if (filters.createdBy) {
+      query.createdBy = new Types.ObjectId(filters.createdBy);
+    }
 
-  // 🔹 Specific user (for selected users or recipients)
-  if (filters.userId) {
-    query.$or = [
-      { userIds: new Types.ObjectId(filters.userId) },
-      { recipientUserIds: new Types.ObjectId(filters.userId) },
-    ];
-  }
+    if (filters.userId) {
+      andConditions.push({
+        $or: [
+        { userIds: new Types.ObjectId(filters.userId) },
+        { recipientUserIds: new Types.ObjectId(filters.userId) },
+        ],
+      });
+    }
 
-  // 🔹 Search (title + message)
-  if (filters.search) {
-    query.$or = [
-      { title: { $regex: filters.search, $options: 'i' } },
-      { message: { $regex: filters.search, $options: 'i' } },
-    ];
-  }
+    if (filters.search) {
+      andConditions.push({
+        $or: [
+        { title: { $regex: filters.search, $options: 'i' } },
+        { message: { $regex: filters.search, $options: 'i' } },
+        ],
+      });
+    }
 
-  // 🔥 Date filter (same-day fix included)
-  if (filters.fromDate || filters.toDate) {
-    query.createdAt = {};
+    if (filters.fromDate || filters.toDate) {
+      query.createdAt = {};
 
-    if (filters.fromDate && filters.toDate) {
-      const from = new Date(filters.fromDate);
-      const to = new Date(filters.toDate);
-
-      from.setHours(0, 0, 0, 0);
-      to.setHours(23, 59, 59, 999);
-
-      query.createdAt.$gte = from;
-      query.createdAt.$lte = to;
-    } else {
       if (filters.fromDate) {
         const from = new Date(filters.fromDate);
         from.setHours(0, 0, 0, 0);
@@ -76,33 +78,99 @@ export class AnnouncementData {
         query.createdAt.$lte = to;
       }
     }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
+    }
+
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.model
+        .find(query)
+        .populate('createdBy', 'name email employeeId')
+        .populate('departmentId', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      this.model.countDocuments(query),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
-  // 🔹 Pagination
-  const page = Number(filters.page) || 1;
-  const limit = Number(filters.limit) || 10;
-  const skip = (page - 1) * limit;
+  async findForUser(userId: string, filters: any = {}) {
+    const query: any = {
+      recipientUserIds: new Types.ObjectId(userId),
+    };
+    const andConditions: any[] = [];
 
-  const [data, total] = await Promise.all([
-    this.model
-      .find(query)
-      .populate('createdBy', 'name email employeeId')
-      .populate('departmentId', 'name')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
+    if (filters.search) {
+      andConditions.push({
+        $or: [
+        { title: { $regex: filters.search, $options: 'i' } },
+        { message: { $regex: filters.search, $options: 'i' } },
+        ],
+      });
+    }
 
-    this.model.countDocuments(query),
-  ]);
+    if (filters.audience) {
+      query.audience = filters.audience;
+    }
 
-  return {
-    data,
-    meta: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    },
+    if (filters.fromDate || filters.toDate) {
+      query.createdAt = {};
+
+      if (filters.fromDate) {
+        const from = new Date(filters.fromDate);
+        from.setHours(0, 0, 0, 0);
+        query.createdAt.$gte = from;
+      }
+
+      if (filters.toDate) {
+        const to = new Date(filters.toDate);
+        to.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = to;
+      }
+    }
+
+    if (andConditions.length > 0) {
+      query.$and = andConditions;
+    }
+
+    const page = Number(filters.page) || 1;
+    const limit = Number(filters.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.model
+        .find(query)
+        .populate('createdBy', 'name email employeeId')
+        .populate('departmentId', 'name')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      this.model.countDocuments(query),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
-}
 }
