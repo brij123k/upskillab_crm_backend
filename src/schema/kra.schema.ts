@@ -36,6 +36,9 @@ export class Kra extends Document {
   @Prop({ type: Number, required: true, default: 0, min: 0 })
   halfDayDemoConducts: number;
 
+  @Prop({ type: Number, required: true, default: 0, min: 0 })
+  maxLeavePerMonth: number;
+
   createdAt: Date;
   updatedAt: Date;
 }

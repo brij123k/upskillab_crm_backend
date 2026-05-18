@@ -105,5 +105,11 @@ export const PERMISSIONS = {
       CREATE:'create',
       READ:'read',
     }
+  },
+  LEAVE:{
+    MODULE:'leave',
+    ACTIONS:{
+      APPROVE:'approve',
+    }
   }
 } as const;

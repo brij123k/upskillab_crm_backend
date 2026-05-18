@@ -40,7 +40,7 @@ export class KraController {
 
   @Get('role/:roleId')
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'hr')
+  @Roles('Admin', 'bd')
   @ApiOperation({ summary: 'Get KRA settings by roleId' })
   findByRole(@Param('roleId') roleId: string) {
     return this.logic.findByRoleId(roleId);

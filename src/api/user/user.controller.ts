@@ -115,6 +115,24 @@ getAllUsersProfile(@Req() req:any){
 return this.logic.getAllUsersWithProfile(req.user)
 }
 
+@UseGuards(JwtAuthGuard)
+@Get('seniors/me')
+@ApiOperation({
+  summary: 'Get all seniors above current user',
+})
+getMySeniors(@Req() req: any) {
+  return this.logic.getUsersAbove(req.user.userId);
+}
+
+@UseGuards(JwtAuthGuard)
+@Get('seniors/:userId')
+@ApiOperation({
+  summary: 'Get all seniors above any user',
+})
+getUserSeniors(@Param('userId') userId: string) {
+  return this.logic.getUsersAbove(userId);
+}
+
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)

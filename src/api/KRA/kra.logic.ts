@@ -100,6 +100,7 @@ export class KraLogic {
       halfDayDialCalls: Number(dto.halfDayDialCalls || 0),
       halfDayBookings: Number(dto.halfDayBookings || 0),
       halfDayDemoConducts: Number(dto.halfDayDemoConducts || 0),
+      maxLeavePerMonth: Number(dto.maxLeavePerMonth || 0),
     });
   }
 
@@ -129,6 +130,7 @@ export class KraLogic {
       'halfDayDialCalls',
       'halfDayBookings',
       'halfDayDemoConducts',
+      'maxLeavePerMonth',
       'roleId',
     ];
 

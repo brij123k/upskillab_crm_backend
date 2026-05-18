@@ -584,6 +584,38 @@ export class UserLogic {
     return users;
   }
 
+  async getUsersAbove(userId: string) {
+    if (!userId) {
+      throw new BadRequestException('userId is required');
+    }
+
+    const seniors: any[] = [];
+    const visited = new Set<string>();
+    let currentProfile = await this.profileData.findByUserId(userId);
+
+    while (currentProfile?.reportingSeniorId) {
+      const seniorId = currentProfile.reportingSeniorId.toString();
+      if (!seniorId || visited.has(seniorId)) break;
+      visited.add(seniorId);
+      seniors.push(seniorId);
+      currentProfile = await this.profileData.findByUserId(seniorId);
+      if (!currentProfile) break;
+    }
+
+    if (!seniors.length) return [];
+
+    const uniqueSeniorIds = [...new Set(seniors)];
+    const seniorUsers = await this.userData.findByIds(uniqueSeniorIds);
+    const profileMap = new Map(
+      (await this.profileLogic.getProfilesByUserIds(uniqueSeniorIds)).map((p) => [p.userId.toString(), p]),
+    );
+
+    return seniorUsers.map((senior) => ({
+      ...senior,
+      profile: profileMap.get(senior._id.toString()) || null,
+    }));
+  }
+
   async findbyEmpId(empId: number) {
     return this.userData.findbyEmpId(empId)
   }

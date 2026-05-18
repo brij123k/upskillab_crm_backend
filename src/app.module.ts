@@ -26,6 +26,7 @@ import { SmartfloModule } from './api/smartflo/smartflo.module';
 import { TaskModule } from './api/tasks/task.module';
 import { AnnouncementModule } from './api/announcements/announcement.module';
 import { PerformanceWarningModule } from './api/performance-warnings/performance-warning.module';
+import { LeaveModule } from './api/leaves/leave.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -55,6 +56,7 @@ ConfigModule.forRoot({
     TaskModule,
     AnnouncementModule,
     PerformanceWarningModule,
+    LeaveModule,
   ],
   controllers: [AppController],
   providers: [AppService],

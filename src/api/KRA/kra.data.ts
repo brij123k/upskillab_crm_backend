@@ -21,7 +21,7 @@ export class KraData {
   }
 
   findByRoleId(roleId: string) {
-    return this.model.findOne({ roleId: new Types.ObjectId(roleId) }).populate('roleId', 'name');
+    return this.model.findOne({roleId}).populate('roleId', 'name');
   }
 
   upsertByRoleId(roleId: string, data: any) {

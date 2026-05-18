@@ -3,5 +3,6 @@ export enum NOTIFICATION_ENTITY {
   TASK = 'TASK',
   PAYMENT = 'PAYMENT',
   USER = 'USER',
+  LEAVE = 'LEAVE',
   SYSTEM = 'SYSTEM',
 }
