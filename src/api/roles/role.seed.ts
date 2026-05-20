@@ -9,6 +9,24 @@ export class RoleSeed implements OnModuleInit {
 
   async onModuleInit() {
     const adminRole = await this.roleData.findByName('Admin');
+    const existingRoles = await this.roleData.findAll();
+
+    for (const role of existingRoles) {
+      if (role.name === 'Admin') {
+        if (role.level !== 100) {
+          await this.roleData.update(role._id.toString(), {
+            level: 100,
+          });
+        }
+        continue;
+      }
+
+      if (role.level === undefined || role.level === null) {
+        await this.roleData.update(role._id.toString(), {
+          level: 1,
+        });
+      }
+    }
 
     if (adminRole) {
       this.logger.log('Admin role already exists');
@@ -17,6 +35,7 @@ export class RoleSeed implements OnModuleInit {
 
     await this.roleData.create({
       name: 'Admin',
+      level: 100,
       isSuperAdmin: true,
       permissions: [],
     });

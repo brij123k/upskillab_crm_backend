@@ -13,11 +13,23 @@ export class InteractionLogData {
     private readonly leadModel: Model<Lead>,
   ) { }
 
+  private canViewLeadDetails(user?: any) {
+    return Boolean(
+      user?.isSuperAdmin ||
+      user?.roleName?.toString()?.toLowerCase() === 'admin',
+    );
+  }
+
+  private maskPhone(phone?: string | null) {
+    if (!phone) return phone;
+    return phone.replace(/\d(?=\d{4})/g, '*');
+  }
+
   create(data: any) {
     return this.model.create(data);
   }
 
-  async findByLeadId(leadId: number) {
+  async findByLeadId(leadId: number, user?: any) {
     // 1️⃣ Get logs
     const logs = await this.model
       .find({ leadId })
@@ -36,7 +48,7 @@ export class InteractionLogData {
     const data = logs.map(log => ({
       ...log,
       leadName: lead?.name || null,
-      leadNumber: lead?.phone || null,
+      leadNumber: this.canViewLeadDetails(user) ? lead?.phone || null : this.maskPhone(lead?.phone || null),
     }));
 
     return data;
@@ -52,6 +64,7 @@ export class InteractionLogData {
 async findAllWithUserIds(
   filters: any,
   accessibleUserIds: string[],
+  user?: any,
 ) {
   const {
     search,
@@ -256,6 +269,11 @@ async findAllWithUserIds(
   const result = await this.model.aggregate(pipeline);
 
   const data = result[0].data;
+  if (!this.canViewLeadDetails(user)) {
+    data.forEach((item: any) => {
+      item.leadNumber = this.maskPhone(item.leadNumber);
+    });
+  }
   const total = result[0].total[0]?.count || 0;
 
   // ===========================
@@ -306,7 +324,7 @@ async findAllWithUserIds(
   };
 }
 
-async findInteractionLogsWithPagination(filters: any, userId?: string) {
+async findInteractionLogsWithPagination(filters: any, userId?: string, user?: any) {
 
   const {
     search,
@@ -458,7 +476,9 @@ async findInteractionLogsWithPagination(filters: any, userId?: string) {
   const data = logs.map(log => ({
     ...log,
     leadName: leadMap[log.leadId]?.name || null,
-    leadNumber: leadMap[log.leadId]?.phone || null,
+    leadNumber: this.canViewLeadDetails(user)
+      ? leadMap[log.leadId]?.phone || null
+      : this.maskPhone(leadMap[log.leadId]?.phone || null),
   }));
 
   // ===========================

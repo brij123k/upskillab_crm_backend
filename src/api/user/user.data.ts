@@ -15,6 +15,35 @@ export class UserData {
     return this.userModel.create(data);
   }
 
+  private buildStatusFilter(status?: string | string[]) {
+    if (!status || status === 'all') {
+      return null;
+    }
+
+    if (Array.isArray(status)) {
+      return { $in: status };
+    }
+
+    const statusList = status
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (!statusList.length) {
+      return { $in: ['active'] };
+    }
+
+    return { $in: statusList };
+  }
+
+  private applyStatusFilter(query: any, status?: string | string[]) {
+    const statusFilter = this.buildStatusFilter(status);
+    if (statusFilter) {
+      query.status = statusFilter;
+    }
+    return query;
+  }
+
   findByEmail(email: string) {
     return this.userModel.findOne({ email }).populate('role');
   }
@@ -49,10 +78,13 @@ async findbyEmpId(employeeId: number) {
 }
 
 
-findByIds(userIds: string[]) {
+findByIds(userIds: string[], status?: string | string[]) {
+  const query: any = { _id: { $in: userIds } };
+  this.applyStatusFilter(query, status);
+
   return this.userModel
     .find(
-      { _id: { $in: userIds } },
+      query,
       { name: 1, email: 1, number: 1, role: 1, employeeId: 1 },
     )
     .select(
@@ -60,7 +92,7 @@ findByIds(userIds: string[]) {
       )
     .populate({
         path: 'role',
-        select: 'name isSuperAdmin permissions',
+        select: 'name level isSuperAdmin permissions',
       })
     .lean();
 }
@@ -94,17 +126,20 @@ toggleBlock(userId: string, isBlocked: boolean) {
   );
 }
 
-  async getAllUsers() {
+  async getAllUsers(status?: string | string[]) {
+    const query: any = {};
+    this.applyStatusFilter(query, status);
+
     return this.userModel
-      .find()
+      .find(query)
       .select(
         'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
       )
-      .populate({
+    .populate({
         path: 'role',
-        select: 'name isSuperAdmin permissions',
+        select: 'name level isSuperAdmin permissions',
       })
-      .lean();
+    .lean();
   }
 
   async findAllSubordinates(

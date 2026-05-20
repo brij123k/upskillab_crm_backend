@@ -6,6 +6,9 @@ export class Role extends Document {
   @Prop({ required: true, unique: true })
   name: string;
 
+  @Prop({ type: Number, default: 1, index: true })
+  level: number;
+
   @Prop({ type: Types.ObjectId, ref: 'Role'})
   reportingRole: Types.ObjectId;
 

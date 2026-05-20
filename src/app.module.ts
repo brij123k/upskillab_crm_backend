@@ -27,6 +27,7 @@ import { TaskModule } from './api/tasks/task.module';
 import { AnnouncementModule } from './api/announcements/announcement.module';
 import { PerformanceWarningModule } from './api/performance-warnings/performance-warning.module';
 import { LeaveModule } from './api/leaves/leave.module';
+import { SourceCampaignModule } from './api/source-campaigns/source-campaign.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -57,6 +58,7 @@ ConfigModule.forRoot({
     AnnouncementModule,
     PerformanceWarningModule,
     LeaveModule,
+    SourceCampaignModule,
   ],
   controllers: [AppController],
   providers: [AppService],

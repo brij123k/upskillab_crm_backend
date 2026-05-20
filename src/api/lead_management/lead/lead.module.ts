@@ -33,6 +33,6 @@ import { Pool, PoolSchema } from 'src/schema/Pool.schema';
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],
-  exports:[LeadLogic]
+  exports:[LeadLogic, LeadData]
 })
 export class LeadModule {}

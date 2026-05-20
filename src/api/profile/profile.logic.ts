@@ -50,11 +50,11 @@ export class ProfileLogic {
     .findByUserIds(userIds);
 }
 
-  async getBydepartmentId(departmentId: string) {
-      const profile = await this.profileData.getBydepartmentId(departmentId);
+  async getBydepartmentId(departmentId: string, status?: string | string[]) {
+      const profile = await this.profileData.getBydepId(departmentId, status);
     if (!profile) return [];
-    return profile;
-}
+    return profile.filter((item: any) => item.userId);
+  }
   async getById(id: string) {
     const profile = await this.profileData.findById(id);
     if (!profile) throw new NotFoundException('Profile not found');

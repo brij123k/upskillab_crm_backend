@@ -58,8 +58,8 @@ export class InteractionLogLogic {
     };
   }
 
-  getByLead(leadId: number) {
-    return this.data.findByLeadId(leadId);
+  getByLead(leadId: number, user: any) {
+    return this.data.findByLeadId(leadId, user);
   }
 
   async update(id: string, dto: any, userId: string) {
@@ -86,12 +86,14 @@ export class InteractionLogLogic {
       return this.data.findAllWithUserIds(
         filter,
         [userId],
+        user,
       );
     }
 
     return this.data.findAllWithUserIds(
       filter,
       accessibleUserIds,
+      user,
     );
 
   } else {
@@ -99,6 +101,7 @@ export class InteractionLogLogic {
     return this.data.findInteractionLogsWithPagination(
       filter,
       userId,
+      user,
     );
 
   }

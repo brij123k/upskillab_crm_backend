@@ -96,6 +96,7 @@ let finalPermissions: {
     email: user.email,
     roleId: role._id,
     roleRealName: role.name,
+     roleLevel: role.level ?? 1,
      roleName: (role.name === 'Admin' || role.name === 'hr')
     ? role.name
     : 'bd',

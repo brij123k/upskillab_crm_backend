@@ -43,7 +43,7 @@ export class LeadController {
     )
     @ApiOperation({ summary: 'Create lead' })
     create(@Body() dto: CreateLeadDto, @Req() req: any) {
-        return this.logic.create(dto, req?.user.userId);
+        return this.logic.create(dto, req?.user);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
@@ -113,8 +113,8 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
   @ApiOperation({ summary: 'Get lead by id' })
-  findOne(@Param('id') id: string) {
-      return this.logic.findOne(id);
+  findOne(@Param('id') id: string, @Req() req: any) {
+      return this.logic.findOne(id, req?.user);
   }
 
    
@@ -131,7 +131,7 @@ export class LeadController {
         @Body() dto: UpdateLeadDto,
         @Req() req: any
     ) {
-        return this.logic.update(id, dto, req?.user.userId);
+        return this.logic.update(id, dto, req?.user);
     }
 
     // @Delete(':id')
@@ -157,7 +157,7 @@ export class LeadController {
         @Body() dto: ChangeLeadStatusDto,
         @Req() req: any
     ) {
-        return this.logic.changeStatus(id, dto.status, req?.user.userId);
+        return this.logic.changeStatus(id, dto.status, req?.user);
     }
 
 
@@ -174,7 +174,7 @@ export class LeadController {
         @Body() dto: ChangeLeadStageDto,
         @Req() req: any
     ) {
-        return this.logic.changeStage(id, dto.stageId, req?.user.userId);
+        return this.logic.changeStage(id, dto.stageId, req?.user);
     }
 
     
@@ -229,8 +229,8 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
     @ApiOperation({ summary: 'Get all leads assigned to a user' })
-    getByUser(@Param('userId') userId: string) {
-        return this.logic.getLeadsByUser(userId);
+    getByUser(@Param('userId') userId: string, @Req() req: any) {
+        return this.logic.getLeadsByUser(userId, req?.user);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
@@ -241,8 +241,8 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.READ,
     )
     @ApiOperation({ summary: 'Get all leads by leadId' })
-    getbyLeadId(@Param('leadId') leadId: number){
-        return this.logic.getLeadByLeadId(leadId)
+    getbyLeadId(@Param('leadId') leadId: number, @Req() req: any){
+        return this.logic.getLeadByLeadId(leadId, req?.user)
     }
 
 
@@ -254,8 +254,8 @@ export class LeadController {
       PERMISSIONS.LEAD.ACTIONS.UPDATE,
     )
     @Get('leaddoublicate/duplicates')  
-    getDuplicates() {
-     return this.logic.getDuplicateLeads();
+    getDuplicates(@Req() req: any) {
+     return this.logic.getDuplicateLeads(req?.user);
     }
 
 @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)

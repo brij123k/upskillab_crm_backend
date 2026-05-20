@@ -82,7 +82,7 @@ export class CallLogLogic {
   };
   }
 
-async getByLead(leadId: number) {
+async getByLead(leadId: number, user: any) {
   // 1️⃣ Get call logs
   const callLogs = await this.callLogData.findByLeadId(leadId);
 
@@ -100,7 +100,7 @@ async getByLead(leadId: number) {
   );
 
   // 3️⃣ Get lead info (name + phone)
-  const lead = await this.leadLogic.getLeadByLeadId(leadId);
+  const lead = await this.leadLogic.getLeadByLeadId(leadId, user);
 
   // 4️⃣ Attach everything
   return callLogs.map((log) => ({
@@ -111,7 +111,7 @@ async getByLead(leadId: number) {
   }));
 }
 
-  async getByUser(filter: any, userId: string) {
+  async getByUser(filter: any, userId: string, user: any) {
   const result = await this.callLogData.findWithPagination(
     filter,
     userId,
@@ -129,6 +129,7 @@ async getByLead(leadId: number) {
   // 2️⃣ Fetch all leads in one query
   const leads = await this.leadLogic.getLeadsByLeadIds(
     leadIds,
+    user,
   );
 
   // 3️⃣ Create lookup map
@@ -183,7 +184,7 @@ async getByUsers(filter: any, user: any){
   }
 }
 
-async getreviewbycallId(callId: string): Promise<any> {
+async getreviewbycallId(callId: string, user: any): Promise<any> {
   const exist = await this.callLogData.findById(callId);
   if (!exist) {
     throw new NotFoundException("call Log not Found");
@@ -197,7 +198,7 @@ async getreviewbycallId(callId: string): Promise<any> {
     throw new NotFoundException("Log review not found");
   }
 
-  const leaddetail = await this.leadLogic.getLeadByLeadId(log.leadId);
+  const leaddetail = await this.leadLogic.getLeadByLeadId(log.leadId, user);
 
   return {
     ...log.toObject(),   // 🔥 IMPORTANT

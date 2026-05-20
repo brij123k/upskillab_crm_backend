@@ -44,7 +44,81 @@ export class LeadLogic {
     private readonly notificationEngine: NotificationEngineService,
   ) { }
 
-  async create(dto: CreateLeadDto, userId: string) {
+  private canViewLeadDetails(user?: any) {
+    return Boolean(
+      user?.isSuperAdmin ||
+      user?.roleName?.toString()?.toLowerCase() === 'admin',
+    );
+  }
+
+  private maskPhone(phone?: string) {
+    if (!phone) return phone;
+    const digits = phone.replace(/\d(?=\d{4})/g, '*');
+    return digits;
+  }
+
+  private maskEmail(email?: string) {
+    if (!email) return email;
+
+    const [localPart, domain] = email.split('@');
+    if (!domain) return email;
+
+    if (localPart.length <= 1) {
+      return `*@${domain}`;
+    }
+
+    if (localPart.length === 2) {
+      return `${localPart[0]}*@${domain}`;
+    }
+
+    return `${localPart[0]}${'*'.repeat(localPart.length - 2)}${localPart[localPart.length - 1]}@${domain}`;
+  }
+
+  private maskLeadPayload(payload: any): any {
+    if (Array.isArray(payload)) {
+      return payload.map((item) => this.maskLeadPayload(item));
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return payload;
+    }
+
+    const plain =
+      typeof payload.toObject === 'function' ? payload.toObject() : { ...payload };
+
+    if (plain.phone) {
+      plain.phone = this.maskPhone(plain.phone);
+    }
+
+    if (plain.email) {
+      plain.email = this.maskEmail(plain.email);
+    }
+
+    if (Array.isArray(plain.data)) {
+      plain.data = plain.data.map((item: any) => this.maskLeadPayload(item));
+    }
+
+    if (plain.lead) {
+      plain.lead = this.maskLeadPayload(plain.lead);
+    }
+
+    if (Array.isArray(plain.leads)) {
+      plain.leads = plain.leads.map((item: any) => this.maskLeadPayload(item));
+    }
+
+    return plain;
+  }
+
+  private maskLeadResponse<T>(payload: T, user?: any): T {
+    if (this.canViewLeadDetails(user)) {
+      return payload;
+    }
+
+    return this.maskLeadPayload(payload);
+  }
+
+  async create(dto: CreateLeadDto, user: any) {
+    const userId = user?.userId;
     const assignedTo = dto.assignedTo ? dto.assignedTo : userId;
     const lead = await this.leadData.create({
       ...dto,
@@ -123,13 +197,13 @@ await this.notificationEngine.handleEvent({
     //   },
     // });
 
-    return lead;
+    return this.maskLeadResponse(lead, user);
   }
 
   async findAll(filters: any, user: any) {
     // 🔥 Admin → see everything
     if (user.isSuperAdmin) {
-      return this.leadData.findAllWithFilters(filters);
+      return this.maskLeadResponse(await this.leadData.findAllWithFilters(filters), user);
     }
     const Pool= await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
     let poolId: string | undefined = undefined;
@@ -142,19 +216,19 @@ await this.notificationEngine.handleEvent({
     const accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(user.userId)
     if (!accessibleUserIds || !accessibleUserIds.length) {
-      return this.leadData.findAllWithFiltersUserIds(
+      return this.maskLeadResponse(await this.leadData.findAllWithFiltersUserIds(
         filters,
         [user.userId],
         poolId
-      );
+      ), user);
     }
 
     // 🔥 Apply hierarchy filter
-    return this.leadData.findAllWithFiltersUserIds(
+    return this.maskLeadResponse(await this.leadData.findAllWithFiltersUserIds(
       filters,
       accessibleUserIds,
       poolId
-    );
+    ), user);
   }
 
   async stageSummaryReport(query: any, user: any) {
@@ -690,13 +764,14 @@ await this.notificationEngine.handleEvent({
   };
 }
 
-  async findOne(id: string) {
+  async findOne(id: string, user: any) {
     const lead = await this.leadData.findById(id);
     if (!lead) throw new NotFoundException('Lead not found');
-    return lead;
+    return this.maskLeadResponse(lead, user);
   }
 
-  async update(id: string, dto: UpdateLeadDto, userId: string) {
+  async update(id: string, dto: UpdateLeadDto, user: any) {
+    const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
 
@@ -739,7 +814,7 @@ await this.notificationEngine.handleEvent({
       to:lead},
   });
 
-    return lead;
+    return this.maskLeadResponse(lead, user);
   }
 
   // async delete(id: string) {
@@ -758,8 +833,9 @@ await this.notificationEngine.handleEvent({
   async changeStatus(
     id: string,
     status: LeadStatus,
-    userId: string,
+    user: any,
   ) {
+    const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
 
@@ -796,22 +872,25 @@ await this.notificationEngine.handleEvent({
 
     return {
       message: 'Lead status updated successfully',
-      lead,
+      lead: this.maskLeadResponse(lead, user),
     };
   }
 
   async getLeadByLeadId(
-    leadId: number
+    leadId: number,
+    user: any,
   ) {
-    return await this.leadData.getByLeadId(leadId)
+    const lead = await this.leadData.getByLeadId(leadId);
+    return this.maskLeadResponse(lead, user);
   }
 
 
   async changeStage(
     id: string,
     stageId: string,
-    userId: string,
+    user: any,
   ) {
+    const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
     const existstage = await this.leadStageModel.findById(stageId)
@@ -850,7 +929,7 @@ await this.notificationEngine.handleEvent({
 
     return {
       message: 'Lead stage updated successfully',
-      lead,
+      lead: this.maskLeadResponse(lead, user),
     };
   }
 
@@ -1084,17 +1163,20 @@ await this.notificationEngine.handleEvent({
     };
   }
 
-  async getLeadsByUser(userId: string) {
-    return this.leadData.findByUserId(userId);
+  async getLeadsByUser(userId: string, user: any) {
+    const leads = await this.leadData.findByUserId(userId);
+    return this.maskLeadResponse(leads, user);
   }
-  async getLeadsByLeadIds(leadIds: number[]) {
-    return this.leadData.getLeadsByLeadIds(leadIds)
+  async getLeadsByLeadIds(leadIds: number[], user: any) {
+    const leads = await this.leadData.getLeadsByLeadIds(leadIds);
+    return this.maskLeadResponse(leads, user);
   }
   // async getLeadsByDepartment(departmentId: string) {
   //   return this.leadData.findByDepartmentId(departmentId);
   // }
-  async getDuplicateLeads() {
-    return this.leadData.findDuplicateLeads()
+  async getDuplicateLeads(user: any) {
+    const duplicates = await this.leadData.findDuplicateLeads();
+    return this.maskLeadResponse(duplicates, user);
   }
 
   async mergeLeads(dto: MergeLeadsDTO, userId: string) {

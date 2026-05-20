@@ -181,6 +181,7 @@ export class UserLogic {
       email: user.email,
       roleId: role._id,
       roleRealName: role.name,
+      roleLevel: role.level ?? 1,
       roleName: (role.name === 'Admin' || role.name === 'hr')
         ? role.name
         : 'bd',
@@ -218,6 +219,7 @@ export class UserLogic {
               ? role.name
               : 'bd',
             roleRealName: role.name,
+            level: role.level ?? 1,
             isSuperAdmin: role.isSuperAdmin,
           },
           CallerIds:user.CallerIds,
@@ -441,9 +443,9 @@ export class UserLogic {
     };
   }
 
-  async getAllUsersWithProfile(user: any) {
+  async getAllUsersWithProfile(user: any, status?: string | string[]) {
     if (user.roleName.toLowerCase() == "admin") {
-      const users = await this.userData.getAllUsers();
+      const users = await this.userData.getAllUsers(status);
 
       const userIds = users.map((u) => u._id);
 
@@ -459,7 +461,7 @@ export class UserLogic {
         profile: profileMap.get(user._id.toString()) || null,
       }));
     }
-    const users = await this.getUsersUnder(user);
+    const users = await this.getUsersUnder(user, status);
     const userIds = users.map((u) => u._id);
     
     const profiles =
@@ -551,9 +553,9 @@ export class UserLogic {
   // async addIVRUser()
 
 
-  async getUsersUnder(user: any) {
+  async getUsersUnder(user: any, status?: string | string[]) {
     if(user.roleName.toLowerCase() == "admin"){
-      return this.userData.getAllUsers();
+      return this.userData.getAllUsers(status);
     }
     const userId = user._id || user.userId;
     // 1️⃣ Get profile of requested user
@@ -580,11 +582,11 @@ export class UserLogic {
 
     const uniqueUserIds = [...new Set(userIds)];
     // 4️⃣ Fetch user details
-    const users = await this.userData.findByIds(uniqueUserIds);
+    const users = await this.userData.findByIds(uniqueUserIds, status);
     return users;
   }
 
-  async getUsersAbove(userId: string) {
+  async getUsersAbove(userId: string, status?: string | string[]) {
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
@@ -605,7 +607,7 @@ export class UserLogic {
     if (!seniors.length) return [];
 
     const uniqueSeniorIds = [...new Set(seniors)];
-    const seniorUsers = await this.userData.findByIds(uniqueSeniorIds);
+    const seniorUsers = await this.userData.findByIds(uniqueSeniorIds, status);
     const profileMap = new Map(
       (await this.profileLogic.getProfilesByUserIds(uniqueSeniorIds)).map((p) => [p.userId.toString(), p]),
     );
@@ -622,8 +624,8 @@ export class UserLogic {
  async findById(id: string) {
     return this.userData.findById(id);
   }
-  async getUserByDepartmentId(departmentId: string) {
-    return this.profileData.getBydepId(departmentId)
+  async getUserByDepartmentId(departmentId: string, status?: string | string[]) {
+    return this.profileData.getBydepId(departmentId, status)
   }
 
  async createIVRUser(dto:any){

@@ -13,7 +13,7 @@ export class RoleData {
   }
 
   findAll() {
-    return this.roleModel.find();
+    return this.roleModel.find().sort({ level: -1, name: 1 });
   }
 
   findById(id: string) {

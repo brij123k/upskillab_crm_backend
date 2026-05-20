@@ -9,6 +9,23 @@ export class ProfileData {
     private readonly profileModel: Model<Profile>,
   ) {}
 
+  private buildUserStatusMatch(status?: string | string[]) {
+    if (!status || status === 'all') {
+      return null;
+    }
+
+    if (Array.isArray(status)) {
+      return { $in: status };
+    }
+
+    const statusList = status
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    return { $in: statusList.length ? statusList : ['active'] };
+  }
+
   create(data: any) {
     return this.profileModel.create(data);
   }
@@ -16,13 +33,13 @@ export class ProfileData {
 findAll() {
   return this.profileModel
     .find()
-    .populate({
+      .populate({
       path: 'userId',
       select:
         'name email number status isBlocked lastLoginAt isDashboardEnabled role createdAt updatedAt',
       populate: {
         path: 'role',
-        select: 'name isSuperAdmin permissions',
+        select: 'name level isSuperAdmin permissions',
       },
     })
     .populate('departmentId', 'name')
@@ -53,11 +70,14 @@ getBydepartmentId(departmentId: string) {
     return this.profileModel.findOne({ departmentId:new Types.ObjectId(departmentId) });
   }
 
-getBydepId(departmentId: string) {
+getBydepId(departmentId: string, status?: string | string[]) {
   return this.profileModel
     .find({ departmentId: new Types.ObjectId(departmentId) })
     .populate({
       path: 'userId',
+      ...(this.buildUserStatusMatch(status)
+        ? { match: { status: this.buildUserStatusMatch(status) } }
+        : {}),
       populate: {
         path: 'role',   // field inside User schema
         model: 'Role',  // role model name

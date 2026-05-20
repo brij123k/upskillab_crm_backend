@@ -29,8 +29,8 @@ export class InteractionLogController {
   }
 
   @Get('lead/:leadId')
-  getByLead(@Param('leadId') leadId:number){
-    return this.logic.getByLead(Number(leadId))
+  getByLead(@Param('leadId') leadId:number, @CurrentUser() user:any){
+    return this.logic.getByLead(Number(leadId), user)
   }
 
   @Patch(':id')

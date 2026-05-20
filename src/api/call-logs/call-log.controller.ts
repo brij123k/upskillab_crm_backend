@@ -44,13 +44,13 @@ export class CallLogController {
   @Get('lead/:leadId')
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
    @Roles('Admin','bd')
-   @RequirePermission(
+  @RequirePermission(
          PERMISSIONS.Calls.MODULE,
          PERMISSIONS.Calls.ACTIONS.READ,
        )
   @ApiOperation({ summary: 'Get call logs by leadId' })
-  getByLead(@Param('leadId') leadId: number) {
-    return this.logic.getByLead(Number(leadId));
+  getByLead(@Param('leadId') leadId: number, @CurrentUser() user: any) {
+    return this.logic.getByLead(Number(leadId), user);
   }
 
   @Get()
@@ -63,7 +63,7 @@ export class CallLogController {
   @ApiOperation({ summary: 'Get call logs by userId' })
   getByUser(
   @Param() params: any, @Req() req: any) {
-    return this.logic.getByUser(params,req?.user.userId);
+    return this.logic.getByUser(params,req?.user.userId, req?.user);
   }
 
   @Get('users')
@@ -79,12 +79,13 @@ export class CallLogController {
     return this.logic.getByUsers(query,req?.user);
   }
 
-  @Get('callLogReview/:callLogId')
+@Get('callLogReview/:callLogId')
 @ApiOperation({ summary: "Get call Log review by call Log Id" })
 async getreviewbycallId(
-  @Param('callLogId') callLogId: string
+  @Param('callLogId') callLogId: string,
+  @CurrentUser() user: any,
 ): Promise<any> {
-  return this.logic.getreviewbycallId(callLogId);
+  return this.logic.getreviewbycallId(callLogId, user);
 }
 
   @Patch(':id')

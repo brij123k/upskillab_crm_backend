@@ -97,7 +97,7 @@ toggleDashboard(
   summary:"get all user detail"
 })
 getAllUsers(@Req() req:any){
-return this.logic.getUsersUnder(req.user)
+return this.logic.getUsersUnder(req.user, req.query?.status)
 }
 
 
@@ -112,7 +112,7 @@ PERMISSIONS.USER.ACTIONS.READ,
 summary:"get all user detail by Profile"
 })
 getAllUsersProfile(@Req() req:any){
-return this.logic.getAllUsersWithProfile(req.user)
+return this.logic.getAllUsersWithProfile(req.user, req.query?.status)
 }
 
 @UseGuards(JwtAuthGuard)
@@ -121,7 +121,7 @@ return this.logic.getAllUsersWithProfile(req.user)
   summary: 'Get all seniors above current user',
 })
 getMySeniors(@Req() req: any) {
-  return this.logic.getUsersAbove(req.user.userId);
+  return this.logic.getUsersAbove(req.user.userId, req.query?.status);
 }
 
 @UseGuards(JwtAuthGuard)
@@ -129,8 +129,8 @@ getMySeniors(@Req() req: any) {
 @ApiOperation({
   summary: 'Get all seniors above any user',
 })
-getUserSeniors(@Param('userId') userId: string) {
-  return this.logic.getUsersAbove(userId);
+getUserSeniors(@Param('userId') userId: string, @Req() req: any) {
+  return this.logic.getUsersAbove(userId, req.query?.status);
 }
 
 
@@ -164,8 +164,8 @@ return this.logic.updateUserAndProfile(userId,dto)
   @ApiOperation({
     summary:'Get all users under this department'
   })
-  getUserbyDepartmentId(@Param('departmentId') departmentId:string){
-    return this.logic.getUserByDepartmentId(departmentId)
+  getUserbyDepartmentId(@Param('departmentId') departmentId:string, @Req() req:any){
+    return this.logic.getUserByDepartmentId(departmentId, req.query?.status)
   }
 
 

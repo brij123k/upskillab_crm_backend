@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ProfileLogic } from './profile.logic';
@@ -33,8 +34,11 @@ export class ProfileController {
   }
 
   @Get('department/:departmentId')
-  getBydepartmentId(@Param('departmentId') departmentId: string) {
-    return this.logic.getBydepartmentId(departmentId);
+  getBydepartmentId(
+    @Param('departmentId') departmentId: string,
+    @Query('status') status?: string,
+  ) {
+    return this.logic.getBydepartmentId(departmentId, status);
   }
 
   @Patch(':id')
