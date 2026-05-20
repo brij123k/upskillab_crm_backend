@@ -87,7 +87,8 @@ export class LeadLogic {
       typeof payload.toObject === 'function' ? payload.toObject() : { ...payload };
 
     if (plain.phone) {
-      plain.phone = this.maskPhone(plain.phone);
+      plain.phone = plain.phone;
+      // plain.phone = this.maskPhone(plain.phone);
     }
 
     if (plain.email) {
