@@ -29,7 +29,22 @@ export class SourceCampaignLogic {
   }
 
   findAll() {
-    return this.data.findAll();
+    return Promise.all([
+      this.data.findAll(),
+      this.data.countLogsByCampaign(),
+    ]).then(([campaigns, counts]) => {
+      const countMap = new Map(
+        counts.map((item: any) => [item._id?.toString?.() || String(item._id), item.registeredCount || 0]),
+      );
+
+      return campaigns.map((campaign: any) => {
+        const plain = campaign.toObject ? campaign.toObject() : campaign;
+        return {
+          ...plain,
+          registeredCount: countMap.get(plain._id?.toString?.() || String(plain._id)) || 0,
+        };
+      });
+    });
   }
 
   async findOne(id: string) {
@@ -37,7 +52,29 @@ export class SourceCampaignLogic {
     if (!campaign) {
       throw new NotFoundException('Source campaign not found');
     }
-    return campaign;
+
+    const submissions = await this.data.findLogsByCampaignId(id);
+
+    return {
+      ...campaign.toObject(),
+      registeredUsers: submissions.map((submission: any) => {
+        const lead = submission.leadId;
+        return {
+          _id: lead?._id?.toString?.() || submission.leadId?.toString?.() || submission._id?.toString?.(),
+          leadId: lead?.leadId ?? null,
+          name: lead?.name || submission.leadName || '',
+          phone: lead?.phone || submission.leadPhone || '',
+          email: lead?.email || submission.leadEmail || '',
+          city: lead?.city || null,
+          state: lead?.state || null,
+          source: lead?.source || submission.source || null,
+          source_campaign: lead?.source_campaign || campaign.name,
+          status: lead?.status || null,
+          submittedAt: submission.createdAt,
+        };
+      }),
+      registeredCount: submissions.length,
+    };
   }
 
   async update(id: string, dto: UpdateSourceCampaignDto, userId: string) {

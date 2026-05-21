@@ -13,6 +13,16 @@ export const PERMISSIONS = {
     },
   },
 
+  SOURCE_CAMPAIGN: {
+    MODULE: 'source_campaigns',
+    ACTIONS: {
+      CREATE: 'create',
+      READ: 'read',
+      UPDATE: 'update',
+      TOGGLE_STATUS: 'toggle_status',
+    },
+  },
+
   USER: {
     MODULE: 'user',
     ACTIONS: {

@@ -1,5 +1,5 @@
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { SourceCampaign } from 'src/schema/source-campaign.schema';
 import { SourceCampaignLog } from 'src/schema/source-campaign-log.schema';
 
@@ -20,6 +20,8 @@ export class SourceCampaignData {
       .find()
       .populate('defaultStageId', 'name order')
       .populate('defaultPoolId', 'name')
+      .populate('createdBy', 'name employeeId email')
+      .populate('updatedBy', 'name employeeId email')
       .sort({ createdAt: -1 });
   }
 
@@ -27,7 +29,16 @@ export class SourceCampaignData {
     return this.sourceCampaignModel
       .findById(id)
       .populate('defaultStageId', 'name order')
-      .populate('defaultPoolId', 'name');
+      .populate('defaultPoolId', 'name')
+      .populate('createdBy', 'name employeeId email')
+      .populate('updatedBy', 'name employeeId email');
+  }
+
+  findLogsByCampaignId(id: string) {
+    return this.sourceCampaignLogModel
+      .find({ sourceCampaignId: new Types.ObjectId(id) })
+      .populate('leadId', 'leadId name phone email city state source source_campaign status createdAt')
+      .sort({ createdAt: -1 });
   }
 
   update(id: string, data: any) {
@@ -53,6 +64,17 @@ export class SourceCampaignData {
         },
       },
       { $sort: { totalLeads: -1, '_id.sourceCampaignName': 1 } },
+    ]);
+  }
+
+  countLogsByCampaign() {
+    return this.sourceCampaignLogModel.aggregate([
+      {
+        $group: {
+          _id: '$sourceCampaignId',
+          registeredCount: { $sum: 1 },
+        },
+      },
     ]);
   }
 }
