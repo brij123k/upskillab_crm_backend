@@ -26,6 +26,11 @@ export class LeadFilterDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  source_compain?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsMongoId()
   departmentId?: string;
 
@@ -43,10 +48,6 @@ export class LeadFilterDto {
   @IsOptional()
   @IsMongoId()
   assignedTo?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  source_compain?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

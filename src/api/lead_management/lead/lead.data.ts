@@ -40,6 +40,7 @@ export class LeadData {
       status,
       source,
       source_compain,
+      source_campaign,
       stageId,
       poolId,
       assignedTo,
@@ -60,6 +61,7 @@ export class LeadData {
     } = filters;
 
     const query: any = {};
+    const sourceCampaign = source_campaign ?? source_compain;
 
     if (search) {
       const searchConditions: any[] = [
@@ -104,10 +106,10 @@ export class LeadData {
         { state: { $regex: location, $options: 'i' } },
       );
     }
-    if (source_compain) {
+    if (sourceCampaign) {
       query.$or = query.$or || [];
       query.$or.push(
-        { source_compain: { $regex: source_compain, $options: 'i' } }
+        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
       );
     }
 
@@ -206,6 +208,7 @@ export class LeadData {
       status,
       source,
       source_compain,
+      source_campaign,
       stageId,
       poolId,
       assignedTo,
@@ -229,6 +232,7 @@ export class LeadData {
 
     // 🔐 Base query (access control)
     const query: any = {};
+    const sourceCampaign = source_campaign ?? source_compain;
 
     if (pool) {
       query.$or = [
@@ -285,16 +289,10 @@ export class LeadData {
         { state: { $regex: location, $options: 'i' } },
       );
     }
-    if (source_compain) {
+    if (sourceCampaign) {
       query.$or = query.$or || [];
       query.$or.push(
-        { source_compain: { $regex: source_compain, $options: 'i' } }
-      );
-    }
-    if (source_compain) {
-      query.$or = query.$or || [];
-      query.$or.push(
-        { source_compain: { $regex: source_compain, $options: 'i' } }
+        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
       );
     }
 
@@ -419,6 +417,7 @@ export class LeadData {
       status,
       source,
       source_compain,
+      source_campaign,
       stageId,
       poolId,
       assignedTo,
@@ -439,6 +438,7 @@ export class LeadData {
     } = filters;
 
     const query: any = {};
+    const sourceCampaign = source_campaign ?? source_compain;
 
     // 🔍 SEARCH
     if (search) {
@@ -478,10 +478,10 @@ export class LeadData {
         { state: { $regex: location, $options: 'i' } },
       );
     }
-    if (source_compain) {
+    if (sourceCampaign) {
       query.$or = query.$or || [];
       query.$or.push(
-        { source_compain: { $regex: source_compain, $options: 'i' } }
+        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
       );
     }
 
