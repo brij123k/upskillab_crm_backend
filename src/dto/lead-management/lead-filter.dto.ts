@@ -46,6 +46,10 @@ export class LeadFilterDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  source_compain?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsMongoId()
   modifiedBy?: string;
 
