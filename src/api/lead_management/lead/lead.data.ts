@@ -39,6 +39,7 @@ export class LeadData {
       search,
       status,
       source,
+      source_compain,
       stageId,
       poolId,
       assignedTo,
@@ -101,6 +102,12 @@ export class LeadData {
       query.$or.push(
         { city: { $regex: location, $options: 'i' } },
         { state: { $regex: location, $options: 'i' } },
+      );
+    }
+    if (source_compain) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { source_compain: { $regex: source_compain, $options: 'i' } }
       );
     }
 
@@ -198,6 +205,7 @@ export class LeadData {
       search,
       status,
       source,
+      source_compain,
       stageId,
       poolId,
       assignedTo,
@@ -275,6 +283,18 @@ export class LeadData {
       query.$or.push(
         { city: { $regex: location, $options: 'i' } },
         { state: { $regex: location, $options: 'i' } },
+      );
+    }
+    if (source_compain) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { source_compain: { $regex: source_compain, $options: 'i' } }
+      );
+    }
+    if (source_compain) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { source_compain: { $regex: source_compain, $options: 'i' } }
       );
     }
 
@@ -398,6 +418,7 @@ export class LeadData {
       search,
       status,
       source,
+      source_compain,
       stageId,
       poolId,
       assignedTo,
@@ -455,6 +476,12 @@ export class LeadData {
       query.$or.push(
         { city: { $regex: location, $options: 'i' } },
         { state: { $regex: location, $options: 'i' } },
+      );
+    }
+    if (source_compain) {
+      query.$or = query.$or || [];
+      query.$or.push(
+        { source_compain: { $regex: source_compain, $options: 'i' } }
       );
     }
 
