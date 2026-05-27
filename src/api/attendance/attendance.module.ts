@@ -5,10 +5,12 @@ import { AttendanceData } from './attendance.data';
 import { AttendanceLogic } from './attendance.logic';
 import { Attendance, AttendanceSchema } from 'src/schema/attendance.schema';
 import { KraModule } from '../KRA/kra.module';
+import { ProfileModule } from '../profile/profile.module';
 
 @Module({
   imports: [
     KraModule,
+    ProfileModule,
     MongooseModule.forFeature([
       { name: Attendance.name, schema: AttendanceSchema },
     ]),

@@ -50,8 +50,11 @@ export class SourceCampaignData {
   }
 
   aggregateLogs(match: any = {}) {
-    return this.sourceCampaignLogModel.aggregate([
+    const pipeline: any[] = [
       { $match: match },
+    ];
+
+    pipeline.push(
       {
         $group: {
           _id: {
@@ -64,7 +67,9 @@ export class SourceCampaignData {
         },
       },
       { $sort: { totalLeads: -1, '_id.sourceCampaignName': 1 } },
-    ]);
+    );
+
+    return this.sourceCampaignLogModel.aggregate(pipeline);
   }
 
   countLogsByCampaign() {

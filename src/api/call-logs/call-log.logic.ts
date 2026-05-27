@@ -34,6 +34,67 @@ export class CallLogLogic {
     @InjectModel(Role.name) private roleModel: Model<Role>,
   ) {}
 
+  private resolveLevel(level: any): number | null {
+    if (level === undefined || level === null || String(level).trim() === '') {
+      return 1;
+    }
+
+    const levelNumber = Number(level);
+    return Number.isNaN(levelNumber) ? null : levelNumber;
+  }
+
+  private async getRoleIdsByLevel(level: any): Promise<Types.ObjectId[]> {
+    const levelNumber = this.resolveLevel(level);
+    if (levelNumber === null) return [];
+
+    const roles = await this.roleModel.find({ level: levelNumber }).select('_id').lean();
+    return roles.map((role) => role._id);
+  }
+
+  private async getUserIdsByRoleLevel(level: any): Promise<string[]> {
+    const roleIds = await this.getRoleIdsByLevel(level);
+    if (!roleIds.length) return [];
+
+    const roleIdStrings = roleIds.map((roleId) => roleId.toString());
+
+    const users = await this.userModel.aggregate([
+      {
+        $addFields: {
+          normalizedRoleId: {
+            $convert: {
+              input: '$role',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { role: { $in: roleIds } },
+            { normalizedRoleId: { $in: roleIdStrings } },
+          ],
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+        },
+      },
+    ]);
+
+    return users.map((user) => user._id.toString());
+  }
+
+  private formatLocalDate(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
   async create(dto: any, currentUserId: string) {
     const { remark, ...callLogData } = dto;
      const callLog = await this.callLogData.create({
@@ -264,35 +325,99 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(now);
         endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'week') {
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      } else if (filter === 'year') {
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
       }
     }
 
-    if (query.fromDate) {
+    const fromProvided = Boolean(query.fromDate);
+    const toProvided = Boolean(query.toDate);
+
+    if (fromProvided) {
       const from = new Date(query.fromDate);
       if (!Number.isNaN(from.getTime())) {
         startDate = new Date(from);
         startDate.setHours(0, 0, 0, 0);
+        if (!toProvided) {
+          endDate = new Date(from);
+          endDate.setHours(23, 59, 59, 999);
+        }
       }
     }
-    if (query.toDate) {
+
+    if (toProvided) {
       const to = new Date(query.toDate);
       if (!Number.isNaN(to.getTime())) {
         endDate = new Date(to);
         endDate.setHours(23, 59, 59, 999);
+        if (!fromProvided) {
+          startDate = new Date(to);
+          startDate.setHours(0, 0, 0, 0);
+        }
       }
     }
+
+    if (startDate > endDate) {
+      const temp = startDate;
+      startDate = endDate;
+      endDate = temp;
+    }
+
+    const diffDays = Math.ceil(
+      Math.abs(endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+    ) + 1;
+    if (diffDays > 5) {
+      throw new BadRequestException('Maximum 5 days allowed for daily utilization report');
+    }
+
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return {
+        startDate,
+        endDate,
+        dateStrings: [],
+        employees: [],
+      };
+    }
+
+    let allowedUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!allowedUserIds.length) {
+      return {
+        startDate,
+        endDate,
+        dateStrings: [],
+        employees: [],
+      };
+    }
+
+    if (query.counsellorId) {
+      const counsellorId = String(query.counsellorId);
+      if (!allowedUserIds.includes(counsellorId)) {
+        return {
+          startDate,
+          endDate,
+          dateStrings: [],
+          employees: [],
+        };
+      }
+      allowedUserIds = [counsellorId];
+    }
+
+    const allowedUserIdSet = new Set(allowedUserIds);
+    const allowedUserIdStrings = Array.from(allowedUserIdSet);
+    const buildAllowedMatch = (fieldPath: string) => ({
+      $expr: {
+        $in: [
+          {
+            $convert: {
+              input: fieldPath,
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+          allowedUserIdStrings,
+        ],
+      },
+    });
 
     // Pool filter is optional
     let poolId: Types.ObjectId | null = null;
@@ -312,7 +437,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
       dates.push(new Date(d));
     }
 
-    const allEmployees = new Set<string>();
+    const allEmployees = new Set<string>(allowedUserIdStrings);
     const dailyMetrics = new Map<string, any>(); // key: "dateString_employeeId"
 
     for (const date of dates) {
@@ -324,17 +449,21 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
       // Call dials and talk time (always fetch)
       const callMatch: any = {
         createdAt: { $gte: dayStart, $lte: dayEnd },
-        userId: { $exists: true, $ne: null },
+        ...buildAllowedMatch('$userId'),
       };
-      if (query.counsellorId) {
-        callMatch.userId = query.counsellorId;
-      }
 
       const calls = await this.callLogModel.aggregate([
         { $match: callMatch },
         {
           $group: {
-            _id: '$userId',
+            _id: {
+              $convert: {
+                input: '$userId',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
+            },
             dialCount: { $sum: 1 },
             answeredCount: {
               $sum: {
@@ -354,7 +483,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
         if (!call._id) return;
         const employeeId = call._id.toString();
         allEmployees.add(employeeId);
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = this.formatLocalDate(date);
         const key = `${dateStr}_${employeeId}`;
         const existing = dailyMetrics.get(key) || {};
         existing.dial = call.dialCount;
@@ -369,17 +498,21 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
         const leadMatch: any = {
           poolId: poolId,
           createdAt: { $gte: dayStart, $lte: dayEnd },
-          assignedTo: { $ne: null },
-        };
-        if (query.counsellorId) {
-          leadMatch.assignedTo = query.counsellorId;
+          ...buildAllowedMatch('$assignedTo'),
         }
 
         const leads = await this.leadModel.aggregate([
           { $match: leadMatch },
           {
             $group: {
-              _id: '$assignedTo',
+              _id: {
+                $convert: {
+                  input: '$assignedTo',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
               leadCount: { $sum: 1 },
             },
           },
@@ -389,7 +522,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           const employeeId = lead._id?.toString();
           if (!employeeId) return;
           allEmployees.add(employeeId);
-          const dateStr = date.toISOString().split('T')[0];
+          const dateStr = this.formatLocalDate(date);
           const key = `${dateStr}_${employeeId}`;
           const existing = dailyMetrics.get(key) || {};
           existing.lead = lead.leadCount;
@@ -400,18 +533,22 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
         const pcatScheduledMatch: any = {
           poolId: poolId,
           createdAt: { $gte: dayStart, $lte: dayEnd },
-          assignedTo: { $ne: null },
+          ...buildAllowedMatch('$assignedTo'),
           pcatScheduledDate: { $exists: true, $ne: null },
         };
-        if (query.counsellorId) {
-          pcatScheduledMatch.assignedTo = query.counsellorId;
-        }
 
         const pcatScheduled = await this.leadModel.aggregate([
           { $match: pcatScheduledMatch },
           {
             $group: {
-              _id: '$assignedTo',
+              _id: {
+                $convert: {
+                  input: '$assignedTo',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
               pcatScheduledCount: { $sum: 1 },
             },
           },
@@ -421,7 +558,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           const employeeId = item._id?.toString();
           if (!employeeId) return;
           allEmployees.add(employeeId);
-          const dateStr = date.toISOString().split('T')[0];
+          const dateStr = this.formatLocalDate(date);
           const key = `${dateStr}_${employeeId}`;
           const existing = dailyMetrics.get(key) || {};
           existing.pcatScheduled = item.pcatScheduledCount;
@@ -432,18 +569,22 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
         const pcatDoneMatch: any = {
           poolId: poolId,
           createdAt: { $gte: dayStart, $lte: dayEnd },
-          assignedTo: { $ne: null },
+          ...buildAllowedMatch('$assignedTo'),
           pcatDoneDate: { $exists: true, $ne: null },
         };
-        if (query.counsellorId) {
-          pcatDoneMatch.assignedTo = query.counsellorId;
-        }
 
         const pcatDone = await this.leadModel.aggregate([
           { $match: pcatDoneMatch },
           {
             $group: {
-              _id: '$assignedTo',
+              _id: {
+                $convert: {
+                  input: '$assignedTo',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
               pcatDoneCount: { $sum: 1 },
             },
           },
@@ -453,7 +594,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           const employeeId = item._id?.toString();
           if (!employeeId) return;
           allEmployees.add(employeeId);
-          const dateStr = date.toISOString().split('T')[0];
+          const dateStr = this.formatLocalDate(date);
           const key = `${dateStr}_${employeeId}`;
           const existing = dailyMetrics.get(key) || {};
           existing.pcatDone = item.pcatDoneCount;
@@ -465,16 +606,21 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           courseVertical: poolId,
           orderDate: { $gte: dayStart, $lte: dayEnd },
           registrationAmount: { $gt: 0 },
+          ...buildAllowedMatch('$counsellorId'),
         };
-        if (query.counsellorId) {
-          registrationMatch.counsellorId = query.counsellorId;
-        }
 
         const registrations = await this.orderModel.aggregate([
           { $match: registrationMatch },
           {
             $group: {
-              _id: '$counsellorId',
+              _id: {
+                $convert: {
+                  input: '$counsellorId',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
               registrationCount: { $sum: 1 },
             },
           },
@@ -484,7 +630,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           const employeeId = item._id?.toString();
           if (!employeeId) return;
           allEmployees.add(employeeId);
-          const dateStr = date.toISOString().split('T')[0];
+          const dateStr = this.formatLocalDate(date);
           const key = `${dateStr}_${employeeId}`;
           const existing = dailyMetrics.get(key) || {};
           existing.registrationDone = item.registrationCount;
@@ -496,16 +642,21 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           courseVertical: poolId,
           orderDate: { $gte: dayStart, $lte: dayEnd },
           Approved: true,
+          ...buildAllowedMatch('$counsellorId'),
         };
-        if (query.counsellorId) {
-          admissionMatch.counsellorId = query.counsellorId;
-        }
 
         const admissions = await this.orderModel.aggregate([
           { $match: admissionMatch },
           {
             $group: {
-              _id: '$counsellorId',
+              _id: {
+                $convert: {
+                  input: '$counsellorId',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
               admissionCount: { $sum: 1 },
             },
           },
@@ -515,7 +666,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
           const employeeId = item._id?.toString();
           if (!employeeId) return;
           allEmployees.add(employeeId);
-          const dateStr = date.toISOString().split('T')[0];
+          const dateStr = this.formatLocalDate(date);
           const key = `${dateStr}_${employeeId}`;
           const existing = dailyMetrics.get(key) || {};
           existing.admissionDone = item.admissionCount;
@@ -524,11 +675,10 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
       }
     }
 
-    // Fetch user data for all employees
-    const userIds = Array.from(allEmployees).map((id) => new Types.ObjectId(id));
-    const users = userIds.length
+    // Fetch user data for all allowed employees
+    const users = allowedUserIds.length
       ? await this.userModel
-          .find({ _id: { $in: userIds } })
+          .find({ _id: { $in: allowedUserIds.map((id) => new Types.ObjectId(id)) } })
           .select('name email number employeeId role createdAt')
           .lean()
       : [];
@@ -556,7 +706,7 @@ async getreviewbycallId(callId: string, user: any): Promise<any> {
     };
 
     // Build rows with employees and columns with daily metrics
-    const dateStrings = dates.map((d) => d.toISOString().split('T')[0]).reverse(); // Most recent first
+    const dateStrings = dates.map((d) => this.formatLocalDate(d)).reverse(); // Most recent first
 
     const employees = Array.from(allEmployees).map((employeeId) => {
       const user = usersById.get(employeeId);

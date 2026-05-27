@@ -84,6 +84,11 @@ export class LeadFilterDto {
   @IsString()
   groupBy?: string;
 
+  @ApiPropertyOptional({ example: '1' })
+  @IsOptional()
+  @IsString()
+  level?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   connected?:boolean;

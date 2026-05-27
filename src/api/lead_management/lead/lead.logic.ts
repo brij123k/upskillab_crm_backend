@@ -16,6 +16,8 @@ import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity
 import { UserLogic } from 'src/api/user/user.logic';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
+import { User } from 'src/schema/user.schema';
+import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
 
 @Injectable()
@@ -39,6 +41,12 @@ export class LeadLogic {
 
     @InjectModel(Pool.name)
     private readonly poolModel: Model<Pool>,
+
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
+
+    @InjectModel(Role.name)
+    private readonly roleModel: Model<Role>,
 
     private readonly userActivityLogic: UserActivityLogic,
     private readonly notificationEngine: NotificationEngineService,
@@ -116,6 +124,56 @@ export class LeadLogic {
     }
 
     return this.maskLeadPayload(payload);
+  }
+
+  private resolveLevel(level: any): number | null {
+    if (level === undefined || level === null || String(level).trim() === '') {
+      return 1;
+    }
+
+    const levelNumber = Number(level);
+    return Number.isNaN(levelNumber) ? null : levelNumber;
+  }
+
+  private async getUserIdsByRoleLevel(level: any): Promise<string[]> {
+    const levelNumber = this.resolveLevel(level);
+    if (levelNumber === null) return [];
+
+    const roles = await this.roleModel.find({ level: levelNumber }).select('_id').lean();
+    if (!roles.length) return [];
+
+    const roleIds = roles.map((role) => role._id);
+    const roleIdStrings = roleIds.map((roleId) => roleId.toString());
+
+    const users = await this.userModel.aggregate([
+      {
+        $addFields: {
+          normalizedRoleId: {
+            $convert: {
+              input: '$role',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { role: { $in: roleIds } },
+            { normalizedRoleId: { $in: roleIdStrings } },
+          ],
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+        },
+      },
+    ]);
+
+    return users.map((user) => user._id.toString());
   }
 
   async create(dto: CreateLeadDto, user: any) {
@@ -285,7 +343,7 @@ await this.notificationEngine.handleEvent({
       endDate.setHours(23, 59, 59, 999);
     }
 
-    const match: any = {
+    let match: any = {
       createdAt: { $gte: startDate, $lte: endDate },
     };
 
@@ -310,6 +368,33 @@ await this.notificationEngine.handleEvent({
       } else {
         match.assignedTo = { $in: accessibleUserIds };
       }
+    }
+
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return {
+        totalLead: 0,
+        startDate,
+        endDate,
+        report: [],
+      };
+    }
+
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return {
+        totalLead: 0,
+        startDate,
+        endDate,
+        report: [],
+      };
+    }
+    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) => id) } };
+  if (match.$or) {
+      match = { $and: [{ $or: match.$or }, levelMatch] };
+      delete match.$or;
+    } else {
+      match.assignedTo = levelMatch.assignedTo;
     }
 
     const stageResults = await this.leadModel.aggregate([
@@ -399,7 +484,7 @@ await this.notificationEngine.handleEvent({
       endDate.setHours(23, 59, 59, 999);
     }
 
-    const match: any = {
+    let match: any = {
       createdAt: { $gte: startDate, $lte: endDate },
     };
 
@@ -427,6 +512,22 @@ await this.notificationEngine.handleEvent({
       } else {
         match.assignedTo = { $in: accessibleUserIds };
       }
+    }
+
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return { data: { startDate, endDate, sourceCampaigns: [], data: [], totalsByCampaign: {}, grandTotal: 0 } };
+    }
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return { data: { startDate, endDate, sourceCampaigns: [], data: [], totalsByCampaign: {}, grandTotal: 0 } };
+    }
+    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) =>id) } };
+    if (match.$or) {
+      match = { $and: [{ $or: match.$or }, levelMatch] };
+      delete match.$or;
+    } else {
+      match.assignedTo = levelMatch.assignedTo;
     }
 
     const rows = await this.leadModel.aggregate([
@@ -508,8 +609,8 @@ await this.notificationEngine.handleEvent({
     };
   }
 
-  async allEmployeesStagesReport(user: any) {
-    const match: any = {};
+  async allEmployeesStagesReport(query: any, user: any) {
+    let match: any = {};
 
     if (!user.isSuperAdmin) {
       const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
@@ -525,6 +626,30 @@ await this.notificationEngine.handleEvent({
       } else {
         match.assignedTo = { $in: accessibleUserIds };
       }
+    }
+
+    const levelNumber = this.resolveLevel(query?.level);
+    if (levelNumber === null) {
+      return {
+        totalLeads: 0,
+        totalEmployees: 0,
+        employees: [],
+      };
+    }
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return {
+        totalLeads: 0,
+        totalEmployees: 0,
+        employees: [],
+      };
+    }
+    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) =>id) } };
+    if (match.$or) {
+      match = { $and: [{ $or: match.$or }, levelMatch] };
+      delete match.$or;
+    } else {
+      match.assignedTo = levelMatch.assignedTo;
     }
 
     const employeeResults = await this.leadModel.aggregate([
@@ -674,15 +799,38 @@ await this.notificationEngine.handleEvent({
     }
   }
 
+  const levelNumber = this.resolveLevel(query.level);
+  if (levelNumber === null) {
+    return {
+      startDate,
+      endDate,
+      poolWiseData: [],
+    };
+  }
+
+  const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+  if (!levelUserIds.length) {
+    return {
+      startDate,
+      endDate,
+      poolWiseData: [],
+    };
+  }
+
+  const userObjectIds = levelUserIds.map((id) =>id);
+
   // ✅ Get all pools
   const allPools = await this.poolModel.find().lean();
 
   // ✅ Aggregate leads dynamically by stage
+  const leadMatch: any = {
+    createdAt: { $gte: startDate, $lte: endDate },
+    assignedTo: { $in: userObjectIds },
+  };
+
   const stageData = await this.leadModel.aggregate([
     {
-      $match: {
-        createdAt: { $gte: startDate, $lte: endDate },
-      },
+      $match: leadMatch,
     },
     {
       $lookup: {
@@ -712,9 +860,7 @@ await this.notificationEngine.handleEvent({
   // ✅ Total leads per pool
   const totalLeads = await this.leadModel.aggregate([
     {
-      $match: {
-        createdAt: { $gte: startDate, $lte: endDate },
-      },
+      $match: leadMatch,
     },
     {
       $group: {

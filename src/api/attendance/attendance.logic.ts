@@ -5,12 +5,14 @@ import { UpdateAttendanceDto } from 'src/dto/attendance/update-attendance.dto';
 import { AttendanceStatus } from 'src/schema/attendance.schema';
 import { AttendanceData } from './attendance.data';
 import { KraLogic } from '../KRA/kra.logic';
+import { ProfileData } from '../profile/profile.data';
 
 @Injectable()
 export class AttendanceLogic {
   constructor(
     private readonly data: AttendanceData,
     private readonly kraLogic: KraLogic,
+    private readonly profileData: ProfileData,
   ) {}
 
   private startOfDay(input = new Date()) {
@@ -22,6 +24,177 @@ export class AttendanceLogic {
   private roundWorkHours(loginTime: Date, logoutTime: Date) {
     const hours = (logoutTime.getTime() - loginTime.getTime()) / (1000 * 60 * 60);
     return Math.max(0, Math.round(hours * 100) / 100);
+  }
+
+  private calculateVintage(createdAt?: Date | string) {
+    if (!createdAt) return null;
+
+    const start = new Date(createdAt);
+    if (Number.isNaN(start.getTime())) return null;
+
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return '0D';
+    if (diffDays >= 365) {
+      const years = Math.floor(diffDays / 365);
+      const remainingDays = diffDays % 365;
+      return remainingDays > 0 ? `${years}Y ${remainingDays}D` : `${years}Y`;
+    }
+
+    return `${diffDays}D`;
+  }
+
+  private getSalarySheetRange(query: any) {
+    const now = new Date();
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    const hasExplicitRange = Boolean(query?.fromDate || query?.toDate);
+    if (hasExplicitRange) {
+      if (query.fromDate) {
+        const from = new Date(query.fromDate);
+        if (!Number.isNaN(from.getTime())) {
+          startDate = new Date(from);
+          startDate.setHours(0, 0, 0, 0);
+        }
+      }
+
+      if (query.toDate) {
+        const to = new Date(query.toDate);
+        if (!Number.isNaN(to.getTime())) {
+          endDate = new Date(to);
+          endDate.setHours(23, 59, 59, 999);
+        }
+      } else if (query.fromDate) {
+        endDate = new Date(startDate);
+        endDate.setHours(23, 59, 59, 999);
+      }
+
+      if (startDate > endDate) {
+        const swap = startDate;
+        startDate = endDate;
+        endDate = swap;
+      }
+    }
+
+    const monthLabel = startDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    const monthRangeLabel = `${startDate.toLocaleDateString('en-GB')} - ${endDate.toLocaleDateString('en-GB')}`;
+
+    return {
+      startDate,
+      endDate,
+      label: hasExplicitRange ? monthRangeLabel : monthLabel,
+    };
+  }
+
+  async salarySheetReport(query: any = {}) {
+    const { startDate, endDate, label } = this.getSalarySheetRange(query);
+
+    const [profiles, attendanceRecords] = await Promise.all([
+      this.profileData.findAll(),
+      this.data.findAll({
+        fromDate: startDate.toISOString(),
+        toDate: endDate.toISOString(),
+      }),
+    ]);
+
+    const attendanceByUser = new Map<string, Record<string, number>>();
+    for (const record of attendanceRecords || []) {
+      const userId = record?.userId?._id?.toString?.() || record?.userId?.toString?.();
+      if (!userId) continue;
+
+      const status = String(record?.status || '').toLowerCase();
+      const existing = attendanceByUser.get(userId) || {
+        present: 0,
+        half_day: 0,
+        leave: 0,
+        absent: 0,
+        week_off: 0,
+        holiday: 0,
+        late: 0,
+        logged_in: 0,
+        other: 0,
+      };
+
+      if (status in existing) {
+        existing[status] = (existing[status] || 0) + 1;
+      } else {
+        existing.other = (existing.other || 0) + 1;
+      }
+
+      attendanceByUser.set(userId, existing);
+    }
+
+    const employees = (profiles || [])
+      .map((profile: any) => {
+        const user = profile?.userId;
+        const userId = user?._id?.toString?.() || profile?.userId?.toString?.();
+        if (!userId) return null;
+
+        const counts = attendanceByUser.get(userId) || {
+          present: 0,
+          half_day: 0,
+          leave: 0,
+          absent: 0,
+          week_off: 0,
+          holiday: 0,
+          late: 0,
+          logged_in: 0,
+          other: 0,
+        };
+
+        const salary = Number(profile?.salary || 0);
+        const totalPresent = (counts.present || 0) + (counts.late || 0) + (counts.logged_in || 0);
+        const totalHalfDay = counts.half_day || 0;
+        const totalLeave = counts.leave || 0;
+        const totalAbsent = counts.absent || 0;
+        const wo = (counts.week_off || 0) + (counts.holiday || 0);
+        const totalWorkingDays = totalPresent + totalHalfDay + totalLeave;
+        const totalPayableDays = Math.max(0, totalWorkingDays + wo - totalAbsent);
+        const basicSalary = salary / 30;
+        const finalSalary = Math.round(basicSalary * totalPayableDays);
+
+        return {
+          userId,
+          empId: user?.employeeId || '-',
+          empName: user?.name || 'Unknown',
+          designation: user?.role?.name || '-',
+          vintage: this.calculateVintage(user?.createdAt || profile?.createdAt),
+          salary,
+          totalWorkingDays,
+          totalPresent,
+          totalHalfDay,
+          totalLeave,
+          wo,
+          totalAbsent,
+          totalPayableDays,
+          basicSalary,
+          finalSalary,
+          email: user?.email || null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const aValue = String(a?.empId ?? a?.empName ?? '');
+        const bValue = String(b?.empId ?? b?.empName ?? '');
+        return aValue.localeCompare(bValue, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+    const totalPayroll = employees.reduce((sum: number, row: any) => sum + (row?.finalSalary || 0), 0);
+
+    return {
+      period: {
+        startDate,
+        endDate,
+        label,
+      },
+      summary: {
+        totalEmployees: employees.length,
+        totalPayroll,
+      },
+      employees,
+    };
   }
 
   async recordLogin(userId: string, loginTime = new Date()) {
@@ -144,6 +317,6 @@ export class AttendanceLogic {
   }
 
   getMyAttendance(userId: string, filters: any) {
-  return this.data.findByUser(userId, filters);
-}
+    return this.data.findByUser(userId, filters);
+  }
 }

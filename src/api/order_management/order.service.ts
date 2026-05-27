@@ -33,6 +33,78 @@ export class OrderService {
     private readonly userActivityLogic: UserActivityLogic,
   ) { }
 
+  private resolveLevel(level: any): number | null {
+    if (level === undefined || level === null || String(level).trim() === '') {
+      return 1;
+    }
+
+    const levelNumber = Number(level);
+    return Number.isNaN(levelNumber) ? null : levelNumber;
+  }
+
+  private async getRoleIdsByLevel(level: any): Promise<Types.ObjectId[]> {
+    const levelNumber = this.resolveLevel(level);
+    if (levelNumber === null) return [];
+
+    const roles = await this.roleModel.find({ level: levelNumber }).select('_id').lean();
+    return roles.map((role) => role._id);
+  }
+
+  private async getUserIdsByRoleLevel(level: any): Promise<Types.ObjectId[]> {
+    const roleIds = await this.getRoleIdsByLevel(level);
+    if (!roleIds.length) return [];
+
+    const roleIdStrings = roleIds.map((roleId) => roleId.toString());
+
+    const users = await this.userModel.aggregate([
+      {
+        $addFields: {
+          normalizedRoleId: {
+            $convert: {
+              input: '$role',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          $or: [
+            { role: { $in: roleIds } },
+            { normalizedRoleId: { $in: roleIdStrings } },
+          ],
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+        },
+      },
+    ]);
+
+    return users.map((user) => user._id);
+  }
+
+  private async getUserAndSubordinateIds(userId: string): Promise<string[]> {
+    try {
+      const users = await this.userLogic.getUsersUnder({
+        userId,
+        roleName: 'user',
+      });
+
+      const ids = users
+        .map((user: any) => user?._id?.toString?.())
+        .filter(Boolean);
+
+      ids.push(userId);
+      return [...new Set(ids)];
+    } catch {
+      return [userId];
+    }
+  }
+
 async createOrder(dto: CreateOrderDto, userId: string) {
   try {
     const user = await this.userLogic.findById(userId);
@@ -413,32 +485,106 @@ async approveOrder(id: string, approvedBy: string) {
       ? new Types.ObjectId(query.counsellorId)
       : undefined;
 
-    const leadMatch: any = {
-      createdAt: { $gte: startDate, $lte: endDate },
-    };
-    if (filterCounsellorId) leadMatch.assignedTo = filterCounsellorId;
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return [];
+    }
+
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return [];
+    }
+
+    const selectedCounsellorId = filterCounsellorId ? filterCounsellorId.toString() : null;
+    let rootUsers = await this.userModel
+      .find({ _id: { $in: levelUserIds } })
+      .select('name email employeeId role createdAt')
+      .lean();
+
+    if (selectedCounsellorId) {
+      const selectedCounsellor = await this.userModel
+        .findById(selectedCounsellorId)
+        .populate('role', 'level')
+        .select('name email employeeId role createdAt')
+        .lean();
+
+      if (!selectedCounsellor || Number((selectedCounsellor as any)?.role?.level) !== levelNumber) {
+        return [];
+      }
+
+      rootUsers = [selectedCounsellor];
+    }
+
+    const rootUsersById = new Map<string, any>();
+    const ownerByUserId = new Map<string, string>();
+    const allowedUserIds = new Set<string>();
+
+    for (const rootUser of rootUsers) {
+      const rootId = rootUser._id.toString();
+      rootUsersById.set(rootId, rootUser);
+
+      const subtreeIds = await this.getUserAndSubordinateIds(rootId);
+      subtreeIds.forEach((id) => {
+        allowedUserIds.add(id);
+        ownerByUserId.set(id, rootId);
+      });
+    }
+
+    const allowedUserIdStrings = Array.from(allowedUserIds);
+    if (!allowedUserIdStrings.length) {
+      return [];
+    }
 
     const leadStats = await this.leadModel.aggregate([
-      { $match: leadMatch },
+      {
+        $addFields: {
+          normalizedAssignedTo: {
+            $convert: {
+              input: '$assignedTo',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate },
+          normalizedAssignedTo: { $in: allowedUserIdStrings },
+        },
+      },
       {
         $group: {
-          _id: '$assignedTo',
+          _id: '$normalizedAssignedTo',
           totalLeadAssigned: { $sum: 1 },
         },
       },
     ]);
 
-    const orderMatch: any = {
-      orderDate: { $gte: startDate, $lte: endDate },
-    };
-    if (filterCounsellorId) orderMatch.counsellorId = filterCounsellorId;
-
     const orderStats = await this.orderModel.aggregate([
-      { $match: orderMatch },
+      {
+        $addFields: {
+          normalizedCounsellorId: {
+            $convert: {
+              input: '$counsellorId',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          orderDate: { $gte: startDate, $lte: endDate },
+          normalizedCounsellorId: { $in: allowedUserIdStrings },
+        },
+      },
       { $sort: { feeDepositDate: -1, updatedAt: -1, createdAt: -1 } },
       {
         $group: {
-          _id: '$counsellorId',
+          _id: '$normalizedCounsellorId',
           registrationDone: {
             $sum: {
               $cond: [{ $gt: ['$registrationAmount', 0] }, 1, 0],
@@ -467,16 +613,28 @@ async approveOrder(id: string, approvedBy: string) {
 
     const monthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const monthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    const lastMonthMatch: any = {
-      feeDepositDate: { $gte: monthStart, $lte: monthEnd },
-    };
-    if (filterCounsellorId) lastMonthMatch.counsellorId = filterCounsellorId;
-
     const lastMonthStats = await this.orderModel.aggregate([
-      { $match: lastMonthMatch },
+      {
+        $addFields: {
+          normalizedCounsellorId: {
+            $convert: {
+              input: '$counsellorId',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          feeDepositDate: { $gte: monthStart, $lte: monthEnd },
+          normalizedCounsellorId: { $in: allowedUserIdStrings },
+        },
+      },
       {
         $group: {
-          _id: '$counsellorId',
+          _id: '$normalizedCounsellorId',
           tillDateRealisedInLastMonth: {
             $sum: { $ifNull: ['$lumpsumDetails.totalReceived', 0] },
           },
@@ -486,78 +644,59 @@ async approveOrder(id: string, approvedBy: string) {
 
     const statsByConsultant = new Map<string, any>();
 
+    const ensureStats = (id: string) => {
+      if (!statsByConsultant.has(id)) {
+        statsByConsultant.set(id, {
+          consultantId: id,
+          totalLeadAssigned: 0,
+          registrationDone: 0,
+          admDone: 0,
+          bookedRevenue: 0,
+          unrealisedRevenue: 0,
+          realisedRevenue: 0,
+          lastSalePunchDate: null,
+          lastRevenuePunched: 0,
+          tillDateRealisedInLastMonth: 0,
+        });
+      }
+      return statsByConsultant.get(id);
+    };
+
     leadStats.forEach((item) => {
       if (!item._id) return;
-      const id = item._id.toString();
-      statsByConsultant.set(id, {
-        consultantId: id,
-        totalLeadAssigned: item.totalLeadAssigned,
-        registrationDone: 0,
-        admDone: 0,
-        bookedRevenue: 0,
-        unrealisedRevenue: 0,
-        realisedRevenue: 0,
-        lastSalePunchDate: null,
-        lastRevenuePunched: 0,
-        tillDateRealisedInLastMonth: 0,
-      });
+      const userId = item._id.toString();
+      const rootId = ownerByUserId.get(userId) || userId;
+      const current = ensureStats(rootId);
+      current.totalLeadAssigned += item.totalLeadAssigned || 0;
     });
 
     orderStats.forEach((item) => {
       if (!item._id) return;
-      const id = item._id.toString();
-      const existing = statsByConsultant.get(id) || {
-        consultantId: id,
-        totalLeadAssigned: 0,
-      };
-      statsByConsultant.set(id, {
-        ...existing,
-        registrationDone: item.registrationDone,
-        admDone: item.admDone,
-        bookedRevenue: item.bookedRevenue,
-        unrealisedRevenue: item.unrealisedRevenue,
-        realisedRevenue: item.realisedRevenue,
-        lastSalePunchDate: item.lastSalePunchDate,
-        lastRevenuePunched: item.lastRevenuePunched,
-        totalLeadAssigned: existing.totalLeadAssigned || 0,
-      });
+      const userId = item._id.toString();
+      const rootId = ownerByUserId.get(userId) || userId;
+      const current = ensureStats(rootId);
+      current.registrationDone += item.registrationDone || 0;
+      current.admDone += item.admDone || 0;
+      current.bookedRevenue += item.bookedRevenue || 0;
+      current.realisedRevenue += item.realisedRevenue || 0;
+      current.unrealisedRevenue += item.unrealisedRevenue || 0;
+
+      if (!current.lastSalePunchDate || new Date(item.lastSalePunchDate) > new Date(current.lastSalePunchDate)) {
+        current.lastSalePunchDate = item.lastSalePunchDate;
+        current.lastRevenuePunched = item.lastRevenuePunched || 0;
+      }
     });
 
     lastMonthStats.forEach((item) => {
       if (!item._id) return;
-      const id = item._id.toString();
-      const existing = statsByConsultant.get(id) || {
-        consultantId: id,
-        totalLeadAssigned: 0,
-        registrationDone: 0,
-        admDone: 0,
-        bookedRevenue: 0,
-        unrealisedRevenue: 0,
-        realisedRevenue: 0,
-        lastSalePunchDate: null,
-        lastRevenuePunched: 0,
-      };
-      statsByConsultant.set(id, {
-        ...existing,
-        tillDateRealisedInLastMonth: item.tillDateRealisedInLastMonth,
-      });
+      const userId = item._id.toString();
+      const rootId = ownerByUserId.get(userId) || userId;
+      const current = ensureStats(rootId);
+      current.tillDateRealisedInLastMonth += item.tillDateRealisedInLastMonth || 0;
     });
 
-    const consultantIds = Array.from(statsByConsultant.keys()).map(
-      (id) => new Types.ObjectId(id),
-    );
-
-    const users = consultantIds.length
-      ? await this.userModel
-          .find({ _id: { $in: consultantIds } })
-          .select('name email employeeId')
-          .lean()
-      : [];
-
-    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
-
-    const report = Array.from(statsByConsultant.values()).map((item) => {
-      const user = usersById.get(item.consultantId);
+    const report = rootUsers.map((user) => {
+      const item = ensureStats(user._id.toString());
       const lastSalePunchDate = item.lastSalePunchDate
         ? new Date(item.lastSalePunchDate)
         : null;
@@ -579,7 +718,7 @@ async approveOrder(id: string, approvedBy: string) {
         : null;
 
       return {
-        consultantId: item.consultantId,
+        consultantId: user._id.toString(),
         consultantName: user?.name || 'Unknown',
         consultantEmail: user?.email || null,
         employeeId: user?.employeeId || null,
@@ -591,17 +730,14 @@ async approveOrder(id: string, approvedBy: string) {
         unrealisedRevenue: item.unrealisedRevenue,
         realisedRevenue: item.realisedRevenue,
         achievementPercentage,
-        tillDateRealisedInLastMonth:
-          item.tillDateRealisedInLastMonth || 0,
+        tillDateRealisedInLastMonth: item.tillDateRealisedInLastMonth || 0,
         lastSalePunchDate,
         lastRevenuePunched: item.lastRevenuePunched,
         numberOfDaysOnZero,
       };
-    });
+    }).sort((a, b) => a.consultantName.localeCompare(b.consultantName));
 
-    return report.sort((a, b) =>
-      a.consultantName.localeCompare(b.consultantName),
-    );
+    return report;
   }
 
   
@@ -648,15 +784,63 @@ async approveOrder(id: string, approvedBy: string) {
       }
     }
 
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return {
+        startDate,
+        endDate,
+        employees: [],
+      };
+    }
+
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return {
+        startDate,
+        endDate,
+        employees: [],
+      };
+    }
+
+    const levelUserIdStrings = levelUserIds.map((id) => id.toString());
+    const buildLevelMatch = (fieldPath: string) => ({
+      $expr: {
+        $in: [
+          {
+            $convert: {
+              input: fieldPath,
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+          levelUserIdStrings,
+        ],
+      },
+    });
+
     const leadAssignments = await this.leadModel.aggregate([
       {
         $match: {
-          assignedTo: { $exists: true, $ne: null },
+          createdAt: { $gte: startDate, $lte: endDate },
+          ...buildLevelMatch('$assignedTo'),
+        },
+      },
+      {
+        $addFields: {
+          normalizedAssignedTo: {
+            $convert: {
+              input: '$assignedTo',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
         },
       },
       {
         $group: {
-          _id: '$assignedTo',
+          _id: '$normalizedAssignedTo',
           totalAssigned: { $sum: 1 },
         },
       },
@@ -665,13 +849,20 @@ async approveOrder(id: string, approvedBy: string) {
     const callStats = await this.callLogModel.aggregate([
       {
         $match: {
-          createdAt:{ $gte: startDate, $lte: endDate },
-          userId: { $exists: true, $ne: null },
+          createdAt: { $gte: startDate, $lte: endDate },
+          ...buildLevelMatch('$userId'),
         },
       },
       {
         $group: {
-          _id: '$userId',
+          _id: {
+            $convert: {
+              input: '$userId',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
           totalDial: { $sum: 1 },
           answeredTalkTime: {
             $sum: {
@@ -685,7 +876,7 @@ async approveOrder(id: string, approvedBy: string) {
     const stageUpdates = await this.leadModel.aggregate([
       {
         $match: {
-          assignedTo: { $exists: true, $ne: null },
+          ...buildLevelMatch('$assignedTo'),
           $expr: {
             $and: [
               {
@@ -717,7 +908,14 @@ async approveOrder(id: string, approvedBy: string) {
       {
         $group: {
           _id: {
-            employeeId: '$assignedTo',
+            employeeId: {
+              $convert: {
+                input: '$assignedTo',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
+            },
             stageName: { $ifNull: ['$stage.name', 'Unknown'] },
           },
           count: { $sum: 1 },
@@ -763,6 +961,7 @@ async approveOrder(id: string, approvedBy: string) {
       const stages = stageCountsByEmployee.get(employeeId);
       if (!stages) return 0;
 
+      
       return Array.from(stages.entries()).reduce((total, [stageName, count]) => {
         return patterns.some((pattern) => pattern.test(stageName))
           ? total + count
@@ -770,17 +969,10 @@ async approveOrder(id: string, approvedBy: string) {
       }, 0);
     };
 
-    const employeeIds = new Set<string>();
-    leadAssignmentByEmployee.forEach((value, key) => employeeIds.add(key));
-    stageCountsByEmployee.forEach((value, key) => employeeIds.add(key));
-    callStatsByEmployee.forEach((value, key) => employeeIds.add(key));
-
-    const users = employeeIds.size
-      ? await this.userModel
-          .find({ _id: { $in: Array.from(employeeIds).map((id) => new Types.ObjectId(id)) } })
-          .select('name email number employeeId role createdAt')
-          .lean()
-      : [];
+    const users = await this.userModel
+      .find({ _id: { $in: levelUserIds } })
+      .select('name email number employeeId role createdAt')
+      .lean();
 
     const roleIds = Array.from(new Set(users.map((user) => user.role?.toString()).filter(Boolean)));
     const roles = roleIds.length
@@ -798,8 +990,8 @@ async approveOrder(id: string, approvedBy: string) {
       return `${days}d`;
     };
 
-    const employees = Array.from(employeeIds).map((employeeId) => {
-      const user = usersById.get(employeeId);
+    const employees = users.map((user) => {
+      const employeeId = user._id.toString();
       const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
       const callStats = callStatsByEmployee.get(employeeId) || { totalDial: 0, answeredTalkTime: 0 };
       const totalLeadAssigned = leadAssignmentByEmployee.get(employeeId) || 0;
@@ -880,8 +1072,31 @@ async approveOrder(id: string, approvedBy: string) {
       }
     }
 
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return {
+        startDate,
+        endDate,
+        data: [],
+        summary: {},
+      };
+    }
+
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return {
+        startDate,
+        endDate,
+        data: [],
+        summary: {},
+      };
+    }
+
+    const levelObjectIds = levelUserIds.map((id) => id.toString());
+
     const leadMatch: any = {
       createdAt: { $gte: startDate, $lte: endDate },
+      assignedTo: { $in: levelObjectIds },
       // status: 'active', 
     };
 
@@ -1242,52 +1457,106 @@ async approveOrder(id: string, approvedBy: string) {
       }
     }
 
-    const match: any = {
-      orderDate: { $gte: startDate, $lte: endDate },
-      courseVertical: { $exists: true, $ne: null },
-    };
-    if (query.poolId) {
-      match.courseVertical = new Types.ObjectId(query.poolId);
-    }
-    if (query.counsellorId) {
-      match.counsellorId = new Types.ObjectId(query.counsellorId);
+    const levelNumber = this.resolveLevel(query.level);
+    if (levelNumber === null) {
+      return {
+        startDate,
+        endDate,
+        months: [],
+        pools: [],
+        employees: [],
+      };
     }
 
+    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
+    if (!levelUserIds.length) {
+      return {
+        startDate,
+        endDate,
+        months: [],
+        pools: [],
+        employees: [],
+      };
+    }
+    const selectedCounsellorId = query.counsellorId ? String(query.counsellorId) : null;
+    let rootUsers = await this.userModel
+      .find({ _id: { $in: levelUserIds } })
+      .select('name email number employeeId role createdAt')
+      .lean();
+
+    if (selectedCounsellorId) {
+      const selectedCounsellor = await this.userModel
+        .findById(selectedCounsellorId)
+        .populate('role', 'level')
+        .select('name email number employeeId role createdAt')
+        .lean();
+
+      if (!selectedCounsellor || Number((selectedCounsellor as any)?.role?.level) !== levelNumber) {
+        return {
+          startDate,
+          endDate,
+          months: [],
+          pools: [],
+          employees: [],
+        };
+      }
+
+      rootUsers = [selectedCounsellor];
+    }
+
+    const rootUsersById = new Map<string, any>();
+    const ownerByUserId = new Map<string, string>();
+    const allAllowedUserIds = new Set<string>();
+
+    for (const rootUser of rootUsers) {
+      const rootId = rootUser._id.toString();
+      rootUsersById.set(rootId, rootUser);
+
+      const subtreeIds = await this.getUserAndSubordinateIds(rootId);
+      subtreeIds.forEach((id) => {
+        allAllowedUserIds.add(id);
+        ownerByUserId.set(id, rootId);
+      });
+    }
+
+    if (!allAllowedUserIds.size) {
+      return {
+        startDate,
+        endDate,
+        months: [],
+        pools: [],
+        employees: rootUsers.map((user) => ({
+          employeeId: user._id.toString(),
+          employeeName: user.name || 'Unknown',
+          employeeEmail: user.email || null,
+          employeeNumber: user.number || null,
+          employeeEmployeeId: user.employeeId || null,
+          pools: [],
+        })),
+      };
+    }
+
+    const allowedUserIdStrings = Array.from(allAllowedUserIds);
+    const poolObjectId = query.poolId ? new Types.ObjectId(query.poolId) : null;
+
     const revenueRows = await this.orderModel.aggregate([
-      { $match: match },
       {
         $addFields: {
           normalizedPoolId: {
-            $cond: [
-              { $eq: [{ $type: '$courseVertical' }, 'objectId'] },
-              '$courseVertical',
-              {
-                $cond: [
-                  { $and: [
-                    { $ne: ['$courseVertical', null] },
-                    { $ne: ['$courseVertical', ''] },
-                  ] },
-                  { $toObjectId: '$courseVertical' },
-                  null,
-                ],
-              },
-            ],
+            $convert: {
+              input: '$courseVertical',
+              to: 'objectId',
+              onError: null,
+              onNull: null,
+            },
           },
           normalizedEmployeeId: {
-            $cond: [
-              { $eq: [{ $type: '$counsellorId' }, 'objectId'] },
-              '$counsellorId',
-              {
-                $cond: [
-                  { $and: [
-                    { $ne: ['$counsellorId', null] },
-                    { $ne: ['$counsellorId', ''] },
-                  ] },
-                  { $toObjectId: '$counsellorId' },
-                  null,
-                ],
-              },
-            ],
+            $convert: {
+              input: '$counsellorId',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
           },
           monthLabel: {
             $concat: [
@@ -1310,6 +1579,14 @@ async approveOrder(id: string, approvedBy: string) {
         },
       },
       {
+        $match: {
+          orderDate: { $gte: startDate, $lte: endDate },
+          normalizedPoolId: { $ne: null },
+          normalizedEmployeeId: { $in: allowedUserIdStrings },
+          ...(poolObjectId ? { normalizedPoolId: poolObjectId } : {}),
+        },
+      },
+      {
         $group: {
           _id: {
             poolId: '$normalizedPoolId',
@@ -1319,15 +1596,6 @@ async approveOrder(id: string, approvedBy: string) {
           revenue: { $sum: { $ifNull: ['$finalFee', 0] } },
         },
       },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id.employeeId',
-          foreignField: '_id',
-          as: 'employee',
-        },
-      },
-      { $unwind: { path: '$employee', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'pools',
@@ -1342,36 +1610,47 @@ async approveOrder(id: string, approvedBy: string) {
           poolId: '$_id.poolId',
           poolName: { $ifNull: ['$pool.name', 'Unknown'] },
           employeeId: '$_id.employeeId',
-          employeeName: { $ifNull: ['$employee.name', 'Unknown'] },
-          employeeEmail: '$employee.email',
-          employeeNumber: '$employee.number',
-          employeeEmployeeId: '$employee.employeeId',
           month: '$_id.month',
           revenue: 1,
         },
       },
-      { $sort: { employeeName: 1, poolName: 1, month: 1 } },
+      { $sort: { employeeId: 1, poolName: 1, month: 1 } },
     ]);
 
+    const monthOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const months = Array.from(new Set(revenueRows.map((row) => row.month))).sort((a, b) => {
-      const monthOrder = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const [ma, ya] = a.split("'");
-      const [mb, yb] = b.split("'");
+      const [ma, ya] = String(a).split("'");
+      const [mb, yb] = String(b).split("'");
       const valueA = Number(`20${ya}`) * 100 + monthOrder.indexOf(ma);
       const valueB = Number(`20${yb}`) * 100 + monthOrder.indexOf(mb);
       return valueA - valueB;
     });
 
     const employeeMap = new Map<string, any>();
+    for (const rootUser of rootUsers) {
+      const rootId = rootUser._id.toString();
+      employeeMap.set(rootId, {
+        employeeId: rootId,
+        employeeName: rootUser.name || 'Unknown',
+        employeeEmail: rootUser.email || null,
+        employeeNumber: rootUser.number || null,
+        employeeEmployeeId: rootUser.employeeId || null,
+        poolData: new Map<string, any>(),
+      });
+    }
+
     revenueRows.forEach((row) => {
-      if (!row.employeeId) return;
-      const empId = row.employeeId.toString();
-      const existing = employeeMap.get(empId) || {
-        employeeId: empId,
-        employeeName: row.employeeName || 'Unknown',
-        employeeEmail: row.employeeEmail || null,
-        employeeNumber: row.employeeNumber || null,
-        employeeEmployeeId: row.employeeEmployeeId || null,
+      const employeeId = String(row.employeeId || '');
+      if (!employeeId) return;
+
+      const rootId = ownerByUserId.get(employeeId) || employeeId;
+      const sourceUser = rootUsersById.get(rootId);
+      const existing = employeeMap.get(rootId) || {
+        employeeId: rootId,
+        employeeName: sourceUser?.name || 'Unknown',
+        employeeEmail: sourceUser?.email || null,
+        employeeNumber: sourceUser?.number || null,
+        employeeEmployeeId: sourceUser?.employeeId || null,
         poolData: new Map<string, any>(),
       };
 
@@ -1381,9 +1660,9 @@ async approveOrder(id: string, approvedBy: string) {
         poolName: row.poolName || 'Unknown',
         revenueByMonth: {},
       };
-      poolEntry.revenueByMonth[row.month] = row.revenue;
+      poolEntry.revenueByMonth[row.month] = (poolEntry.revenueByMonth[row.month] || 0) + row.revenue;
       existing.poolData.set(poolId, poolEntry);
-      employeeMap.set(empId, existing);
+      employeeMap.set(rootId, existing);
     });
 
     const employees = Array.from(employeeMap.values()).map((emp) => ({
@@ -1400,15 +1679,16 @@ async approveOrder(id: string, approvedBy: string) {
           revenue: pool.revenueByMonth[month] || 0,
         })),
       })),
-    }));
+    })).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
 
-    const pools = Array.from(new Set(revenueRows.map((row) => row.poolId?.toString()))).map((poolId) => {
-      const row = revenueRows.find((r) => r.poolId?.toString() === poolId);
-      return {
-        poolId,
-        poolName: row?.poolName || 'Unknown',
-      };
-    });
+    const pools = Array.from(new Map(
+      revenueRows
+        .map((row) => [row.poolId?.toString(), row.poolName || 'Unknown'] as const)
+        .filter(([poolId]) => Boolean(poolId)),
+    ).entries()).map(([poolId, poolName]) => ({
+      poolId,
+      poolName,
+    }));
 
     return {
       startDate,

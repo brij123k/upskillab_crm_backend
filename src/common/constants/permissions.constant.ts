@@ -116,6 +116,25 @@ export const PERMISSIONS = {
       READ:'read',
     }
   },
+  REPORTS:{
+    MODULE:'reports',
+    ACTIONS:{
+      READ:'read',
+      EXPORT:'export',
+      GENERATE:'generate',
+      SHARE:'share',
+      SALARY_SHEET:'salary_sheet',
+    }
+  },
+  TARGETS:{
+    MODULE:'targets',
+    ACTIONS:{
+      CREATE:'create',
+      READ:'read',
+      UPDATE:'update',
+      COPY:'copy',
+    }
+  },
   LEAVE:{
     MODULE:'leave',
     ACTIONS:{

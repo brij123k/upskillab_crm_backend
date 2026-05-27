@@ -90,8 +90,8 @@ export class LeadController {
     )
   @Get('report/all-employees-stages')
   @ApiOperation({ summary: 'Get all employees with all stages breakdown' })
-  allEmployeesStagesReport(@Req() req: any) {
-      return this.logic.allEmployeesStagesReport(req.user);
+  allEmployeesStagesReport(@Query() query: LeadFilterDto, @Req() req: any) {
+      return this.logic.allEmployeesStagesReport(query, req.user);
   }
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)

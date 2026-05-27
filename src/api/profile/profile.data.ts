@@ -36,7 +36,7 @@ findAll() {
       .populate({
       path: 'userId',
       select:
-        'name email number status isBlocked lastLoginAt isDashboardEnabled role createdAt updatedAt',
+        'name email number employeeId status isBlocked lastLoginAt isDashboardEnabled role createdAt updatedAt',
       populate: {
         path: 'role',
         select: 'name level isSuperAdmin permissions',

@@ -6,6 +6,9 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 import { CreateAttendanceDto } from 'src/dto/attendance/create-attendance.dto';
 import { UpdateAttendanceDto } from 'src/dto/attendance/update-attendance.dto';
 import { AttendanceLogic } from './attendance.logic';
+import { PermissionGuard } from 'src/common/guards/permission.guard';
+import { RequirePermission } from 'src/common/decorators/permission.decorator';
+import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 
 @ApiTags('Attendance')
 @ApiBearerAuth()
@@ -35,7 +38,7 @@ export class AttendanceController {
   me(@Req() req: any,@Query('month') month?: string,) {
     return this.logic.getMyAttendance(req.user.userId, { month });
   }
-@Get('user/:userId')
+  @Get('user/:userId')
 @UseGuards(JwtAuthGuard)
 @ApiOperation({ summary: 'Get attendance for user (monthly filter)' })
 userAttendence(
@@ -44,6 +47,18 @@ userAttendence(
 ) {
   return this.logic.getMyAttendance(userId, { month });
 }
+
+  @Get('report/salary-sheet')
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles('Admin', 'hr')
+  @RequirePermission(
+    PERMISSIONS.REPORTS.MODULE,
+    PERMISSIONS.REPORTS.ACTIONS.SALARY_SHEET,
+  )
+  @ApiOperation({ summary: 'Get monthly salary sheet report for each user' })
+  salarySheetReport(@Query() query: any) {
+    return this.logic.salarySheetReport(query);
+  }
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, RoleGuard)
