@@ -1,6 +1,6 @@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { LeaveRequest, LeaveStatus } from 'src/schema/leave.schema';
+import { LeaveRequest, LeaveStatus, LeaveType } from 'src/schema/leave.schema';
 
 export class LeaveData {
   constructor(
@@ -79,6 +79,7 @@ export class LeaveData {
     }
     if (filters.createdBy) query.createdBy = new Types.ObjectId(filters.createdBy);
     if (filters.status) query.status = filters.status;
+    if (filters.leaveType) query.leaveType = filters.leaveType;
 
     if (filters.fromDate || filters.toDate) {
       const from = filters.fromDate ? new Date(filters.fromDate) : new Date('1970-01-01');
@@ -171,5 +172,40 @@ export class LeaveData {
     }
 
     return this.model.find(query).select('leaveFrom leaveTo leaveDate status').lean();
+  }
+
+  async findByUserInRange(userId: string, start: Date, end: Date, options: { excludeId?: string; leaveType?: LeaveType; statuses?: LeaveStatus[] } = {}) {
+    const query: any = {
+      userId: new Types.ObjectId(userId),
+      $or: [
+        { leaveFrom: { $lte: end }, leaveTo: { $gte: start } },
+        { leaveDate: { $gte: start, $lte: end } },
+      ],
+    };
+
+    if (options.excludeId) {
+      query._id = { $ne: new Types.ObjectId(options.excludeId) };
+    }
+
+    if (options.leaveType) {
+      query.leaveType = options.leaveType;
+    }
+
+    if (options.statuses?.length) {
+      query.status = { $in: options.statuses };
+    }
+
+    return this.model.find(query).select('leaveFrom leaveTo leaveDate status leaveType').lean();
+  }
+
+  async findEarliestLeaveDate(userId: string) {
+    return this.model
+      .findOne({
+        userId: new Types.ObjectId(userId),
+        status: { $in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] },
+      })
+      .sort({ leaveFrom: 1, leaveDate: 1, createdAt: 1 })
+      .select('leaveFrom leaveDate')
+      .lean();
   }
 }

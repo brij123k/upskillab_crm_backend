@@ -618,6 +618,36 @@ export class UserLogic {
     }));
   }
 
+  async getLastActivities(user: any, limitParam?: string) {
+    const limitValue = Number.parseInt(limitParam ?? '5', 10);
+    const limit = Number.isFinite(limitValue) && limitValue > 0
+      ? Math.min(limitValue, 20)
+      : 5;
+
+    const isAdmin = user?.roleName?.toLowerCase() === 'admin';
+    let userIds: string[] | undefined;
+
+    if (!isAdmin) {
+      const visibleUsers = await this.getUsersUnder(user);
+      userIds = visibleUsers
+        .map((item: any) => item?._id?.toString())
+        .filter(Boolean);
+
+      const currentUserId = user?._id?.toString() || user?.userId?.toString();
+      if (currentUserId && !userIds.includes(currentUserId)) {
+        userIds.push(currentUserId);
+      }
+    }
+
+    const activities = await this.userActivityLogic.getRecentByUserIds(userIds, limit);
+
+    return activities.map((activity: any) => ({
+      ...activity,
+      userName: activity?.userId?.name || 'Unknown',
+      userEmployeeId: activity?.userId?.employeeId || null,
+    }));
+  }
+
   async findbyEmpId(empId: number) {
     return this.userData.findbyEmpId(empId)
   }

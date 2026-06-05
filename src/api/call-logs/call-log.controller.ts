@@ -64,12 +64,12 @@ export class CallLogController {
   getByUser(
   @Param() params: any, @Req() req: any) {
     return this.logic.getByUser(params,req?.user.userId, req?.user);
-  }
+}
 
   @Get('users')
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('bd','Admin')
-  @ApiOperation({ summary: 'Get call logs by userId' })
+  @ApiOperation({ summary: 'Get call logs by userId. Defaults to today; any custom filter returns the last 30 days.' })
   @RequirePermission(
          PERMISSIONS.Calls.MODULE,
          PERMISSIONS.Calls.ACTIONS.READ,

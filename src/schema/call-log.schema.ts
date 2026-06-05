@@ -41,3 +41,51 @@ export class CallLog extends Document {
 }
 
 export const CallLogSchema = SchemaFactory.createForClass(CallLog);
+/**
+ * PERFORMANCE INDEXES
+ */
+
+// Most used query
+CallLogSchema.index({
+  userId: 1,
+  createdAt: -1,
+});
+
+// Unique call per lead query
+CallLogSchema.index({
+  leadId: 1,
+  createdAt: -1,
+});
+
+// Stage filtering
+CallLogSchema.index({
+  stageId: 1,
+});
+
+// Outcome filtering
+CallLogSchema.index({
+  outcome: 1,
+});
+
+// Duration filtering
+CallLogSchema.index({
+  duration: 1,
+});
+
+// Date filtering
+CallLogSchema.index({
+  createdAt: -1,
+});
+
+// User + Lead combo
+CallLogSchema.index({
+  userId: 1,
+  leadId: 1,
+});
+
+// User + Date range
+CallLogSchema.index({
+  userId: 1,
+  createdAt: -1,
+  leadId: 1,
+});

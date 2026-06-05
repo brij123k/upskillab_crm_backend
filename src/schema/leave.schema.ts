@@ -8,6 +8,11 @@ export enum LeaveStatus {
   CANCELLED = 'cancelled',
 }
 
+export enum LeaveType {
+  CL = 'CL',
+  EL = 'EL',
+}
+
 @Schema({ timestamps: true })
 export class LeaveRequest extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
@@ -24,6 +29,9 @@ export class LeaveRequest extends Document {
 
   @Prop({ required: true })
   subject: string;
+
+  @Prop({ enum: LeaveType, default: LeaveType.CL, index: true })
+  leaveType: LeaveType;
 
   @Prop({ required: true })
   leaveFrom: Date;

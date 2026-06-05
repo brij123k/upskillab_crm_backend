@@ -2,10 +2,12 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Types } from 'mongoose';
 import { CreateAttendanceDto } from 'src/dto/attendance/create-attendance.dto';
 import { UpdateAttendanceDto } from 'src/dto/attendance/update-attendance.dto';
-import { AttendanceStatus } from 'src/schema/attendance.schema';
+import { AttendanceLeaveType, AttendanceStatus } from 'src/schema/attendance.schema';
 import { AttendanceData } from './attendance.data';
 import { KraLogic } from '../KRA/kra.logic';
 import { ProfileData } from '../profile/profile.data';
+import { LeaveData } from '../leaves/leave.data';
+import { LeaveStatus, LeaveType } from 'src/schema/leave.schema';
 
 @Injectable()
 export class AttendanceLogic {
@@ -13,6 +15,7 @@ export class AttendanceLogic {
     private readonly data: AttendanceData,
     private readonly kraLogic: KraLogic,
     private readonly profileData: ProfileData,
+    private readonly leaveData: LeaveData,
   ) {}
 
   private startOfDay(input = new Date()) {
@@ -43,6 +46,128 @@ export class AttendanceLogic {
     }
 
     return `${diffDays}D`;
+  }
+
+  private endOfDay(input = new Date()) {
+    const d = new Date(input);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }
+
+  private addDays(input: Date, days: number) {
+    const d = new Date(input);
+    d.setDate(d.getDate() + days);
+    return d;
+  }
+
+  private getAutoWorkHours(status: AttendanceStatus) {
+    switch (status) {
+      case AttendanceStatus.PRESENT:
+        return 8;
+      case AttendanceStatus.HALF_DAY:
+        return 4;
+      case AttendanceStatus.LEAVE:
+      case AttendanceStatus.ABSENT:
+      default:
+        return 0;
+    }
+  }
+
+  private getAttendanceDateRange(date: Date) {
+    const start = this.startOfDay(date);
+    const end = this.endOfDay(date);
+    return { start, end };
+  }
+
+  private async findLeaveForDate(userId: string, date: Date) {
+    const { start, end } = this.getAttendanceDateRange(date);
+    const leaves = await this.leaveData.findByUserInRange(userId, start, end, {
+      statuses: [LeaveStatus.APPROVED, LeaveStatus.PENDING],
+    });
+
+    if (!Array.isArray(leaves) || !leaves.length) {
+      return null;
+    }
+
+    return [...leaves].sort((a: any, b: any) => {
+      const statusWeight = (value: any) => (String(value?.status) === LeaveStatus.APPROVED ? 0 : 1);
+      const aTime = new Date(a?.updatedAt || a?.createdAt || a?.leaveFrom || a?.leaveDate || 0).getTime();
+      const bTime = new Date(b?.updatedAt || b?.createdAt || b?.leaveFrom || b?.leaveDate || 0).getTime();
+      return statusWeight(a) - statusWeight(b) || bTime - aTime;
+    })[0];
+  }
+
+  private getLeaveAttendanceReason(leave: any) {
+    const leaveType = String(leave?.leaveType || '').toUpperCase();
+    const leaveStatus = String(leave?.status || '').toLowerCase();
+    const rangeStart = leave?.leaveFrom || leave?.leaveDate;
+    const rangeEnd = leave?.leaveTo || leave?.leaveFrom || leave?.leaveDate;
+    const rangeLabel = rangeStart
+      ? `${new Date(rangeStart).toLocaleDateString()}${rangeEnd ? ` to ${new Date(rangeEnd).toLocaleDateString()}` : ''}`
+      : 'selected date';
+    const approvalState = leaveStatus === LeaveStatus.APPROVED ? 'approved' : 'pending';
+    return `Auto-marked ${leaveType || 'leave'} (${approvalState}) for ${rangeLabel}`;
+  }
+
+  private getLeaveType(value: any) {
+    const normalized = String(value || '').toUpperCase();
+    if (normalized === LeaveType.EL) return AttendanceLeaveType.EL;
+    return AttendanceLeaveType.CL;
+  }
+
+  private async createOrUpdateAutoAttendance(userId: string, date: Date, payload: any) {
+    const existing = await this.data.findByUserAndDate(userId, date);
+    if (existing) {
+      return existing;
+    }
+
+    return this.data.upsert(userId, date, {
+      userId: new Types.ObjectId(userId),
+      date,
+      ...payload,
+    });
+  }
+
+  private async reconcileMissingAttendanceDays(userId: string, referenceDate = new Date(), days = 4) {
+    const startOffset = 1;
+    const endOffset = Math.max(days, 0);
+
+    for (let offset = startOffset; offset <= endOffset; offset += 1) {
+      const targetDate = this.startOfDay(this.addDays(referenceDate, -offset));
+      const existing = await this.data.findByUserAndDate(userId, targetDate);
+      if (existing) continue;
+
+      const leave = await this.findLeaveForDate(userId, targetDate);
+
+      if (leave) {
+        const leaveType = this.getLeaveType(leave.leaveType);
+        await this.createOrUpdateAutoAttendance(userId, targetDate, {
+          loginTime: targetDate,
+          workHours: this.getAutoWorkHours(AttendanceStatus.LEAVE),
+          status: AttendanceStatus.LEAVE,
+          leaveType,
+          reason: this.getLeaveAttendanceReason(leave),
+          kraResult: {
+            source: 'leave',
+            leaveId: leave?._id?.toString?.() || null,
+            leaveType,
+            leaveStatus: leave?.status || null,
+          },
+        });
+        continue;
+      }
+
+      const kraResult = await this.kraLogic.compareByUser(userId, targetDate);
+      const status = kraResult?.status || AttendanceStatus.PRESENT;
+
+      await this.createOrUpdateAutoAttendance(userId, targetDate, {
+        loginTime: targetDate,
+        workHours: this.getAutoWorkHours(status),
+        status,
+        reason: kraResult?.reason || 'Auto-marked from KRA comparison',
+        kraResult,
+      });
+    }
   }
 
   private getSalarySheetRange(query: any) {
@@ -198,6 +323,8 @@ export class AttendanceLogic {
   }
 
   async recordLogin(userId: string, loginTime = new Date()) {
+    await this.reconcileMissingAttendanceDays(userId, loginTime, 4);
+
     const date = this.startOfDay(loginTime);
     const existing = await this.data.findByUserAndDate(userId, date);
     if (existing) {
@@ -277,6 +404,7 @@ export class AttendanceLogic {
       status: dto.status || AttendanceStatus.PRESENT,
       date,
       reason: dto.reason,
+      leaveType: dto.leaveType,
     });
   }
 
@@ -292,6 +420,7 @@ export class AttendanceLogic {
     if (dto.status !== undefined) payload.status = dto.status;
     if (dto.date !== undefined) payload.date = this.startOfDay(new Date(dto.date));
     if (dto.reason !== undefined) payload.reason = dto.reason;
+    if (dto.leaveType !== undefined) payload.leaveType = dto.leaveType;
 
     if (payload.loginTime || payload.logoutTime) {
       const login = payload.loginTime || existing.loginTime;

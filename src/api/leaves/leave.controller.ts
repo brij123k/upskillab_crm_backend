@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
@@ -15,9 +15,8 @@ export class LeaveController {
   constructor(private readonly logic: LeaveLogic) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'bd')
-  @ApiOperation({ summary: 'Create leave request(s)' })
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Create leave request' })
   create(@Body() dto: any, @Req() req: any) {
     return this.logic.create(dto, req.user.userId);
   }
@@ -30,11 +29,63 @@ export class LeaveController {
     return this.logic.getRequests(req.user.userId, query);
   }
 
+  @Get('policies')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'List leave policies' })
+  policies() {
+    return this.logic.getPolicies();
+  }
+
+  @Get('policies/role/:roleId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get leave policy by role' })
+  policyByRole(@Param('roleId') roleId: string) {
+    return this.logic.getPolicyByRole(roleId);
+  }
+
+  @Get('policies/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get leave policy by id' })
+  policyById(@Param('id') id: string) {
+    return this.logic.getPolicyById(id);
+  }
+
+  @Post('policies')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('Admin')
+  @ApiOperation({ summary: 'Create or upsert leave policy' })
+  createPolicy(@Body() dto: any) {
+    return this.logic.createPolicy(dto);
+  }
+
+  @Patch('policies/:id')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('Admin')
+  @ApiOperation({ summary: 'Update leave policy' })
+  updatePolicy(@Param('id') id: string, @Body() dto: any) {
+    return this.logic.updatePolicy(id, dto);
+  }
+
+  @Delete('policies/:id')
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('Admin')
+  @ApiOperation({ summary: 'Delete leave policy' })
+  deletePolicy(@Param('id') id: string) {
+    return this.logic.deletePolicy(id);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get current user leaves' })
   myLeaves(@Req() req: any, @Query() query: any) {
     return this.logic.getMyLeaves(req.user.userId, query);
+  }
+
+  @Get('me/summary')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get current user leave balance summary' })
+  mySummary(@Req() req: any) {
+    return this.logic.getMyLeaveSummary(req.user.userId);
   }
 
   @Get('me/:id')

@@ -17,4 +17,45 @@ export class UserActivityData {
       .find({ userId })
       .sort({ createdAt: -1 });
   }
+
+  findRecentByUserIds(userIds?: string[], limit = 5) {
+    const query: any = {};
+
+    if (userIds?.length) {
+      query.userId = { $in: userIds };
+    }
+
+    return this.model
+      .find(query)
+      .populate({
+        path: 'userId',
+        select: 'name email employeeId role',
+      })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+  }
+
+  findRecentBusinessActivities(userIds?: string[], limit = 5) {
+    const query: any = {
+      $or: [
+        { referenceType: { $in: ['LEAD', 'ORDER', 'Payment', 'Payment Link', 'REVENUE'] } },
+        { action: { $regex: /lead|order|payment|revenue/i } },
+      ],
+    };
+
+    if (userIds?.length) {
+      query.userId = { $in: userIds };
+    }
+
+    return this.model
+      .find(query)
+      .populate({
+        path: 'userId',
+        select: 'name email employeeId role',
+      })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+  }
 }

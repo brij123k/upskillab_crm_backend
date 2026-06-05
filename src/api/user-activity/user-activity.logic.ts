@@ -12,4 +12,12 @@ export class UserActivityLogic {
   getByUser(userId: string) {
     return this.data.findByUser(userId);
   }
+
+  getRecentByUserIds(userIds?: string[], limit = 5) {
+    return this.data.findRecentByUserIds(userIds, limit);
+  }
+
+  getRecentBusinessActivities(userIds?: string[], limit = 5) {
+    return this.data.findRecentBusinessActivities(userIds, limit);
+  }
 }

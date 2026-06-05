@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsDateString, IsEnum, IsMongoId, IsOptional, IsString } from 'class-validator';
-import { AttendanceStatus } from 'src/schema/attendance.schema';
+import { AttendanceLeaveType, AttendanceStatus } from 'src/schema/attendance.schema';
 
 export class CreateAttendanceDto {
   @ApiProperty()
@@ -29,4 +29,9 @@ export class CreateAttendanceDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiProperty({ enum: AttendanceLeaveType, required: false })
+  @IsOptional()
+  @IsEnum(AttendanceLeaveType)
+  leaveType?: AttendanceLeaveType;
 }

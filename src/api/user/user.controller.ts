@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserLogic } from './user.logic';
 import {RegisterUserDto} from 'src/dto/user/register-user.dto';
@@ -97,6 +97,7 @@ toggleDashboard(
   summary:"get all user detail"
 })
 getAllUsers(@Req() req:any){
+  console.log(req.query)
 return this.logic.getUsersUnder(req.user, req.query?.status)
 }
 
@@ -131,6 +132,15 @@ getMySeniors(@Req() req: any) {
 })
 getUserSeniors(@Param('userId') userId: string, @Req() req: any) {
   return this.logic.getUsersAbove(userId, req.query?.status);
+}
+
+@UseGuards(JwtAuthGuard)
+@Get('last-activities')
+@ApiOperation({
+  summary: 'Get the latest activities for the current user scope',
+})
+getLastActivities(@Req() req: any, @Query('limit') limit?: string) {
+  return this.logic.getLastActivities(req.user, limit);
 }
 
 

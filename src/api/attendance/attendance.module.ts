@@ -6,11 +6,13 @@ import { AttendanceLogic } from './attendance.logic';
 import { Attendance, AttendanceSchema } from 'src/schema/attendance.schema';
 import { KraModule } from '../KRA/kra.module';
 import { ProfileModule } from '../profile/profile.module';
+import { LeaveModule } from '../leaves/leave.module';
 
 @Module({
   imports: [
     KraModule,
     ProfileModule,
+    LeaveModule,
     MongooseModule.forFeature([
       { name: Attendance.name, schema: AttendanceSchema },
     ]),

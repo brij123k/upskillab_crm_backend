@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import axios from 'axios';
 import { LeadData } from './lead.data';
 import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
 import { CreateLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
@@ -295,16 +296,16 @@ await this.notificationEngine.handleEvent({
     let startDate: Date | null = null;
     let endDate: Date | null = null;
 
-    if (query.date) {
-      const singleDate = new Date(query.date);
+    if (query.assignedDate) {
+      const singleDate = new Date(query.assignedDate);
       if (!Number.isNaN(singleDate.getTime())) {
         startDate = new Date(singleDate);
         startDate.setHours(0, 0, 0, 0);
         endDate = new Date(singleDate);
         endDate.setHours(23, 59, 59, 999);
       }
-    } else if (query.dateFilter) {
-      const dateFilter = query.dateFilter.toString().toLowerCase();
+    } else if (query.assignedDateFilter) {
+      const dateFilter = query.assignedDateFilter.toString().toLowerCase();
       if (dateFilter === 'today') {
         startDate = new Date(now);
         startDate.setHours(0, 0, 0, 0);
@@ -325,9 +326,9 @@ await this.notificationEngine.handleEvent({
       }
     }
 
-    if (query.fromDate && query.toDate) {
-      const from = new Date(query.fromDate);
-      const to = new Date(query.toDate);
+    if (query.assignedDateFrom && query.assignedDateTo) {
+      const from = new Date(query.assignedDateFrom);
+      const to = new Date(query.assignedDateTo);
       if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
         startDate = new Date(from);
         startDate.setHours(0, 0, 0, 0);
@@ -344,7 +345,7 @@ await this.notificationEngine.handleEvent({
     }
 
     let match: any = {
-      createdAt: { $gte: startDate, $lte: endDate },
+      assignedDate: { $gte: startDate, $lte: endDate },
     };
 
     if (query.status) match.status = query.status;
@@ -370,33 +371,6 @@ await this.notificationEngine.handleEvent({
       }
     }
 
-    const levelNumber = this.resolveLevel(query.level);
-    if (levelNumber === null) {
-      return {
-        totalLead: 0,
-        startDate,
-        endDate,
-        report: [],
-      };
-    }
-
-    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
-    if (!levelUserIds.length) {
-      return {
-        totalLead: 0,
-        startDate,
-        endDate,
-        report: [],
-      };
-    }
-    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) => id) } };
-  if (match.$or) {
-      match = { $and: [{ $or: match.$or }, levelMatch] };
-      delete match.$or;
-    } else {
-      match.assignedTo = levelMatch.assignedTo;
-    }
-
     const stageResults = await this.leadModel.aggregate([
       { $match: match },
       {
@@ -416,7 +390,6 @@ await this.notificationEngine.handleEvent({
       },
       { $sort: { '_id': 1 } },
     ]);
-
     const totalLead = stageResults.reduce((sum, item) => sum + item.count, 0);
     const report = stageResults.map((item) => ({
       leadStage: item._id,
@@ -628,28 +601,53 @@ await this.notificationEngine.handleEvent({
       }
     }
 
-    const levelNumber = this.resolveLevel(query?.level);
-    if (levelNumber === null) {
-      return {
-        totalLeads: 0,
-        totalEmployees: 0,
-        employees: [],
-      };
-    }
-    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
-    if (!levelUserIds.length) {
-      return {
-        totalLeads: 0,
-        totalEmployees: 0,
-        employees: [],
-      };
-    }
-    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) =>id) } };
-    if (match.$or) {
-      match = { $and: [{ $or: match.$or }, levelMatch] };
-      delete match.$or;
-    } else {
-      match.assignedTo = levelMatch.assignedTo;
+    if (query.assignedDate) {
+      const singleDate = new Date(query.assignedDate);
+      if (!Number.isNaN(singleDate.getTime())) {
+        const startDate = new Date(singleDate);
+        const endDate = new Date(singleDate);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        match.assignedDate = { $gte: startDate, $lte: endDate };
+      }
+    } else if (query.assignedDateFilter) {
+      const now = new Date();
+      let startDate: Date | null = null;
+      let endDate: Date | null = null;
+      const dateFilter = query.assignedDateFilter.toString().toLowerCase();
+
+      if (dateFilter === 'today') {
+        startDate = new Date(now);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'week') {
+        startDate = new Date(now);
+        startDate.setDate(startDate.getDate() - 6);
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(now);
+        endDate.setHours(23, 59, 59, 999);
+      } else if (dateFilter === 'month') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      } else if (dateFilter === 'year') {
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      }
+
+      if (startDate && endDate) {
+        match.assignedDate = { $gte: startDate, $lte: endDate };
+      }
+    } else if (query.assignedDateFrom && query.assignedDateTo) {
+      const from = new Date(query.assignedDateFrom);
+      const to = new Date(query.assignedDateTo);
+      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
+        const startDate = new Date(from);
+        const endDate = new Date(to);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(23, 59, 59, 999);
+        match.assignedDate = { $gte: startDate, $lte: endDate };
+      }
     }
 
     const employeeResults = await this.leadModel.aggregate([
@@ -917,6 +915,8 @@ await this.notificationEngine.handleEvent({
     return this.maskLeadResponse(lead, user);
   }
 
+
+
   async update(id: string, dto: UpdateLeadDto, user: any) {
     const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
@@ -1029,6 +1029,102 @@ await this.notificationEngine.handleEvent({
   ) {
     const lead = await this.leadData.getByLeadId(leadId);
     return this.maskLeadResponse(lead, user);
+  }
+
+
+  /**
+   * Register a lead for the currently ongoing PCAT exam.
+   * Flow:
+   * 1. Fetch ongoing exam from external PCAT API
+   * 2. Fetch lead details by leadId
+   * 3. Call PCAT register API with examId + lead details
+   * 4. Update lead status to PCAT_REGISTERED and log history
+   */
+  async registerForPcat(
+    leadId: number,
+    user: any,
+  ) {
+    console.log('hi')
+    // 1️⃣ fetch ongoing exam
+    let ongoingExam: any = null;
+    try {
+      const resp = await axios.get('https://api.upskillab.com/pcat/exams/ongoing/exam');
+      console.log(resp)
+      if (resp && resp.status >= 200 && resp.status < 300) {
+        ongoingExam = resp.data && resp.data._id ? resp.data : null;
+      }
+    } catch (err) {
+      // swallow; we'll handle absence below
+      ongoingExam = null;
+    }
+
+    if (!ongoingExam || !ongoingExam._id) {
+      throw new BadRequestException('No ongoing PCAT exam found');
+    }
+
+    // 2️⃣ get lead details
+    const lead = await this.leadData.getByLeadId(leadId);
+    if (!lead) throw new NotFoundException('Lead not found');
+
+    if (!lead.name || !lead.phone) {
+      throw new BadRequestException('Lead name and phone are required for PCAT registration');
+    }
+
+    // 3️⃣ call external register endpoint
+    const payload = {
+      examId: ongoingExam._id,
+      name: lead.name,
+      email: lead.email || '',
+      number: lead.phone,
+    };
+
+    try {
+      const registerResp = await axios.post('https://api.upskillab.com/pcat-users/register', payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+      });
+      console.log(registerResp)
+
+      if (!(registerResp && registerResp.status >= 200 && registerResp.status < 300)) {
+        throw new InternalServerErrorException('PCAT register API failed');
+      }
+    } catch (err: any) {
+      const message = err?.response?.data?.message || err?.message || 'PCAT registration failed';
+      throw new InternalServerErrorException(message);
+    }
+    console.log(user)
+    // 4️⃣ update lead status and log
+    const updated = await this.leadData.update(lead._id.toString(), {
+      status: LeadStatus.PCAT_REGISTERED,
+      modifiedBy: user?.userId,
+      modifiedAt: new Date(),
+    });
+
+    // await this.leadHistoryLogic.log({
+    //   leadId: lead.leadId.toString(),
+    //   actionType: LeadActionType.STATUS_CHANGED,
+    //   actionBy: user?.userId,
+    //   changes: {
+    //     status: {
+    //       from: lead.status,
+    //       to: 'pcat_registered',
+    //     },
+    //   },
+    // });
+
+    await this.userActivityLogic.log({
+      userId: user?.userId,
+      action: 'Lead_PCAT_Registered',
+      referenceType: 'LEAD',
+      referenceId: lead.leadId.toString(),
+      meta: { message: 'Lead registered for PCAT', examId: ongoingExam._id },
+    });
+
+    return {
+      message: 'Lead registered for PCAT successfully',
+      exam: ongoingExam,
+      lead: this.maskLeadResponse(updated, user),
+    };
   }
 
 

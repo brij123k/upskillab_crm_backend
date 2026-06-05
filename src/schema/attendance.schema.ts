@@ -13,6 +13,11 @@ export enum AttendanceStatus {
   OTHER = 'other',
 }
 
+export enum AttendanceLeaveType {
+  CL = 'CL',
+  EL = 'EL',
+}
+
 @Schema({ timestamps: true })
 export class Attendance extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
@@ -29,6 +34,9 @@ export class Attendance extends Document {
 
   @Prop({ enum: AttendanceStatus, default: AttendanceStatus.ABSENT })
   status: AttendanceStatus;
+
+  @Prop({ enum: AttendanceLeaveType, required: false })
+  leaveType?: AttendanceLeaveType;
 
   @Prop({ required: true, index: true })
   date: Date;

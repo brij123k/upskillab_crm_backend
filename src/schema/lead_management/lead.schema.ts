@@ -14,6 +14,7 @@ export enum LeadStatus {
   ACTIVE = 'active',
   LOST = 'lost',
   CONVERTED = 'converted',
+  PCAT_REGISTERED = 'pcat_registered',
 }
 
 @Schema({ timestamps: true })

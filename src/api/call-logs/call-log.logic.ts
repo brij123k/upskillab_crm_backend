@@ -95,6 +95,86 @@ export class CallLogLogic {
     return `${year}-${month}-${day}`;
   }
 
+  private getDayRange(baseDate = new Date()) {
+    const start = new Date(baseDate);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(baseDate);
+    end.setHours(23, 59, 59, 999);
+
+    return { start, end };
+  }
+
+  private parseDate(value: any) {
+    if (!value) return null;
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private normalizeDateInput(date: Date, boundary: 'start' | 'end') {
+    const normalized = new Date(date);
+    if (boundary === 'start') {
+      normalized.setHours(0, 0, 0, 0);
+    } else {
+      normalized.setHours(23, 59, 59, 999);
+    }
+    return normalized;
+  }
+
+  private getUsersCallLogWindow(query: any) {
+    const requestedFilter = String(query?.dateFilter || '').trim().toLowerCase();
+    const fromDate = this.parseDate(query?.fromDate);
+    const toDate = this.parseDate(query?.toDate);
+
+    if (fromDate || toDate) {
+      const start = this.normalizeDateInput(fromDate || toDate!, 'start');
+      const end = this.normalizeDateInput(toDate || fromDate!, 'end');
+      const normalizedStart = start <= end ? start : end;
+      const normalizedEnd = start <= end ? end : start;
+
+      const daySpan =
+        Math.floor(
+          (this.normalizeDateInput(normalizedEnd, 'end').getTime() -
+            this.normalizeDateInput(normalizedStart, 'start').getTime()) /
+            (1000 * 60 * 60 * 24),
+        ) + 1;
+
+      if (daySpan > 30) {
+        throw new BadRequestException('Call log date range cannot exceed 30 days');
+      }
+
+      return {
+        ...query,
+        dateFilter: 'custom',
+        fromDate: normalizedStart.toISOString(),
+        toDate: normalizedEnd.toISOString(),
+      };
+    }
+
+    const allowedFilters = ['today', 'week', 'month'];
+
+    if (
+      !requestedFilter ||
+      allowedFilters.includes(requestedFilter)
+    ) {
+      return {
+        ...query,
+        dateFilter: requestedFilter || 'today',
+      };
+    }
+
+    const { start, end } = this.getDayRange();
+    start.setDate(start.getDate() - 29);
+
+    return {
+      ...query,
+      dateFilter: 'custom',
+      fromDate: start.toISOString(),
+      toDate: end.toISOString(),
+    };
+  }
+
   async create(dto: any, currentUserId: string) {
     const { remark, ...callLogData } = dto;
      const callLog = await this.callLogData.create({
@@ -218,27 +298,28 @@ async getByLead(leadId: number, user: any) {
   };
 }
 
-async getByUsers(filter: any, user: any){
+  async getByUsers(filter: any, user: any){
+  const normalizedFilter = this.getUsersCallLogWindow(filter);
   const userId = user._id || user.userId;
-  if(filter.group=='true'){
+  if(normalizedFilter.group=='true'){
     let users: any[] = [];
     users = await this.userLogic.getUsersUnder(user);
     const accessibleUserIds = users.map((u) => u._id.toString());
     accessibleUserIds.push(userId)
     if (!accessibleUserIds || !accessibleUserIds.length) {
       return this.callLogData.findAllWithUserIds(
-        filter,
+        normalizedFilter,
         [userId],
       );
     }
     // 🔥 Apply hierarchy filter
     return this.callLogData.findAllWithUserIds(
-      filter,
+      normalizedFilter,
       accessibleUserIds,
     );
   }else{
   const result = await this.callLogData.findCallLogWithPagination(
-    filter,
+    normalizedFilter,
     userId,
   );
   return result

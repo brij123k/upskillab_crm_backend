@@ -11,7 +11,7 @@ export class LeadInteractionLog extends Document {
   userId: string;
 
   // source of interaction
-  // enum: ['whatsapp', 'email', 'sms', 'linkedin', 'manual', 'other'],
+  // enum: ['whatsapp', 'email', 'sms', 'call', 'manual', 'other'],
   @Prop({
     default: 'other',
   })

@@ -58,6 +58,26 @@ export class LeadController {
         return this.logic.findAll(query,req.user);
     }
 
+    //     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    // @Roles('Admin', 'bd')
+    // @RequirePermission(
+    //   PERMISSIONS.LEAD.MODULE,
+    //   PERMISSIONS.LEAD.ACTIONS.READ,
+    // )
+    // @Get()
+    // @ApiOperation({ summary: 'Get all leads with filters & pagination' })
+    // findAllLead(@Req() req: any) {
+    //     return this.logic.findAll(req.user);
+    // }
+
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('Admin', 'bd')
+  @Post(':leadId/pcat-register')
+  @ApiOperation({ summary: 'Register lead for ongoing PCAT exam (proxy)' })
+  async registerForPcat(@Param('leadId') leadId: number, @Req() req: any) {
+    return this.logic.registerForPcat(Number(leadId), req.user);
+  }
+
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin', 'bd')
   @RequirePermission(

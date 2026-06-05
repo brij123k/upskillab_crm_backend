@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsEnum, IsOptional, IsString } from 'class-validator';
-import { AttendanceStatus } from 'src/schema/attendance.schema';
+import { AttendanceLeaveType, AttendanceStatus } from 'src/schema/attendance.schema';
 
 export class UpdateAttendanceDto {
   @ApiPropertyOptional()
@@ -27,4 +27,9 @@ export class UpdateAttendanceDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({ enum: AttendanceLeaveType })
+  @IsOptional()
+  @IsEnum(AttendanceLeaveType)
+  leaveType?: AttendanceLeaveType;
 }
