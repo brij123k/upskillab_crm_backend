@@ -29,6 +29,7 @@ import { PerformanceWarningModule } from './api/performance-warnings/performance
 import { LeaveModule } from './api/leaves/leave.module';
 import { SourceCampaignModule } from './api/source-campaigns/source-campaign.module';
 import { TargetsModule } from './api/targets/targets.module';
+import { UserReportModule } from './api/reports/user-activity/user-report.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -61,6 +62,7 @@ ConfigModule.forRoot({
     LeaveModule,
     SourceCampaignModule,
     TargetsModule,
+    UserReportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

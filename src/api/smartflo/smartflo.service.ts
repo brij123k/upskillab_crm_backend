@@ -142,7 +142,7 @@ async clickToCall(dto:any,user:any) {
     destination_number: Number(lead.phone),
     caller_id: process.env.CALLERID,
   });
-
+  console.log("Click To Call Response:",response)
   await this.callLogModel.create({
     refId: response.ref_id,
     leadId: lead.leadId,
