@@ -105,281 +105,282 @@ export class OrderService {
     }
   }
 
-async createOrder(dto: CreateOrderDto, userId: string) {
-  try {
-    const user = await this.userLogic.findById(userId);
-    if (!user) throw new BadRequestException('Invalid counsellorId');
-    const pool = await this.poolModel.findById(dto.courseVertical);
-    if (!pool) throw new BadRequestException('Invalid pool');
+  async createOrder(dto: CreateOrderDto, userId: string) {
+    try {
+      const user = await this.userLogic.findById(userId);
+      if (!user) throw new BadRequestException('Invalid counsellorId');
+      const pool = await this.poolModel.findById(dto.courseVertical);
+      if (!pool) throw new BadRequestException('Invalid pool');
 
-    let finalFee = dto.totalFee - (dto.discount || 0);
-    let status = OrderStatus.PARTIALLY_PAID;
-    let countedRevenue = Number(pool.revenue_percentage)*finalFee/100;
-    // 🔥 STEP 1: CREATE ORDER FIRST
-    if(dto.GSTEnabled){
-      finalFee += dto.GSTAmount;
-    }
-    const order = await this.orderModel.create({
-      ...dto,
-      counsellorId: userId,
-      counsellorName: user.name,
-      countedRevenue: countedRevenue,
-      finalFee,
-      status,
-    });
-
-    // ================= LOAN =================
-    if (dto.paymentMode === PaymentMode.LOAN) {
-      const firstDate = new Date(dto.loanDetails.firstEmiDate);
-
-      const secondDate = new Date(firstDate);
-      secondDate.setMonth(secondDate.getMonth() + 1);
-
-      const thirdDate = new Date(firstDate);
-      thirdDate.setMonth(thirdDate.getMonth() + 2);
-
-      const emi = await this.emiModel.create({
-        orderId: order._id,
-        learnerName: dto.studentName,
-        mobile: dto.mobile,
-        email: dto.email,
-        couselorId: userId,
-        counselorName: user.name,
-        LoanPartner: dto.loanDetails.loanPartner,
-        loanAmount: dto.loanDetails.loanAmount,
-        disbursementAmount: dto.loanDetails.disbursementAmount,
-        loanDate: dto.loanDetails.loanDate,
-        firstEmiDate: firstDate,
-        secondEmiDate: secondDate,
-        thirdEmiDate: thirdDate,
+      let finalFee = dto.totalFee - (dto.discount || 0);
+      let status = OrderStatus.PARTIALLY_PAID;
+      let countedRevenue = Number(pool.revenue_percentage) * finalFee / 100;
+      // 🔥 STEP 1: CREATE ORDER FIRST
+      if (dto.GSTEnabled) {
+        finalFee += dto.GSTAmount;
+      }
+      const order = await this.orderModel.create({
+        ...dto,
+        counsellorId: userId,
+        counsellorName: user.name,
+        countedRevenue: countedRevenue,
+        finalFee,
+        status,
       });
 
-      order.loanDetails = {
-        ...dto.loanDetails,
-        loanId: emi._id,
+      // ================= LOAN =================
+      if (dto.paymentMode === PaymentMode.LOAN) {
+        const firstDate = new Date(dto.loanDetails.firstEmiDate);
 
-      };
-      order.status = OrderStatus.FULLY_PAID;
+        const secondDate = new Date(firstDate);
+        secondDate.setMonth(secondDate.getMonth() + 1);
 
-      await order.save();
-    }
+        const thirdDate = new Date(firstDate);
+        thirdDate.setMonth(thirdDate.getMonth() + 2);
 
-    // ================= LUMPSUM =================
-    if (dto.paymentMode === PaymentMode.LUMPSUM) {
-      let pendingAmount = finalFee;
-
-      if (dto.lumpsumDetails?.totalReceived >= finalFee) {
-        status = OrderStatus.FULLY_PAID;
-        pendingAmount = 0;
-      } else {
-        pendingAmount =
-          finalFee - (dto.lumpsumDetails?.totalReceived || 0);
-      }
-
-      order.status = status;
-
-      order.lumpsumDetails = {
-        ...dto.lumpsumDetails,
-        pendingAmount,
-      };
-
-      await order.save();
-    }
-
-    // ================= SUBSCRIPTION =================
-    if (dto.paymentMode === PaymentMode.SUBSCRIPTION) {
-      const installments: any[] = [];
-
-      const firstDate = new Date(
-        dto.subscriptionDetails.firstInstallmentDate,
-      );
-
-      const totalInstallments =
-        dto.subscriptionDetails.numberOfInstallments;
-
-      const installmentAmount =
-        dto.subscriptionDetails.installmentAmount;
-
-      for (let i = 0; i < totalInstallments; i++) {
-        const dueDate = new Date(firstDate);
-        dueDate.setMonth(dueDate.getMonth() + i);
-
-        installments.push({
-          installmentNo: i + 1,
-          dueDate,
-          amount: installmentAmount,
+        const emi = await this.emiModel.create({
+          orderId: order._id,
+          learnerName: dto.studentName,
+          mobile: dto.mobile,
+          email: dto.email,
+          couselorId: userId,
+          counselorName: user.name,
+          LoanPartner: dto.loanDetails.loanPartner,
+          loanAmount: dto.loanDetails.loanAmount,
+          disbursementAmount: dto.loanDetails.disbursementAmount,
+          loanDate: dto.loanDetails.loanDate,
+          firstEmiDate: firstDate,
+          secondEmiDate: secondDate,
+          thirdEmiDate: thirdDate,
         });
+
+        order.loanDetails = {
+          ...dto.loanDetails,
+          loanId: emi._id,
+
+        };
+        order.status = OrderStatus.FULLY_PAID;
+
+        await order.save();
       }
 
-      // await this.subscriptionModel.create({
-      //   orderId: order._id,
-      //   studentName: order.studentName,
-      //   mobile: order.mobile,
-      //   email: order.email,
-      //   counselorName: order.counsellorName,
-      //   totalAmount: order.finalFee,
-      //   installmentAmount,
-      //   numberOfInstallments: totalInstallments,
-      //   firstInstallmentDate: firstDate,
-      //   lastInstallmentDate:
-      //     installments[installments.length - 1].dueDate,
-      //   installments,
-      // });
-    }
+      // ================= LUMPSUM =================
+      if (dto.paymentMode === PaymentMode.LUMPSUM) {
+        let pendingAmount = finalFee;
+
+        if (dto.lumpsumDetails?.totalReceived >= finalFee) {
+          status = OrderStatus.FULLY_PAID;
+          pendingAmount = 0;
+        } else {
+          pendingAmount =
+            finalFee - (dto.lumpsumDetails?.totalReceived || 0);
+        }
+
+        order.status = status;
+
+        order.lumpsumDetails = {
+          ...dto.lumpsumDetails,
+          pendingAmount,
+        };
+
+        await order.save();
+      }
+
+      // ================= SUBSCRIPTION =================
+      if (dto.paymentMode === PaymentMode.SUBSCRIPTION) {
+        const installments: any[] = [];
+
+        const firstDate = new Date(
+          dto.subscriptionDetails.firstInstallmentDate,
+        );
+
+        const totalInstallments =
+          dto.subscriptionDetails.numberOfInstallments;
+
+        const installmentAmount =
+          dto.subscriptionDetails.installmentAmount;
+
+        for (let i = 0; i < totalInstallments; i++) {
+          const dueDate = new Date(firstDate);
+          dueDate.setMonth(dueDate.getMonth() + i);
+
+          installments.push({
+            installmentNo: i + 1,
+            dueDate,
+            amount: installmentAmount,
+          });
+        }
+
+        // await this.subscriptionModel.create({
+        //   orderId: order._id,
+        //   studentName: order.studentName,
+        //   mobile: order.mobile,
+        //   email: order.email,
+        //   counselorName: order.counsellorName,
+        //   totalAmount: order.finalFee,
+        //   installmentAmount,
+        //   numberOfInstallments: totalInstallments,
+        //   firstInstallmentDate: firstDate,
+        //   lastInstallmentDate:
+        //     installments[installments.length - 1].dueDate,
+        //   installments,
+        // });
+      }
       await this.userActivityLogic.log({
         userId: userId,
         action: 'Order Created',
         referenceType: 'ORDER',
         referenceId: order._id.toString(),
         meta: {
-          message:dto.remarks,
+          message: dto.remarks,
           PaymentMode: dto.paymentMode,
-          order},
+          order
+        },
       });
 
-    return order;
-  } catch (error: any) {
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern || {})[0];
-      throw new BadRequestException(`${field} already exists`);
-    }
+      return order;
+    } catch (error: any) {
+      if (error.code === 11000) {
+        const field = Object.keys(error.keyPattern || {})[0];
+        throw new BadRequestException(`${field} already exists`);
+      }
 
-    throw error;
-  }
-}
-
-async applySubscriptionPayment(orderId: string, amount: number) {
-  const sub = await this.subscriptionModel.findOne({ orderId });
-
-  if (!sub) return;
-
-  for (const inst of sub.installments) {
-    if (!inst.isPaid) {
-      inst.isPaid = true;
-      inst.paidAt = new Date();
-      break;
+      throw error;
     }
   }
 
-  const allPaid = sub.installments.every(i => i.isPaid);
-  if (allPaid) sub.status = 'COMPLETED';
+  async applySubscriptionPayment(orderId: string, amount: number) {
+    const sub = await this.subscriptionModel.findOne({ orderId });
 
-  await sub.save();
+    if (!sub) return;
 
-  await this.applyPayment(orderId, amount);
-}
-
-async findAll(filters: any, user: any) {
-  const {
-    search,
-    paymentMode,
-    status,
-    dateFilter,
-    fromDate,
-    toDate,
-    counsellorId,
-    group,
-    page = 1,
-    limit = 10,
-  } = filters;
-
-  const query: any = {};
-
-  /* ================= GROUP FILTER ================= */
-
-  let accessibleUserIds: string[] = [];
-
-  if (group === true || group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user);
-    accessibleUserIds = users.map((u) => u._id.toString());
-    accessibleUserIds.push(user.userId);
-
-    query.counsellorId = { $in: accessibleUserIds };
-  }else if (user.roleName === 'bd') {
-    query.counsellorId = user.userId;
-  }
-
-  /* ================= COUNSELLOR FILTER ================= */
-
-  if (counsellorId) {
-    query.counsellorId = counsellorId;
-  }
-
-  /* ================= SEARCH ================= */
-
-  if (search) {
-    query.$or = [
-      { studentName: { $regex: search, $options: 'i' } },
-      { email: { $regex: search, $options: 'i' } },
-      { phone: { $regex: search, $options: 'i' } },
-    ];
-  }
-
-  /* ================= PAYMENT & STATUS ================= */
-
-  if (paymentMode) query.paymentMode = paymentMode;
-  if (status) query.status = status;
-
-  /* ================= DATE FILTER ================= */
-
-  const now = new Date();
-
-  if (dateFilter) {
-    let start: Date | null = null;
-
-    if (dateFilter === 'today') {
-      start = new Date();
-      start.setHours(0, 0, 0, 0);
-    } else if (dateFilter === 'week') {
-      start = new Date();
-      start.setDate(start.getDate() - 7);
-    } else if (dateFilter === 'month') {
-      start = new Date();
-      start.setMonth(start.getMonth() - 1);
-    } else if (dateFilter === 'year') {
-      start = new Date();
-      start.setFullYear(start.getFullYear() - 1);
+    for (const inst of sub.installments) {
+      if (!inst.isPaid) {
+        inst.isPaid = true;
+        inst.paidAt = new Date();
+        break;
+      }
     }
 
-    if (start) {
-      query.createdAt = { $gte: start };
+    const allPaid = sub.installments.every(i => i.isPaid);
+    if (allPaid) sub.status = 'COMPLETED';
+
+    await sub.save();
+
+    await this.applyPayment(orderId, amount);
+  }
+
+  async findAll(filters: any, user: any) {
+    const {
+      search,
+      paymentMode,
+      status,
+      dateFilter,
+      fromDate,
+      toDate,
+      counsellorId,
+      group,
+      page = 1,
+      limit = 10,
+    } = filters;
+
+    const query: any = {};
+
+    /* ================= GROUP FILTER ================= */
+
+    let accessibleUserIds: string[] = [];
+
+    if (group === true || group === 'true') {
+      const users = await this.userLogic.getUsersUnder(user);
+      accessibleUserIds = users.map((u) => u._id.toString());
+      accessibleUserIds.push(user.userId);
+
+      query.counsellorId = { $in: accessibleUserIds };
+    } else if (user.roleName === 'bd') {
+      query.counsellorId = user.userId;
     }
-  }
 
-  if (fromDate && toDate) {
-    query.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
-    };
-  }
+    /* ================= COUNSELLOR FILTER ================= */
 
-  /* ================= PAGINATION ================= */
+    if (counsellorId) {
+      query.counsellorId = counsellorId;
+    }
 
-  const skip = (page - 1) * limit;
+    /* ================= SEARCH ================= */
 
-  const [data, total] = await Promise.all([
-    this.orderModel
-      .find(query)
-      .populate('courseVertical', 'name revenue_percentage')
-      .populate('counsellorId', 'name email')
-      .populate('approvedBy', 'name email')
-      .populate('loanDetails.loanPartner', 'name type submissionCharge')
-      .populate('loanDetails.loanId')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(Number(limit)),
+    if (search) {
+      query.$or = [
+        { studentName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
 
-    this.orderModel.countDocuments(query),
-  ]);
+    /* ================= PAYMENT & STATUS ================= */
 
-  return {
-    data,
+    if (paymentMode) query.paymentMode = paymentMode;
+    if (status) query.status = status;
+
+    /* ================= DATE FILTER ================= */
+
+    const now = new Date();
+
+    if (dateFilter) {
+      let start: Date | null = null;
+
+      if (dateFilter === 'today') {
+        start = new Date();
+        start.setHours(0, 0, 0, 0);
+      } else if (dateFilter === 'week') {
+        start = new Date();
+        start.setDate(start.getDate() - 7);
+      } else if (dateFilter === 'month') {
+        start = new Date();
+        start.setMonth(start.getMonth() - 1);
+      } else if (dateFilter === 'year') {
+        start = new Date();
+        start.setFullYear(start.getFullYear() - 1);
+      }
+
+      if (start) {
+        query.createdAt = { $gte: start };
+      }
+    }
+
+    if (fromDate && toDate) {
+      query.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    /* ================= PAGINATION ================= */
+
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.orderModel
+        .find(query)
+        .populate('courseVertical', 'name revenue_percentage')
+        .populate('counsellorId', 'name email')
+        .populate('approvedBy', 'name email')
+        .populate('loanDetails.loanPartner', 'name type submissionCharge')
+        .populate('loanDetails.loanId')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+
+      this.orderModel.countDocuments(query),
+    ]);
+
+    return {
+      data,
       total,
       page: Number(page),
       limit: Number(limit),
       totalPages: Math.ceil(total / limit),
-  };
-}
+    };
+  }
 
   async findById(id: string) {
     return this.orderModel
@@ -392,39 +393,41 @@ async findAll(filters: any, user: any) {
 
   }
 
-  async update(id: string, dto: any,userId: string) {
+  async update(id: string, dto: any, userId: string) {
     const existing = await this.orderModel.findById(id);
     if (!existing) throw new BadRequestException('Order not found');
-    if(existing.Approved) throw new BadRequestException('Cannot update approved order');
+    if (existing.Approved) throw new BadRequestException('Cannot update approved order');
     await this.userActivityLogic.log({
-        userId: userId,
-        action: 'Order Updated',
-        referenceType: 'ORDER',
-        referenceId: existing._id.toString(),
-        meta: {
-          message:"Order updated",
-          order: existing},
-      });
+      userId: userId,
+      action: 'Order Updated',
+      referenceType: 'ORDER',
+      referenceId: existing._id.toString(),
+      meta: {
+        message: "Order updated",
+        order: existing
+      },
+    });
     return this.orderModel.findByIdAndUpdate(id, dto, { new: true });
   }
 
-async approveOrder(id: string, approvedBy: string) {
-    const order= await this.orderModel.findByIdAndUpdate(
+  async approveOrder(id: string, approvedBy: string) {
+    const order = await this.orderModel.findByIdAndUpdate(
       id,
       { Approved: true, approvedBy },
       { new: true },
     );
-     await this.userActivityLogic.log({
-        userId: approvedBy,
-        action: 'Order Approved',
-        referenceType: 'ORDER',
-        referenceId: id.toString(),
-        meta: {
-          message:"Order approved",
-          order: order},
-      });
+    await this.userActivityLogic.log({
+      userId: approvedBy,
+      action: 'Order Approved',
+      referenceType: 'ORDER',
+      referenceId: id.toString(),
+      meta: {
+        message: "Order approved",
+        order: order
+      },
+    });
     return order;
-    
+
   }
 
   async paymentReport() {
@@ -702,19 +705,19 @@ async approveOrder(id: string, approvedBy: string) {
         : null;
       const numberOfDaysOnZero = lastSalePunchDate
         ? Math.max(
-            0,
-            Math.floor(
-              (now.getTime() - lastSalePunchDate.getTime()) /
-                (1000 * 60 * 60 * 24),
-            ),
-          )
+          0,
+          Math.floor(
+            (now.getTime() - lastSalePunchDate.getTime()) /
+            (1000 * 60 * 60 * 24),
+          ),
+        )
         : null;
 
       const monthlyRevenueTarget = null;
       const achievementPercentage = monthlyRevenueTarget
         ? Number(
-            ((item.realisedRevenue / monthlyRevenueTarget) * 100).toFixed(2),
-          )
+          ((item.realisedRevenue / monthlyRevenueTarget) * 100).toFixed(2),
+        )
         : null;
 
       return {
@@ -740,7 +743,7 @@ async approveOrder(id: string, approvedBy: string) {
     return report;
   }
 
-  
+
 
   async employeePoolUtilizationReport(query: any) {
     const now = new Date();
@@ -822,7 +825,7 @@ async approveOrder(id: string, approvedBy: string) {
     const leadAssignments = await this.leadModel.aggregate([
       {
         $match: {
-          createdAt: { $gte: startDate, $lte: endDate },
+          assignedDate: { $gte: startDate, $lte: endDate },
           ...buildLevelMatch('$assignedTo'),
         },
       },
@@ -845,7 +848,27 @@ async approveOrder(id: string, approvedBy: string) {
         },
       },
     ]);
-
+    const newLeads = await this.leadModel.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate },
+          ...buildLevelMatch('$assignedTo'),
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $convert: {
+              input: '$assignedTo',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
     const callStats = await this.callLogModel.aggregate([
       {
         $match: {
@@ -856,19 +879,36 @@ async approveOrder(id: string, approvedBy: string) {
       {
         $group: {
           _id: {
-            $convert: {
-              input: '$userId',
-              to: 'string',
-              onError: null,
-              onNull: null,
+            userId: {
+              $convert: {
+                input: '$userId',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
+            },
+            customerNumber: '$customerNumber',
+          },
+          dialCount: { $sum: 1 },
+          answeredCount: {
+            $sum: {
+              $cond: [{ $gt: ['$duration', 0] }, 1, 0],
             },
           },
-          totalDial: { $sum: 1 },
-          answeredTalkTime: {
+          talkTime: {
             $sum: {
               $cond: [{ $gt: ['$duration', 0] }, '$duration', 0],
             },
           },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.userId',
+          totalDial: { $sum: '$dialCount' },
+          uniqDial: { $sum: 1 },
+          answeredCall: { $sum: '$answeredCount' },
+          answeredTalkTime: { $sum: '$talkTime' },
         },
       },
     ]);
@@ -931,14 +971,29 @@ async approveOrder(id: string, approvedBy: string) {
       leadAssignmentByEmployee.set(employeeId, item.totalAssigned || 0);
     });
 
+    const newLeadsByEmployee = new Map<string, number>();
+
+    newLeads.forEach((item) => {
+      if (!item._id) return;
+      newLeadsByEmployee.set(
+        item._id.toString(),
+        item.count || 0,
+      );
+    });
+
     const callStatsByEmployee = new Map<string, any>();
+
     callStats.forEach((item) => {
       if (!item._id) return;
+
       callStatsByEmployee.set(item._id.toString(), {
-        totalDial: item.totalDial,
-        answeredTalkTime: item.answeredTalkTime,
+        totalDial: item.totalDial || 0,
+        uniqDial: item.uniqDial || 0,
+        answeredCall: item.answeredCall || 0,
+        answeredTalkTime: item.answeredTalkTime || 0,
       });
     });
+
 
     const stageCountsByEmployee = new Map<string, Map<string, number>>();
     stageUpdates.forEach((item) => {
@@ -961,7 +1016,7 @@ async approveOrder(id: string, approvedBy: string) {
       const stages = stageCountsByEmployee.get(employeeId);
       if (!stages) return 0;
 
-      
+
       return Array.from(stages.entries()).reduce((total, [stageName, count]) => {
         return patterns.some((pattern) => pattern.test(stageName))
           ? total + count
@@ -993,21 +1048,54 @@ async approveOrder(id: string, approvedBy: string) {
     const employees = users.map((user) => {
       const employeeId = user._id.toString();
       const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
-      const callStats = callStatsByEmployee.get(employeeId) || { totalDial: 0, answeredTalkTime: 0 };
+      const callStats =
+        callStatsByEmployee.get(employeeId) || {
+          totalDial: 0,
+          uniqDial: 0,
+          answeredCall: 0,
+          answeredTalkTime: 0,
+        };
       const totalLeadAssigned = leadAssignmentByEmployee.get(employeeId) || 0;
-
+      const totalNewLead =
+        newLeadsByEmployee.get(employeeId) || 0;
       return {
         employeeId,
         employeeName: user?.name || 'Unknown',
         designation: roleName || null,
         vintage: calculateVintage(user?.createdAt),
+
         leadAssigned: totalLeadAssigned,
-        totalDial: callStats.totalDial || 0,
-        answeredTalkTime: callStats.answeredTalkTime || 0,
-        pcatScheduled: sumMatchingStageCounts(employeeId, [/pcat.*schedul/i]),
-        pcatDone: sumMatchingStageCounts(employeeId, [/pcat.*done/i, /pcat.*complete/i]),
-        registrationDone: getStageCount(employeeId, 'Registration Done'),
-        admissionDone: getStageCount(employeeId, 'Admission Done'),
+        newLead: totalNewLead,
+
+        totalDial: callStats.totalDial,
+        uniqDial: callStats.uniqDial,
+        answeredCall: callStats.answeredCall,
+        answeredTalkTime: callStats.answeredTalkTime,
+
+        pcatScheduled: sumMatchingStageCounts(
+          employeeId,
+          [/pcat.*schedul/i],
+        ),
+
+        pcatDone: sumMatchingStageCounts(
+          employeeId,
+          [/pcat.*done/i, /pcat.*complete/i],
+        ),
+
+        registrationDone: getStageCount(
+          employeeId,
+          'Registration Done',
+        ),
+
+        admissionDone: getStageCount(
+          employeeId,
+          'Admission Done',
+        ),
+
+        allStages: Object.fromEntries(
+          stageCountsByEmployee.get(employeeId) || new Map(),
+        ),
+
         employeeEmail: user?.email || null,
         employeeNumber: user?.number || null,
         employeeEmployeeId: user?.employeeId || null,
@@ -1118,8 +1206,8 @@ async approveOrder(id: string, approvedBy: string) {
 
     const filteredLeads = query.stage
       ? leads.filter((lead: any) =>
-          String(lead?.stageId?.name || '').toLowerCase().includes(String(query.stage).toLowerCase()),
-        )
+        String(lead?.stageId?.name || '').toLowerCase().includes(String(query.stage).toLowerCase()),
+      )
       : leads;
     if (!filteredLeads.length) {
       return {
@@ -1311,9 +1399,9 @@ async approveOrder(id: string, approvedBy: string) {
 
     const filteredLeads = query.leadStage
       ? leads.filter((lead) => {
-          const stageName = String((lead.stageId as any)?.name || '').toLowerCase();
-          return stageName.includes(String(query.leadStage).toLowerCase());
-        })
+        const stageName = String((lead.stageId as any)?.name || '').toLowerCase();
+        return stageName.includes(String(query.leadStage).toLowerCase());
+      })
       : leads;
 
     if (!filteredLeads.length) {
@@ -1699,19 +1787,19 @@ async approveOrder(id: string, approvedBy: string) {
     };
   }
 
-async applyPayment(orderId: string, amount: number) {
-  const order = await this.orderModel.findById(orderId);
-  if (!order) throw new BadRequestException('Order not found');
+  async applyPayment(orderId: string, amount: number) {
+    const order = await this.orderModel.findById(orderId);
+    if (!order) throw new BadRequestException('Order not found');
 
-  order.lumpsumDetails = order.lumpsumDetails || {
-    registrationDate: order.feeDepositDate || new Date(),
-    registrationAmount: 0,
-    totalReceived: 0,
-    pendingAmount: order.finalFee || 0,
-    paymentType: 'Subscription',
-  };
-  order.lumpsumDetails.totalReceived += amount;
-  order.lumpsumDetails.pendingAmount = order.finalFee - order.lumpsumDetails.totalReceived;
+    order.lumpsumDetails = order.lumpsumDetails || {
+      registrationDate: order.feeDepositDate || new Date(),
+      registrationAmount: 0,
+      totalReceived: 0,
+      pendingAmount: order.finalFee || 0,
+      paymentType: 'Subscription',
+    };
+    order.lumpsumDetails.totalReceived += amount;
+    order.lumpsumDetails.pendingAmount = order.finalFee - order.lumpsumDetails.totalReceived;
 
     if (order.lumpsumDetails.pendingAmount <= 0) {
       order.status = OrderStatus.FULLY_PAID;
@@ -1722,202 +1810,202 @@ async applyPayment(orderId: string, amount: number) {
     return await order.save();
   }
 
-async getAllEmi(query: any, user: any) {
+  async getAllEmi(query: any, user: any) {
 
-  const {
-    search,
-    orderId,
-    status,
-    loanPartner,
-    counsellorId,
-    group,
-    dateFilter,
-    fromDate,
-    toDate,
-    page = 1,
-    limit = 10,
-  } = query;
+    const {
+      search,
+      orderId,
+      status,
+      loanPartner,
+      counsellorId,
+      group,
+      dateFilter,
+      fromDate,
+      toDate,
+      page = 1,
+      limit = 10,
+    } = query;
 
-  const filter: any = {};
+    const filter: any = {};
 
-  /* ================= GROUP FILTER ================= */
+    /* ================= GROUP FILTER ================= */
 
-  let accessibleUserIds: string[] = [];
+    let accessibleUserIds: string[] = [];
 
-  if (group === true || group === 'true') {
-    const users = await this.userLogic.getUsersUnder(user);
+    if (group === true || group === 'true') {
+      const users = await this.userLogic.getUsersUnder(user);
 
-    accessibleUserIds = users.map((u) => u._id.toString());
-    accessibleUserIds.push(user.userId);
+      accessibleUserIds = users.map((u) => u._id.toString());
+      accessibleUserIds.push(user.userId);
 
-    filter.couselorId = {
-      $in: accessibleUserIds.map((id) => id),
-    };
-  } 
-  else if (user.roleName === 'bd') {
-    filter.couselorId = user.userId;
-  }
-
-  /* ================= COUNSELLOR FILTER ================= */
-
-  if (counsellorId) {
-    filter.couselorId = counsellorId;
-  }
-
-  /* ================= LOAN PARTNER FILTER ================= */
-
-  if (loanPartner) {
-    filter.LoanPartner = loanPartner;
-  }
-
-  /* ================= SEARCH ================= */
-
-  if (search) {
-    filter.$or = [
-      { learnerName: { $regex: search, $options: 'i' } },
-      { mobile: { $regex: search, $options: 'i' } },
-      { counselorName: { $regex: search, $options: 'i' } },
-    ];
-  }
-
-  /* ================= OTHER FILTERS ================= */
-
-  if (orderId) filter.orderId = new Types.ObjectId(orderId);
-  if (status) filter.status = status;
-
-  /* ================= DATE FILTER ================= */
-
-  if (dateFilter) {
-    let start: Date | null = null;
-    let end: Date = new Date();
-
-    if (dateFilter === 'today') {
-      start = new Date();
-      start.setHours(0, 0, 0, 0);
-    } 
-    else if (dateFilter === 'week') {
-      start = new Date();
-      start.setDate(start.getDate() - 7);
-    } 
-    else if (dateFilter === 'month') {
-      start = new Date();
-      start.setMonth(start.getMonth() - 1);
-    } 
-    else if (dateFilter === 'year') {
-      start = new Date();
-      start.setFullYear(start.getFullYear() - 1);
-    }
-
-    if (start) {
-      filter.createdAt = {
-        $gte: start,
-        $lte: end,
+      filter.couselorId = {
+        $in: accessibleUserIds.map((id) => id),
       };
     }
-  }
+    else if (user.roleName === 'bd') {
+      filter.couselorId = user.userId;
+    }
 
-  /* ================= CUSTOM DATE ================= */
+    /* ================= COUNSELLOR FILTER ================= */
 
-  if (fromDate && toDate) {
-    filter.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
+    if (counsellorId) {
+      filter.couselorId = counsellorId;
+    }
+
+    /* ================= LOAN PARTNER FILTER ================= */
+
+    if (loanPartner) {
+      filter.LoanPartner = loanPartner;
+    }
+
+    /* ================= SEARCH ================= */
+
+    if (search) {
+      filter.$or = [
+        { learnerName: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
+        { counselorName: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    /* ================= OTHER FILTERS ================= */
+
+    if (orderId) filter.orderId = new Types.ObjectId(orderId);
+    if (status) filter.status = status;
+
+    /* ================= DATE FILTER ================= */
+
+    if (dateFilter) {
+      let start: Date | null = null;
+      let end: Date = new Date();
+
+      if (dateFilter === 'today') {
+        start = new Date();
+        start.setHours(0, 0, 0, 0);
+      }
+      else if (dateFilter === 'week') {
+        start = new Date();
+        start.setDate(start.getDate() - 7);
+      }
+      else if (dateFilter === 'month') {
+        start = new Date();
+        start.setMonth(start.getMonth() - 1);
+      }
+      else if (dateFilter === 'year') {
+        start = new Date();
+        start.setFullYear(start.getFullYear() - 1);
+      }
+
+      if (start) {
+        filter.createdAt = {
+          $gte: start,
+          $lte: end,
+        };
+      }
+    }
+
+    /* ================= CUSTOM DATE ================= */
+
+    if (fromDate && toDate) {
+      filter.createdAt = {
+        $gte: new Date(fromDate),
+        $lte: new Date(toDate),
+      };
+    }
+
+    /* ================= PAGINATION ================= */
+
+    const pageNumber = Number(page);
+    const limitNumber = Number(limit);
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const [data, total] = await Promise.all([
+      this.emiModel
+        .find(filter)
+        .populate('LoanPartner', 'name type submissionCharge')
+        .populate('couselorId', 'name email employeeId')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNumber),
+
+      this.emiModel.countDocuments(filter),
+    ]);
+
+    return {
+      data,
+      total,
+      page: pageNumber,
+      limit: limitNumber,
+      totalPages: Math.ceil(total / limitNumber),
     };
   }
 
-  /* ================= PAGINATION ================= */
-
-  const pageNumber = Number(page);
-  const limitNumber = Number(limit);
-  const skip = (pageNumber - 1) * limitNumber;
-
-  const [data, total] = await Promise.all([
-    this.emiModel
-      .find(filter)
-      .populate('LoanPartner', 'name type submissionCharge')
-      .populate('couselorId', 'name email employeeId')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNumber),
-
-    this.emiModel.countDocuments(filter),
-  ]);
-
-  return {
-    data,
-    total,
-    page: pageNumber,
-    limit: limitNumber,
-    totalPages: Math.ceil(total / limitNumber),
-  };
-}
-
-async updateInstallments(dto: any, user: any,id: string) {
-  const existing = await this.emiModel.findById(id);
-  if (!existing) throw new BadRequestException('Loan not found');
-  if(existing.couselorId.toString() !== user.userId && user.roleName !== 'admin'){
-    throw new BadRequestException('Not authorized to update this loan');
-  }
-  if(dto.firstEmi){
-    existing.firstEmi = true;
-  }else if(dto.secondEmi){
-    existing.secondEmi = true;
-  }else if(dto.thirdEmi){
-    existing.thirdEmi = true;
-  }
-  await existing.save();
-  return existing;
-}
-
- async sendReminder(id: string, body: any) {
-  const { reminderText, reminderNumber } = body;
-  const existing = await this.emiModel.findById(id);
-  if (!existing) throw new Error('Loan not found');
-
-  if (existing.status === 'COMPLETED') {
-    throw new Error('Loan Completed');
+  async updateInstallments(dto: any, user: any, id: string) {
+    const existing = await this.emiModel.findById(id);
+    if (!existing) throw new BadRequestException('Loan not found');
+    if (existing.couselorId.toString() !== user.userId && user.roleName !== 'admin') {
+      throw new BadRequestException('Not authorized to update this loan');
+    }
+    if (dto.firstEmi) {
+      existing.firstEmi = true;
+    } else if (dto.secondEmi) {
+      existing.secondEmi = true;
+    } else if (dto.thirdEmi) {
+      existing.thirdEmi = true;
+    }
+    await existing.save();
+    return existing;
   }
 
-  // 🔥 Determine which reminder to update
-  let updateField = '';
-  let emiDate: Date | null = null;
+  async sendReminder(id: string, body: any) {
+    const { reminderText, reminderNumber } = body;
+    const existing = await this.emiModel.findById(id);
+    if (!existing) throw new Error('Loan not found');
 
-  if (reminderNumber === 1) {
-    // if (existing.firstReminderSent) {
-    //   throw new Error('First reminder already sent');
-    // }
-    updateField = 'firstReminderSent';
-    emiDate = existing.firstEmiDate;
-  } 
-  else if (reminderNumber === 2) {
-    // if (existing.secondReminderSent) {
-    //   throw new Error('Second reminder already sent');
-    // }
-    updateField = 'secondReminderSent';
-    emiDate = existing.secondEmiDate;
-  } 
-  else if (reminderNumber === 3) {
-    // if (existing.thirdReminderSent) {
-    //   throw new Error('Third reminder already sent');
-    // }
-    updateField = 'thirdReminderSent';
-    emiDate = existing.thirdEmiDate;
-  } 
-  else {
-    throw new Error('Invalid reminder number');
+    if (existing.status === 'COMPLETED') {
+      throw new Error('Loan Completed');
+    }
+
+    // 🔥 Determine which reminder to update
+    let updateField = '';
+    let emiDate: Date | null = null;
+
+    if (reminderNumber === 1) {
+      // if (existing.firstReminderSent) {
+      //   throw new Error('First reminder already sent');
+      // }
+      updateField = 'firstReminderSent';
+      emiDate = existing.firstEmiDate;
+    }
+    else if (reminderNumber === 2) {
+      // if (existing.secondReminderSent) {
+      //   throw new Error('Second reminder already sent');
+      // }
+      updateField = 'secondReminderSent';
+      emiDate = existing.secondEmiDate;
+    }
+    else if (reminderNumber === 3) {
+      // if (existing.thirdReminderSent) {
+      //   throw new Error('Third reminder already sent');
+      // }
+      updateField = 'thirdReminderSent';
+      emiDate = existing.thirdEmiDate;
+    }
+    else {
+      throw new Error('Invalid reminder number');
+    }
+    await this.emailService.sendReminder(existing.email, reminderText);
+
+
+    // 🔥 Update reminder flag
+    existing[updateField] = true;
+
+    await existing.save();
+
+    return {
+      message: `Reminder ${reminderNumber} sent successfully`,
+      loanId: id,
+      emiDate,
+    };
   }
-  await this.emailService.sendReminder(existing.email, reminderText);
-
-
-  // 🔥 Update reminder flag
-  existing[updateField] = true;
-
-  await existing.save();
-
-  return {
-    message: `Reminder ${reminderNumber} sent successfully`,
-    loanId: id,
-    emiDate,
-  };
-}
 }

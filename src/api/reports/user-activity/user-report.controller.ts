@@ -15,8 +15,8 @@ export class UserReportController {
   constructor(private readonly reportService: UserReportService) {}
 
   @Get('user-activity-summary')
-//   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-//   @Roles('Admin', 'bd')
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles('Admin', 'bd')
   @RequirePermission(PERMISSIONS.REPORTS.MODULE, PERMISSIONS.REPORTS.ACTIONS.READ)
   @ApiOperation({ summary: 'Get user activity summary report across leads, calls, orders, and stage changes' })
   async userActivitySummary(@Query() query: UserActivityReportQueryDto) {
