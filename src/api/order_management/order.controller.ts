@@ -27,32 +27,32 @@ export class OrderController {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Post()
-     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.CREATE,
-                 )
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.CREATE,
+    )
     create(@Body() dto: CreateOrderDto, @Req() req) {
-        return this.service.createOrder(dto,req.user.userId);
+        return this.service.createOrder(dto, req.user.userId);
     }
 
-@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin', 'bd')
-@Get()
-@RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
-getAll(@Query() query: any, @Req() req) {
-  return this.service.findAll(query, req.user);
-}
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Get()
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
+    getAll(@Query() query: any, @Req() req) {
+        return this.service.findAll(query, req.user);
+    }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Get(':id')
-     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     getOne(@Param('id') id: string) {
         return this.service.findById(id);
     }
@@ -60,11 +60,11 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Patch(':id')
-     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.UPDATE,
-                 )
-    update(@Param('id') id: string, @Body() dto: UpdateOrderDto, @Req() req:any) {
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.UPDATE,
+    )
+    update(@Param('id') id: string, @Body() dto: UpdateOrderDto, @Req() req: any) {
         return this.service.update(id, dto, req.user.userId);
     }
 
@@ -78,10 +78,10 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Patch('approve/:id')
-     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.APPROVE,
-                 )
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.APPROVE,
+    )
     approve(
         @Param('id') id: string,
         @Req() req: any,
@@ -89,7 +89,7 @@ getAll(@Query() query: any, @Req() req) {
         const approvedBy = req.user.userId;
         return this.service.approveOrder(id, approvedBy);
     }
-    
+
     @UseGuards(JwtAuthGuard, RoleGuard)
     @Roles('Admin', 'bd')
     @Get('report/payment')
@@ -100,9 +100,9 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     @Get('report/consultant-performance')
     consultantPerformanceReport(@Query() query: any) {
         return this.service.consultantPerformanceReport(query);
@@ -111,21 +111,38 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     @ApiOperation({ summary: 'Get employee utilization report with lead assignment, dial metrics, PCAT, registration, and admission counts' })
     @Get('report/employee-pool-utilization')
     employeePoolUtilizationReport(@Query() query: any) {
         return this.service.employeePoolUtilizationReport(query);
     }
 
+    @Get('report/employee-stage-leads')
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+        PERMISSIONS.REPORTS.MODULE,
+        PERMISSIONS.REPORTS.ACTIONS.READ,
+    )
+    @ApiOperation({
+        summary: 'Get employee leads by stage',
+    })
+    employeeStageLeads(
+        @Query() query: any,
+    ) {
+        return this.service.employeeStageLeads(query);
+    }
+
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     @Get('report/source-campaign-wise-lead-revenue')
     @ApiOperation({ summary: 'Get source and campaign wise lead and revenue report' })
     sourceCampaignWiseLeadRevenueReport(@Query() query: any) {
@@ -135,9 +152,9 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     @Get('report/state-lead-stage-revenue')
     @ApiOperation({ summary: 'Get state and lead stage wise revenue report' })
     stateLeadStageRevenueReport(@Query() query: any) {
@@ -147,9 +164,9 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.READ,
-                 )
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
     @Get('report/employee-pool-revenue')
     @ApiOperation({ summary: 'Get employee pool revenue report grouped by month' })
     employeePoolRevenueReport(@Query() query: any) {
@@ -159,40 +176,40 @@ getAll(@Query() query: any, @Req() req) {
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Get('loan/loan-emi')
-     @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.LOANS,
-                 )
-    getAllEmi(@Req() req: any,@Query() query:any) {
-        return this.service.getAllEmi(query,req.user);
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.LOANS,
+    )
+    getAllEmi(@Req() req: any, @Query() query: any) {
+        return this.service.getAllEmi(query, req.user);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @Patch('loan/loan-emi/:id')
 
-    updateEnstallments(@Req() req: any,@Body() dto:any,@Param('id') id:string) {
-        return this.service.updateInstallments(dto,req.user,id);
+    updateEnstallments(@Req() req: any, @Body() dto: any, @Param('id') id: string) {
+        return this.service.updateInstallments(dto, req.user, id);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
-@Patch('loan/reminder/:id')
- @RequirePermission(
-                   PERMISSIONS.Orders.MODULE,
-                   PERMISSIONS.Orders.ACTIONS.SENDREMINDERS,
-                 )
-  sendReminder(@Param('id') id: string,@Body() dto: any) {
-    return this.service.sendReminder(id,dto);
-  }
+    @Patch('loan/reminder/:id')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.SENDREMINDERS,
+    )
+    sendReminder(@Param('id') id: string, @Body() dto: any) {
+        return this.service.sendReminder(id, dto);
+    }
 
     // @Get('subscription/:orderId')
     // getSubscription(@Param('orderId') orderId: string) {
     //     return this.subscriptionModel.findOne({ orderId });
     // }
 
-//     @Get('subscription/:orderId')
-// getSubscription(@Param('orderId') orderId: string) {
-//   return this.subscriptionModel.findOne({ orderId });
-// }
+    //     @Get('subscription/:orderId')
+    // getSubscription(@Param('orderId') orderId: string) {
+    //   return this.subscriptionModel.findOne({ orderId });
+    // }
 }

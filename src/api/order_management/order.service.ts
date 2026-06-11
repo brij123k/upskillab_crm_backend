@@ -15,7 +15,7 @@ import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { CallLog } from 'src/schema/call-log.schema';
 import { Role } from 'src/schema/role.schema';
-import { User } from 'src/schema/user.schema';
+import { User, UserStatus } from 'src/schema/user.schema';
 
 @Injectable()
 export class OrderService {
@@ -71,6 +71,8 @@ export class OrderService {
       },
       {
         $match: {
+          status: UserStatus.ACTIVE,
+          isBlocked: false,
           $or: [
             { role: { $in: roleIds } },
             { normalizedRoleId: { $in: roleIdStrings } },
@@ -956,6 +958,7 @@ export class OrderService {
                 onNull: null,
               },
             },
+            stageId: '$stage._id',
             stageName: { $ifNull: ['$stage.name', 'Unknown'] },
           },
           count: { $sum: 1 },
@@ -995,31 +998,59 @@ export class OrderService {
     });
 
 
-    const stageCountsByEmployee = new Map<string, Map<string, number>>();
+    const stageCountsByEmployee = new Map<
+      string,
+      Array<{
+        stageId: string;
+        stageName: string;
+        count: number;
+      }>
+    >();
     stageUpdates.forEach((item) => {
-      const employeeId = item._id.employeeId?.toString();
-      const stageName = item._id.stageName?.toString() || 'Unknown';
+      const employeeId =
+        item._id.employeeId?.toString();
+
       if (!employeeId) return;
 
       if (!stageCountsByEmployee.has(employeeId)) {
-        stageCountsByEmployee.set(employeeId, new Map<string, number>());
+        stageCountsByEmployee.set(employeeId, []);
       }
-      const existing = stageCountsByEmployee.get(employeeId)?.get(stageName.toLowerCase()) || 0;
-      stageCountsByEmployee.get(employeeId)?.set(stageName.toLowerCase(), existing + item.count);
+
+      stageCountsByEmployee.get(employeeId)?.push({
+        stageId: item._id.stageId?.toString(),
+        stageName: item._id.stageName,
+        count: item.count,
+      });
     });
 
-    const getStageCount = (employeeId: string, stageName: string) => {
-      return stageCountsByEmployee.get(employeeId)?.get(stageName.toLowerCase()) || 0;
+    const getStageCount = (
+      employeeId: string,
+      stageName: string,
+    ) => {
+      const stages =
+        stageCountsByEmployee.get(employeeId) || [];
+
+      const stage = stages.find(
+        (s) =>
+          s.stageName.toLowerCase() ===
+          stageName.toLowerCase(),
+      );
+
+      return stage?.count || 0;
     };
 
-    const sumMatchingStageCounts = (employeeId: string, patterns: RegExp[]) => {
-      const stages = stageCountsByEmployee.get(employeeId);
-      if (!stages) return 0;
+    const sumMatchingStageCounts = (
+      employeeId: string,
+      patterns: RegExp[],
+    ) => {
+      const stages =
+        stageCountsByEmployee.get(employeeId) || [];
 
-
-      return Array.from(stages.entries()).reduce((total, [stageName, count]) => {
-        return patterns.some((pattern) => pattern.test(stageName))
-          ? total + count
+      return stages.reduce((total, stage) => {
+        return patterns.some((pattern) =>
+          pattern.test(stage.stageName),
+        )
+          ? total + stage.count
           : total;
       }, 0);
     };
@@ -1092,9 +1123,8 @@ export class OrderService {
           'Admission Done',
         ),
 
-        allStages: Object.fromEntries(
-          stageCountsByEmployee.get(employeeId) || new Map(),
-        ),
+        allStages:
+          stageCountsByEmployee.get(employeeId) || [],
 
         employeeEmail: user?.email || null,
         employeeNumber: user?.number || null,
@@ -1106,6 +1136,144 @@ export class OrderService {
       startDate,
       endDate,
       employees,
+    };
+  }
+
+  async employeeStageLeads(query: any) {
+    const {
+      employeeId,
+      stageId,
+      startDate,
+      endDate,
+      page = 1,
+      limit = 20,
+    } = query;
+
+    if (!employeeId) {
+      throw new BadRequestException('employeeId is required');
+    }
+
+    if (!stageId) {
+      throw new BadRequestException('stageId is required');
+    }
+
+    const match: any = {
+      assignedTo: employeeId,
+      stageId: new Types.ObjectId(stageId),
+    };
+
+    if (startDate || endDate) {
+      match.assignedDate = {};
+
+      if (startDate) {
+        match.assignedDate.$gte = new Date(startDate);
+      }
+
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        match.assignedDate.$lte = end;
+      }
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const [data, total] = await Promise.all([
+      this.leadModel.aggregate([
+        {
+          $match: match,
+        },
+
+        {
+          $lookup: {
+            from: 'leadstages',
+            localField: 'stageId',
+            foreignField: '_id',
+            as: 'stage',
+          },
+        },
+
+        {
+          $unwind: {
+            path: '$stage',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $lookup: {
+            from: 'users',
+            let: {
+              assignedToId: {
+                $toObjectId: '$assignedTo',
+              },
+            },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $eq: ['$_id', '$$assignedToId'],
+                  },
+                },
+              },
+              {
+                $project: {
+                  _id: 1,
+                  name: 1,
+                  employeeId: 1,
+                  email: 1,
+                  number: 1,
+                },
+              },
+            ],
+            as: 'employee',
+          },
+        },
+        {
+          $unwind: {
+            path: '$employee',
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+
+        {
+          $project: {
+            _id: 1,
+            leadId: 1,
+            name: 1,
+            phone: 1,
+            email: 1,
+            source: 1,
+            assignedTo: 1,
+            stageName: '$stage.name',
+            employeeName: '$employee.name',
+            assignedDate: 1,
+          },
+        },
+
+        {
+          $sort: {
+            createdAt: -1,
+          },
+        },
+
+        {
+          $skip: skip,
+        },
+
+        {
+          $limit: Number(limit),
+        },
+      ]),
+
+      this.leadModel.countDocuments(match),
+    ]);
+
+    return {
+      total,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(total / Number(limit)),
+      data,
     };
   }
 
