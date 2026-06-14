@@ -935,6 +935,14 @@ await this.notificationEngine.handleEvent({
       updateData.assignedDate = new Date();
     }
 
+      if (
+    dto.stageId &&
+    dto.stageId !== existingLead.stageId?.toString()
+  ) {
+    updateData.stageChangedAt = new Date();
+  }
+
+
     const lead = await this.leadData.update(id, updateData);
     if (!lead) {
       throw new NotFoundException("Lead Not found")
@@ -964,18 +972,6 @@ await this.notificationEngine.handleEvent({
     return this.maskLeadResponse(lead, user);
   }
 
-  // async delete(id: string) {
-  //   const lead = await this.leadData.delete(id);
-  //   if (!lead) throw new NotFoundException('Lead not found');
-
-  //   await this.leadHistoryLogic.log({
-  //     leadId: id,
-  //     actionType: LeadActionType.DELETED,
-  //     actionBy: lead.modifiedBy,
-  //   });
-
-  //   return { message: 'Lead deleted successfully' };
-  // }
 
   async changeStatus(
     id: string,
@@ -1032,14 +1028,6 @@ await this.notificationEngine.handleEvent({
   }
 
 
-  /**
-   * Register a lead for the currently ongoing PCAT exam.
-   * Flow:
-   * 1. Fetch ongoing exam from external PCAT API
-   * 2. Fetch lead details by leadId
-   * 3. Call PCAT register API with examId + lead details
-   * 4. Update lead status to PCAT_REGISTERED and log history
-   */
   async registerForPcat(
     leadId: number,
     user: any,
@@ -1142,8 +1130,9 @@ await this.notificationEngine.handleEvent({
       stageId:new Types.ObjectId(stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
+      stageChangedAt:new Date(),
     });
-
+    
     if (!lead) {
       throw new NotFoundException("Lead Not found")
     }
@@ -1189,6 +1178,7 @@ await this.notificationEngine.handleEvent({
       stageId:new Types.ObjectId(stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
+      stageChangedAt:new Date(),
     });
 
     if (!lead) {
@@ -1287,19 +1277,17 @@ await this.notificationEngine.handleEvent({
       });
    
 
-    await this.userActivityLogic.log({
+
+   }
+       await this.userActivityLogic.log({
     userId: currentUserId,
     action: 'Lead_Assignment',
     referenceType: 'LEAD',
-    referenceId: lead?.leadId.toString(),
     meta: {
-      message:"Lead Stage changed",
-      fromUser: lead.assignedTo?.toString(),
-      toUser: assignedTo,
+      message:`${leads.length}Lead Assigned`,
 
     },
   });
-   }
      }
     if(assignedTo){
     await this.notificationEngine.handleEvent({
@@ -1327,6 +1315,90 @@ await this.notificationEngine.handleEvent({
       // modifiedCount: result.modifiedCount,
     };
   }
+
+    async assignPool(
+    dto: {
+      leadIds: string[];
+      poolId: string;
+    },
+    currentUserId: string,
+  ) {
+    const { leadIds, poolId } = dto;
+    if (!poolId) {
+      throw new BadRequestException('PoolId is required');
+    }
+    const poolExsist = await this.poolModel.findById(poolId);
+    if(!poolExsist){
+      throw new BadRequestException('Invalid PoolId');
+    }
+    const leads = await this.leadData.findByIds(leadIds);
+
+    if (!leads.length) {
+      throw new BadRequestException('No leads found');
+    }
+
+    let updatePayload: any = {
+      modifiedBy: currentUserId,
+      poolId: poolId,
+    };
+
+    // 🔹 Update leads
+    const result = await this.leadData.bulkUpdate(
+      leadIds,
+      updatePayload,
+    );
+
+    // 🔹 History
+    for (const lead of leads) {
+      if(!lead.poolId){
+      await this.leadHistoryLogic.log({
+        leadId: lead?.leadId.toString(),
+        actionType: LeadActionType.POOL_ADDED,
+        actionBy: currentUserId,
+        changes: {
+          to:poolExsist.name,
+        },
+      });      
+    }else{
+     const Ispool = await this.poolModel.findById(new Types.ObjectId(lead.poolId))
+      await this.leadHistoryLogic.log({
+        leadId: lead?.leadId.toString(),
+        actionType: LeadActionType.POOL_CHANGED,
+        actionBy: currentUserId,
+        changes: {
+          from :Ispool?.name,
+          to:poolExsist.name,
+        },
+      });
+    }
+    if(lead.assignedTo){
+    await this.notificationEngine.handleEvent({
+      event: NOTIFICATION_EVENT.LEAD_ASSIGNED,
+      actorId: currentUserId,
+      recipients: {
+        userIds: [lead.assignedTo.toString()],
+      },
+
+      title: 'Lead Pool Changed',
+      message: `LeadId #${lead.leadId} pool has been changed.`,
+      entity: {
+        type: NOTIFICATION_ENTITY.LEAD,
+        id: lead.assignedTo.toString(),
+      },
+
+      metadata: {
+        redirectUrl: `leads`,
+      },
+    });
+    }
+     }
+    return {
+      message: 'Pools updated successfully'
+      // modifiedCount: result.modifiedCount,
+    };
+  }
+
+
 
   async pullBackAndReassign(
     leadIds: string[],

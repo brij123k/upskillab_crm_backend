@@ -28,6 +28,7 @@ import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
+import { AssignPoolDto } from 'src/dto/lead-management/assign-pool.dto';
 
 @ApiTags('Leads')
 @Controller('leads')
@@ -57,18 +58,6 @@ export class LeadController {
     findAll(@Query() query: LeadFilterDto,@Req() req: any) {
         return this.logic.findAll(query,req.user);
     }
-
-    //     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
-    // @Roles('Admin', 'bd')
-    // @RequirePermission(
-    //   PERMISSIONS.LEAD.MODULE,
-    //   PERMISSIONS.LEAD.ACTIONS.READ,
-    // )
-    // @Get()
-    // @ApiOperation({ summary: 'Get all leads with filters & pagination' })
-    // findAllLead(@Req() req: any) {
-    //     return this.logic.findAll(req.user);
-    // }
 
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin', 'bd')
@@ -153,16 +142,6 @@ export class LeadController {
     ) {
         return this.logic.update(id, dto, req?.user);
     }
-
-    // @Delete(':id')
-    // @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
-    // @Roles('admin')
-    // @ApiOperation({ summary: 'Delete lead' })
-    // remove(@Param('id') id: string) {
-    //     return this.logic.delete(id);
-    // }
-
-
     
     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
@@ -214,6 +193,24 @@ export class LeadController {
         @CurrentUser() user: any,
     ) {
         return this.logic.assignLeads(dto, user.userId);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.ASSIGN,
+    )
+    @Patch('pool/assign')
+    @ApiOperation({
+        summary:
+            'Assign Pool to leads by leadIds, or both',
+    })
+    assignPoolLeads(
+        @Body() dto: AssignPoolDto,
+        @CurrentUser() user: any,
+    ) {
+        return this.logic.assignPool(dto, user.userId);
     }
 
 
@@ -284,14 +281,6 @@ export class LeadController {
 mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {
   return this.logic.mergeLeads(dto, req.user.userId);
 }
-
-
-    // @UseGuards(JwtAuthGuard)
-    // @Get('department/:departmentId')
-    // @ApiOperation({ summary: 'Get all leads by department' })
-    // getByDepartment(@Param('departmentId') departmentId: string) {
-    //     return this.logic.getLeadsByDepartment(departmentId);
-    // }
 
 
 }

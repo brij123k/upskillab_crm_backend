@@ -37,6 +37,7 @@ export class LeadData {
   async findAllWithFilters(filters: any) {
     const {
       search,
+      bulkSearch,
       status,
       source,
       source_compain,
@@ -61,6 +62,21 @@ export class LeadData {
     } = filters;
 
     const query: any = {};
+   if (bulkSearch) {
+  const values = bulkSearch
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+  const leadIds = values
+    .filter((v) => !isNaN(Number(v)))
+    .map(Number);
+
+  query.$or = [
+    { leadId: { $in: leadIds } },
+    { phone: { $in: values } },
+  ];
+}
     const sourceCampaign = source_campaign ?? source_compain;
 
     if (search) {
@@ -205,6 +221,7 @@ export class LeadData {
   async findAllWithFiltersUserIds(filters: any, userIds: string[], pool?: string,) {
     const {
       search,
+      bulkSearch,
       status,
       source,
       source_compain,
@@ -232,6 +249,21 @@ export class LeadData {
 
     // 🔐 Base query (access control)
     const query: any = {};
+    if (bulkSearch) {
+  const values = bulkSearch
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean);
+
+  const leadIds = values
+    .filter((v) => !isNaN(Number(v)))
+    .map(Number);
+
+  query.$or = [
+    { leadId: { $in: leadIds } },
+    { phone: { $in: values } },
+  ];
+}
     const sourceCampaign = source_campaign ?? source_compain;
 
     if (pool) {

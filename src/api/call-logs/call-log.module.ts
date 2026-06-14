@@ -15,11 +15,12 @@ import { Order, OrderSchema } from 'src/schema/order_Management/order.schema';
 import { Pool, PoolSchema } from 'src/schema/Pool.schema';
 import { User, UserSchema } from 'src/schema/user.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
-
+import {LeadInteractionLog,LeadInteractionLogSchema} from 'src/schema/lead-interaction-log.schema'
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: CallLog.name, schema: CallLogSchema },
+      { name: LeadInteractionLog.name, schema: LeadInteractionLogSchema },
       { name: CallLogReview.name, schema: CallLogReviewSchema },
       { name: Lead.name, schema: LeadSchema },
       {name:LeadStage.name, schema:LeadStageSchema},

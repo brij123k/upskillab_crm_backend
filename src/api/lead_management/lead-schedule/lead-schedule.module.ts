@@ -12,10 +12,15 @@ import { LeadScheduleLogic } from './lead-schedule.logic';
 import { LeadScheduleController } from './lead-schedule.controller';
 import { LeadScheduleCron } from './lead-schedule.cron';
 import { SocketModule } from 'src/api/socket/socket.module';
-import { Lead,LeadSchema } from 'src/schema/lead_management/lead.schema';
+import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { LeadHistoryModule } from '../lead-history/lead-history.module';
 import { UserModule } from 'src/api/user/user.module';
-
+import { LeadAutoAssignService } from './lead-auto-assign.service';
+import { User, UserSchema } from 'src/schema/user.schema';
+import {
+  LeadStage,
+  LeadStageSchema,
+} from 'src/schema/lead_management/lead-stage.schema';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -25,10 +30,8 @@ import { UserModule } from 'src/api/user/user.module';
         schema: LeadScheduleSchema,
       },
       { name: Lead.name, schema: LeadSchema },
-      {
-        name: Lead.name,
-        schema: LeadSchema,
-      },
+        { name: User.name, schema: UserSchema }, 
+        { name: LeadStage.name, schema: LeadStageSchema },
     ]),
     SocketModule,
     LeadHistoryModule,
@@ -39,7 +42,8 @@ import { UserModule } from 'src/api/user/user.module';
     LeadScheduleData,
     LeadScheduleLogic,
     LeadScheduleCron,
+    LeadAutoAssignService,
   ],
-  exports:[LeadScheduleData]
+  exports: [LeadScheduleData]
 })
-export class LeadScheduleModule {}
+export class LeadScheduleModule { }

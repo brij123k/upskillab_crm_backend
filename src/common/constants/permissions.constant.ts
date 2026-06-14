@@ -7,6 +7,7 @@ export const PERMISSIONS = {
       UPDATE: 'update',
       DELETE: 'delete',
       ASSIGN: 'assign',
+      POOLASSIGN:'pool_assign',
       STATUS_CHANGE: 'status_change',
       STAGE_CHANGE: 'stage_change',
       VIEW_HISTORY:'view_history'

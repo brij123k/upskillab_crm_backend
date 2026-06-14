@@ -20,6 +20,6 @@ export class LeadHistoryLogic {
   }
 
   getHistoryByLead(leadId: string) {
-    return this.historyData.findByLeadId(leadId).populate('meet_log');
+    return this.historyData.findByLeadId(leadId).populate('meet_log').populate('changes.stageId');
   }
 }

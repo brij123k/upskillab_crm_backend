@@ -30,6 +30,7 @@ import { LeaveModule } from './api/leaves/leave.module';
 import { SourceCampaignModule } from './api/source-campaigns/source-campaign.module';
 import { TargetsModule } from './api/targets/targets.module';
 import { UserReportModule } from './api/reports/user-activity/user-report.module';
+import { ProfileUploadModule } from './api/file-uploader/file-uploader.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -63,6 +64,7 @@ ConfigModule.forRoot({
     SourceCampaignModule,
     TargetsModule,
     UserReportModule,
+    ProfileUploadModule,
   ],
   controllers: [AppController],
   providers: [AppService],

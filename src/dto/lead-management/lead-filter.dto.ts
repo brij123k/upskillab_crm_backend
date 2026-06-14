@@ -14,6 +14,11 @@ export class LeadFilterDto {
   @IsString()
   search?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+bulkSearch?: string;
+
   @ApiPropertyOptional({ enum: LeadStatus })
   @IsOptional()
   @IsEnum(LeadStatus)

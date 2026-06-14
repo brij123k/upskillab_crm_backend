@@ -44,7 +44,7 @@ export class UserLogic {
     private readonly profileLogic: ProfileLogic,
     private readonly profileData: ProfileData,
     private readonly userActivityLogic: UserActivityLogic,
-    private readonly smartfloService:SmartfloService,
+    private readonly smartfloService: SmartfloService,
     private readonly userLogLogic: UserLogLogic,
     private readonly attendanceLogic: AttendanceLogic,
   ) { }
@@ -81,7 +81,7 @@ export class UserLogic {
 
     // 2️⃣ Generate unique employeeId
     const employeeId = await this.generateUniqueEmployeeId();
-    const rowPassword= dto.password;
+    const rowPassword = dto.password;
     // 3️⃣ Hash password
     dto.password = await bcrypt.hash(dto.password, 10);
 
@@ -123,10 +123,10 @@ export class UserLogic {
         throw new UnauthorizedException("You don't have Dashboard Access");
       }
 
-    // ✅ Update last login
-    await this.userData.update(user._id, {
-      lastLoginAt: new Date(),
-    });
+      // ✅ Update last login
+      await this.userData.update(user._id, {
+        lastLoginAt: new Date(),
+      });
       await this.userActivityLogic.log({
         userId: user._id.toString(),
         action: 'USER_LOGIN',
@@ -136,60 +136,60 @@ export class UserLogic {
       });
       await this.attendanceLogic.recordLogin(user._id.toString(), new Date());
 
-    const role = user.role as any;
+      const role = user.role as any;
 
-    // 1️⃣ Role permissions
-    let finalPermissions: {
-      module: string;
-      actions: string[];
-    }[] = role?.permissions || [];
+      // 1️⃣ Role permissions
+      let finalPermissions: {
+        module: string;
+        actions: string[];
+      }[] = role?.permissions || [];
 
-    // 2️⃣ Profile extra permissions (optional)
-    const profile = await this.profileData.findByUserId(user._id.toString());
+      // 2️⃣ Profile extra permissions (optional)
+      const profile = await this.profileData.findByUserId(user._id.toString());
 
-    if (profile?.extraAccessControls?.length) {
-      for (const extra of profile.extraAccessControls) {
-        const existing = finalPermissions.find(
-          (p) => p.module === extra.module,
-        );
-
-        if (existing) {
-          existing.actions = Array.from(
-            new Set([...existing.actions, ...extra.actions]),
+      if (profile?.extraAccessControls?.length) {
+        for (const extra of profile.extraAccessControls) {
+          const existing = finalPermissions.find(
+            (p) => p.module === extra.module,
           );
-        } else {
-          finalPermissions.push({
-            module: extra.module,
-            actions: [...extra.actions],
-          });
+
+          if (existing) {
+            existing.actions = Array.from(
+              new Set([...existing.actions, ...extra.actions]),
+            );
+          } else {
+            finalPermissions.push({
+              module: extra.module,
+              actions: [...extra.actions],
+            });
+          }
         }
       }
-    }
 
-    // 3️⃣ Super Admin → allow everything
-    if (role?.isSuperAdmin) {
-      finalPermissions = [{ module: '*', actions: ['*'] }];
-    }
+      // 3️⃣ Super Admin → allow everything
+      if (role?.isSuperAdmin) {
+        finalPermissions = [{ module: '*', actions: ['*'] }];
+      }
 
-    /* -------------------------------------------------
-       🔐 JWT PAYLOAD
-    --------------------------------------------------*/
-    const payload = {
-      userId: user._id,
-      name: user.name,
-      number: user.number,
-      email: user.email,
-      roleId: role._id,
-      roleRealName: role.name,
-      roleLevel: role.level ?? 1,
-      roleName: (role.name === 'Admin' || role.name === 'hr')
-        ? role.name
-        : 'bd',
-      isSuperAdmin: role.isSuperAdmin,
-      permissions: finalPermissions,
-      status: user.status,
-      isDashboardEnabled: user.isDashboardEnabled,
-    };
+      /* -------------------------------------------------
+         🔐 JWT PAYLOAD
+      --------------------------------------------------*/
+      const payload = {
+        userId: user._id,
+        name: user.name,
+        number: user.number,
+        email: user.email,
+        roleId: role._id,
+        roleRealName: role.name,
+        roleLevel: role.level ?? 1,
+        roleName: (role.name === 'Admin' || role.name === 'hr')
+          ? role.name
+          : 'bd',
+        isSuperAdmin: role.isSuperAdmin,
+        permissions: finalPermissions,
+        status: user.status,
+        isDashboardEnabled: user.isDashboardEnabled,
+      };
 
       const access_token = this.jwtService.sign(payload);
 
@@ -222,8 +222,8 @@ export class UserLogic {
             level: role.level ?? 1,
             isSuperAdmin: role.isSuperAdmin,
           },
-          CallerIds:user.CallerIds,
-          IVREnabled:user.IVREnabled,
+          CallerIds: user.CallerIds,
+          IVREnabled: user.IVREnabled,
           permissions: finalPermissions,
           isBlocked: user.isBlocked,
           lastLoginAt: user.lastLoginAt,
@@ -422,9 +422,9 @@ export class UserLogic {
     const updatedUser = await this.userData.update(userId, {
       isDashboardEnabled: true,
     });
-      const poolIds = dto.poolIds?.length
-    ? dto.poolIds.map((id) => new Types.ObjectId(id))
-    : [];
+    const poolIds = dto.poolIds?.length
+      ? dto.poolIds.map((id) => new Types.ObjectId(id))
+      : [];
     // 2️⃣ Create profile with admin-provided data
     await this.profileLogic.createProfile({
       userId,
@@ -434,6 +434,10 @@ export class UserLogic {
       salary: dto.salary,
       extraAccessControls: dto.extraAccessControls,
       profileImage: dto.profileImage,
+      address:dto.address,
+      bankDetails:dto.bankDetails,
+      educationalDetails:dto.educationalDetails,
+      documents:dto.documents,
       poolIds
     });
     await this.emailService.dashboardUpdate(user.email, user.employeeId);
@@ -463,15 +467,15 @@ export class UserLogic {
     }
     const users = await this.getUsersUnder(user, status);
     const userIds = users.map((u) => u._id);
-    
+
     const profiles =
-    await this.profileLogic.getProfilesByUserIds(userIds);
+      await this.profileLogic.getProfilesByUserIds(userIds);
 
     const profileMap = new Map(
       profiles.map((p) => [p.userId.toString(), p]),
     );
-    
-    const res= users.map((user) => ({
+
+    const res = users.map((user) => ({
       ...user,
       profile: profileMap.get(user._id.toString()) || null,
     }));
@@ -505,7 +509,7 @@ export class UserLogic {
        2️⃣ UPDATE / CREATE PROFILE
     ------------------------------*/
     const profilePayload: any = {};
-    
+
     if (dto.departmentId)
       profilePayload.departmentId = new Types.ObjectId(dto.departmentId);
     if (dto.reportingSeniorId)
@@ -520,11 +524,22 @@ export class UserLogic {
       profilePayload.extraAccessControls =
         dto.extraAccessControls;
     if (dto.poolIds) {
-        const poolIds = dto.poolIds?.length
-    ? dto.poolIds.map((id) => new Types.ObjectId(id))
-    : [];
+      const poolIds = dto.poolIds?.length
+        ? dto.poolIds.map((id) => new Types.ObjectId(id))
+        : [];
       profilePayload.poolIds = poolIds
     }
+    if (dto.address)
+      profilePayload.address = dto.address;
+
+    if (dto.bankDetails)
+      profilePayload.bankDetails = dto.bankDetails;
+
+    if (dto.educationalDetails)
+      profilePayload.educationalDetails = dto.educationalDetails;
+
+    if (dto.documents)
+      profilePayload.documents = dto.documents;
 
     let profile = await this.profileData.findByUserId(
       userId,
@@ -554,7 +569,7 @@ export class UserLogic {
 
 
   async getUsersUnder(user: any, status?: string | string[]) {
-    if(user.roleName.toLowerCase() == "admin"){
+    if (user.roleName.toLowerCase() == "admin") {
       return this.userData.getAllUsers(status);
     }
     const userId = user._id || user.userId;
@@ -651,25 +666,25 @@ export class UserLogic {
   async findbyEmpId(empId: number) {
     return this.userData.findbyEmpId(empId)
   }
- async findById(id: string) {
+  async findById(id: string) {
     return this.userData.findById(id);
   }
   async getUserByDepartmentId(departmentId: string, status?: string | string[]) {
     return this.profileData.getBydepId(departmentId, status)
   }
 
- async createIVRUser(dto:any){
-  const user = await this.smartfloService.createIVRUser({
-  name: dto.name,
-  phone: dto.phone,
-  email: dto.email,
-  login_id:dto.login_id,
-  password:dto.password,
-  caller_ids:dto.caller_ids
-});
-await this.userData.update(new Types.ObjectId(dto.UserId),{IVREnabled:true,CallerIds:dto.caller_ids})
-return user
- }
+  async createIVRUser(dto: any) {
+    const user = await this.smartfloService.createIVRUser({
+      name: dto.name,
+      phone: dto.phone,
+      email: dto.email,
+      login_id: dto.login_id,
+      password: dto.password,
+      caller_ids: dto.caller_ids
+    });
+    await this.userData.update(new Types.ObjectId(dto.UserId), { IVREnabled: true, CallerIds: dto.caller_ids })
+    return user
+  }
 
- 
+
 }

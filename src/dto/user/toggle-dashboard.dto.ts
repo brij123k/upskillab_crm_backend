@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsMongoId, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsMongoId, IsOptional, IsString,IsObject } from 'class-validator';
 
 export class ToggleDashboardDto {
   @ApiPropertyOptional({
@@ -49,4 +49,57 @@ export class ToggleDashboardDto {
   @ApiPropertyOptional()
   @IsOptional()
   profileImage?: string;
+
+  @ApiPropertyOptional({
+          example: "add address",
+        })
+        @IsOptional()
+       @IsObject()
+        address?: {
+        addressLine1?: string;
+        addressLine2?: string;
+        city?: string;
+        state?: string;
+        country?: string;
+        pincode?: string;
+      };
+         @ApiPropertyOptional({
+          example: "add bank Detail",
+        })
+        @IsOptional()
+        @IsObject()
+      bankDetails?: {
+        accountHolderName?: string;
+        bankName?: string;
+        accountNumber?: string;
+        ifscCode?: string;
+        branchName?: string;
+        accountType?: string;
+      };
+      
+       @ApiPropertyOptional({
+          example: "add Education",
+        })
+        @IsOptional()
+        @IsArray()
+      educationalDetails?: {
+        qualification?: string;
+        instituteName?: string;
+        boardOrUniversity?: string;
+        passingYear?: number;
+        percentageOrCGPA?: string;
+      }[];
+      
+       @ApiPropertyOptional({
+          example: "add documeny",
+        })
+        @IsOptional()
+        @IsObject()
+      documents?: {
+        aadhaarFront?: string;
+        aadhaarBack?: string;
+        panCard?: string;
+        educationalCertificates?: string[];
+      };
+
 }

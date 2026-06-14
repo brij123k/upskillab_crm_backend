@@ -318,9 +318,9 @@ async getByLead(leadId: number, user: any) {
       accessibleUserIds,
     );
   }else{
-  const result = await this.callLogData.findCallLogWithPagination(
+  const result = await this.callLogData.findAllWithUserIds(
     normalizedFilter,
-    userId,
+    [userId],
   );
   return result
   }

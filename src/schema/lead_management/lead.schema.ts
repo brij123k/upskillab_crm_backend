@@ -54,6 +54,9 @@ export class Lead extends Document {
   @Prop({ type: Types.ObjectId, ref: 'LeadStage', required: true })
   stageId: Types.ObjectId;
 
+  @Prop()
+  stageChangedAt?: Date;
+
   @Prop({ type: Types.ObjectId, ref: 'Pool', required: true })
   poolId: Types.ObjectId;
 
