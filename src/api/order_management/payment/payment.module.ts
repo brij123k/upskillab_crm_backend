@@ -10,7 +10,7 @@ import { Order, OrderSchema } from 'src/schema/order_Management/order.schema';
 import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { UserModule } from 'src/api/user/user.module';
 import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
-
+import { LeadStage,LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -19,6 +19,7 @@ import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
           { name: Payment.name, schema: PaymentSchema },
           { name: Order.name, schema: OrderSchema },
           { name: Lead.name, schema: LeadSchema },
+          { name: LeadStage.name, schema: LeadStageSchema },
         ])
         ,OrderModule,
         UserModule,

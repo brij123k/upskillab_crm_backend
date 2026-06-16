@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, InternalServerError
 import axios from 'axios';
 import { LeadData } from './lead.data';
 import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
-import { CreateLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
+import { CreateLeadDto,UpskillabLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
 import { LeadHistoryLogic } from '../lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { ProfileData } from 'src/api/profile/profile.data';
@@ -20,6 +20,7 @@ import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
 import { User } from 'src/schema/user.schema';
 import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
+import { MaskSetting } from 'src/schema/mask.schema';
 
 @Injectable()
 export class LeadLogic {
@@ -30,6 +31,9 @@ export class LeadLogic {
     private readonly userLogic: UserLogic,
     @InjectModel(CallLog.name)
     private readonly callLogModel: Model<CallLog>,
+
+     @InjectModel(MaskSetting.name)
+    private readonly maskSettingModel: Model<MaskSetting>,
 
     @InjectModel(LeadStage.name)
     private readonly leadStageModel: Model<LeadStage>,
@@ -83,48 +87,64 @@ export class LeadLogic {
     return `${localPart[0]}${'*'.repeat(localPart.length - 2)}${localPart[localPart.length - 1]}@${domain}`;
   }
 
-  private maskLeadPayload(payload: any): any {
-    if (Array.isArray(payload)) {
-      return payload.map((item) => this.maskLeadPayload(item));
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      return payload;
-    }
-
-    const plain =
-      typeof payload.toObject === 'function' ? payload.toObject() : { ...payload };
-
-    if (plain.phone) {
-      plain.phone = plain.phone;
-      // plain.phone = this.maskPhone(plain.phone);
-    }
-
-    if (plain.email) {
-      plain.email = this.maskEmail(plain.email);
-    }
-
-    if (Array.isArray(plain.data)) {
-      plain.data = plain.data.map((item: any) => this.maskLeadPayload(item));
-    }
-
-    if (plain.lead) {
-      plain.lead = this.maskLeadPayload(plain.lead);
-    }
-
-    if (Array.isArray(plain.leads)) {
-      plain.leads = plain.leads.map((item: any) => this.maskLeadPayload(item));
-    }
-
-    return plain;
+  private maskLeadPayload(
+  payload: any,
+  settings: {
+    emailMask: boolean;
+    phoneMask: boolean;
+  },
+): any {
+  if (Array.isArray(payload)) {
+    return payload.map((item) =>
+      this.maskLeadPayload(item, settings),
+    );
   }
 
-  private maskLeadResponse<T>(payload: T, user?: any): T {
+  if (!payload || typeof payload !== 'object') {
+    return payload;
+  }
+
+  const plain =
+    typeof payload.toObject === 'function'
+      ? payload.toObject()
+      : { ...payload };
+
+  if (plain.phone && settings.phoneMask) {
+    plain.phone = this.maskPhone(plain.phone);
+  }
+
+  if (plain.email && settings.emailMask) {
+    plain.email = this.maskEmail(plain.email);
+  }
+
+  if (Array.isArray(plain.data)) {
+    plain.data = plain.data.map((item: any) =>
+      this.maskLeadPayload(item, settings),
+    );
+  }
+
+  if (plain.lead) {
+    plain.lead = this.maskLeadPayload(
+      plain.lead,
+      settings,
+    );
+  }
+
+  if (Array.isArray(plain.leads)) {
+    plain.leads = plain.leads.map((item: any) =>
+      this.maskLeadPayload(item, settings),
+    );
+  }
+
+  return plain;
+}
+
+  private async  maskLeadResponse<T>(payload: T, user?: any):  Promise<T> {
     if (this.canViewLeadDetails(user)) {
       return payload;
     }
-
-    return this.maskLeadPayload(payload);
+    const settings = await this.getSettings()
+    return this.maskLeadPayload(payload,settings);
   }
 
   private resolveLevel(level: any): number | null {
@@ -260,8 +280,33 @@ await this.notificationEngine.handleEvent({
     return this.maskLeadResponse(lead, user);
   }
 
+    async createByUpskillab(dto: UpskillabLeadDto) {
+    const getAdmin = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
+    const NewLead = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');
+    const assignedTo =  getAdmin?._id?getAdmin._id:"";
+    const lead = await this.leadData.create({
+      ...dto,
+      stageId:new Types.ObjectId(NewLead?._id),
+      assignedTo,
+      source:"webiste",
+      source_campaign:"enquiry form",
+      assignedDate: dto.assignedDate ? new Date(dto.assignedDate) : new Date(),
+      modifiedAt: new Date(),
+    });
+
+    await this.leadHistoryLogic.log({
+      leadId: lead?.leadId.toString(),
+      actionType: LeadActionType.CREATED,
+      actionBy: "",
+      changes: {
+        dto,
+        message:"Lead Added from Upskillab"
+      },
+    });
+    return {"message":"Lead Added succefully"};
+  }
+
   async findAll(filters: any, user: any) {
-    // 🔥 Admin → see everything
     if (user.isSuperAdmin) {
       return this.maskLeadResponse(await this.leadData.findAllWithFilters(filters), user);
     }
@@ -1562,4 +1607,30 @@ await this.userActivityLogic.log({
       mergedCount: duplicateLeadIds.length,
     };
   }
+
+async getSettings() {
+  let settings = await this.maskSettingModel.findOne();
+
+  if (!settings) {
+    settings = await this.maskSettingModel.create({
+      emailMask: true,
+      phoneMask: true,
+    });
+  }
+
+  return settings;
+}
+
+async updateSettings(dto: any) {
+  let settings = await this.maskSettingModel.findOne();
+
+  if (!settings) {
+    settings = await this.maskSettingModel.create(dto);
+  } else {
+    Object.assign(settings, dto);
+    await settings.save();
+  }
+
+  return settings;
+}
 }

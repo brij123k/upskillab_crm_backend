@@ -26,6 +26,9 @@ import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
+import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
+
+
 export class CreatePlanDto {
   amount: number;
   interval: number; // number of cycles (months)
@@ -45,31 +48,32 @@ export class PaymentController {
     @InjectModel(Lead.name)
     private leadModel: Model<Lead>,
     private readonly userActivityLogic: UserActivityLogic,
-    
+    @InjectModel(LeadStage.name)
+    private readonly leadStageModel: Model<LeadStage>,
+
   ) { }
 
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
   @Roles('Admin', 'bd')
   @Post('create-link')
   @RequirePermission(
-                     PERMISSIONS.Orders.MODULE,
-                     PERMISSIONS.Orders.ACTIONS.PAYMENTLINKGENERATOR,
-                   )
-  async createPaymentLink(@Body() body: any,@Req() req:any) {
-    return this.paymentService.createPaymentLink(body,req.user.userId);
+    PERMISSIONS.Orders.MODULE,
+    PERMISSIONS.Orders.ACTIONS.PAYMENTLINKGENERATOR,
+  )
+  async createPaymentLink(@Body() body: any, @Req() req: any) {
+    return this.paymentService.createPaymentLink(body, req.user.userId);
   }
 
   @Post('webhook')
   async webhook(@Body() body: any) {
     try {
-      
       console.log('Webhook data:', body);
       // ================= PAYMENT LINK EVENT =================
       if (body?.type === 'PAYMENT_LINK_EVENT') {
         const data = body?.data;
 
         const orderId =
-          data?.link_notes?.orderId || 
+          data?.link_notes?.orderId ||
           data?.order?.order_id;
         // const orderId = body?.data?.order?.order_tags?.orderId;
 
@@ -97,7 +101,7 @@ export class PaymentController {
           cf_link_id: data?.cf_link_id,
           link_id: data?.link_id,
           link_status: data?.link_status,
-          link_amount:data?.link_amount ? Number(data?.link_amount) : undefined,
+          link_amount: data?.link_amount ? Number(data?.link_amount) : undefined,
           link_amount_paid: data?.link_amount_paid ? Number(data?.link_amount_paid) : undefined,
           link_currency: data?.link_currency,
           link_purpose: data?.link_purpose,
@@ -123,7 +127,6 @@ export class PaymentController {
           event_time: body?.event_time,
         });
         console.log('Payment record created for link event.', data?.order?.transaction_status);
-
         // ================= APPLY PAYMENT =================
         if (data?.order?.transaction_status === 'SUCCESS' && orderId) {
           console.log('Applying payment to Order ID:', orderId);
@@ -131,18 +134,40 @@ export class PaymentController {
             orderId,
             Number(data?.order?.order_amount),
           );
+          const paymentCount = await this.paymentModel.countDocuments({
+            orderRef: order._id,
+            transaction_status: 'SUCCESS',
+          });
+
+          if (paymentCount === 1 && leadId) {
+            const registrationStage =
+              await this.leadStageModel.findOne({
+                name: 'Registration Done',
+              });
+
+            if (registrationStage) {
+              await this.leadModel.updateOne(
+                { _id: leadId },
+                {
+                  $set: {
+                    stageId: registrationStage._id,
+                  },
+                },
+              );
+            }
+          }
         }
         await this.userActivityLogic.log({
-              userId: counsellorId,
-              action: 'Payment updated',
-              referenceType: 'Payment',
-              referenceId: orderId?.toString(),
-              meta: {
-                message:"Payment updated from webhook",
-                transaction_status: data?.order?.transaction_status,
-                order_amount: data?.order?.order_amount ? Number(data?.order?.order_amount) : undefined,
-              },
-            });
+          userId: counsellorId,
+          action: 'Payment updated',
+          referenceType: 'Payment',
+          referenceId: orderId?.toString(),
+          meta: {
+            message: "Payment updated from webhook",
+            transaction_status: data?.order?.transaction_status,
+            order_amount: data?.order?.order_amount ? Number(data?.order?.order_amount) : undefined,
+          },
+        });
 
         return { message: 'Payment link event stored' };
       }
@@ -190,20 +215,20 @@ export class PaymentController {
   @Roles('Admin', 'bd')
   @Get()
   @RequirePermission(
-                     PERMISSIONS.Orders.MODULE,
-                     PERMISSIONS.Orders.ACTIONS.READPAYMENTHISTORY,
-                   )
-  getAllPayments(@Query() query: any,@Req() req:any) {
-    return this.paymentService.getAllPayments(query,req.user);
+    PERMISSIONS.Orders.MODULE,
+    PERMISSIONS.Orders.ACTIONS.READPAYMENTHISTORY,
+  )
+  getAllPayments(@Query() query: any, @Req() req: any) {
+    return this.paymentService.getAllPayments(query, req.user);
   }
 
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
   @Roles('Admin', 'bd')
   @Get('by-order-id/:id')
   @RequirePermission(
-                     PERMISSIONS.Orders.MODULE,
-                     PERMISSIONS.Orders.ACTIONS.READPAYMENTHISTORY,
-                   )
+    PERMISSIONS.Orders.MODULE,
+    PERMISSIONS.Orders.ACTIONS.READPAYMENTHISTORY,
+  )
   getAllPaymentsbyOrderId(@Param('id') orderId: string) {
     return this.paymentService.getPaymentById(orderId);
   }

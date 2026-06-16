@@ -6,6 +6,9 @@ export class Pool extends Document {
   @Prop({ required: true, unique: true })
   name: string;
 
+   @Prop({ required: true, unique: true })
+  shortName: string;
+
   @Prop({required:false})
   revenue_percentage:string;
 

@@ -6,6 +6,9 @@ export class CreatePoolDto {
   name: string;
 
   @IsString()
+  shortName:string;
+
+  @IsString()
   revenue_percentage:string;
 
   @IsBoolean()

@@ -3,6 +3,7 @@ import { Document, Types } from 'mongoose';
 
 export enum LeadSource {
   FACEBOOK = 'facebook',
+  WEBSITE = 'website',
   GOOGLE = 'google',
   MANUAL = 'manual',
   POSITIVE = 'positive',

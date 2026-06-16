@@ -206,9 +206,50 @@ export class LeadData {
 
       this.leadModel.countDocuments(query),
     ]);
+    const leadIds = data.map((lead) => lead.leadId);
+    const lastCalls = await this.callLogModel.aggregate([
+  {
+    $match: {
+      leadId: { $in: leadIds },
+    },
+  },
+  {
+    $sort: {
+      createdAt: -1,
+    },
+  },
+  {
+    $group: {
+      _id: '$leadId',
+      lastCallDate: { $first: '$createdAt' },
+      lastCallId: { $first: '$_id' },
+      duration: { $first: '$duration' },
+      outcome: { $first: '$outcome' },
+    },
+  },
+]);
+const callMap = new Map(
+  lastCalls.map((call) => [
+    call._id,
+    {
+      lastCallDate: call.lastCallDate,
+      duration: call.duration,
+      outcome: call.outcome,
+    },
+  ]),
+);
+const leadsWithCallInfo = data.map((lead: any) => {
+  const callInfo = callMap.get(lead.leadId);
 
+  return {
+    ...lead.toObject(),
+    lastCallDate: callInfo?.lastCallDate || null,
+    lastCallDuration: callInfo?.duration || null,
+    lastCallOutcome: callInfo?.outcome || null,
+  };
+});
     return {
-      data,
+      data:leadsWithCallInfo,
       meta: {
         total,
         page: Number(page),
@@ -428,15 +469,59 @@ export class LeadData {
       this.leadModel.countDocuments(query),
     ]);
 
+    const leadIds = data.map((lead) => lead.leadId);
+    const lastCalls = await this.callLogModel.aggregate([
+  {
+    $match: {
+      leadId: { $in: leadIds },
+    },
+  },
+  {
+    $sort: {
+      createdAt: -1,
+    },
+  },
+  {
+    $group: {
+      _id: '$leadId',
+      lastCallDate: { $first: '$createdAt' },
+      lastCallId: { $first: '$_id' },
+      duration: { $first: '$duration' },
+      outcome: { $first: '$outcome' },
+    },
+  },
+]);
+
+const callMap = new Map(
+  lastCalls.map((call) => [
+    call._id,
+    {
+      lastCallDate: call.lastCallDate,
+      duration: call.duration,
+      outcome: call.outcome,
+    },
+  ]),
+);
+
+const leadsWithCallInfo = data.map((lead: any) => {
+  const callInfo = callMap.get(lead.leadId);
+
+  return {
+    ...lead.toObject(),
+    lastCallDate: callInfo?.lastCallDate || null,
+    lastCallDuration: callInfo?.duration || null,
+    lastCallOutcome: callInfo?.outcome || null,
+  };
+});
     return {
-      data,
-      meta: {
-        total,
-        page: Number(page),
-        limit: Number(limit),
-        totalPages: Math.ceil(total / limit),
-      },
-    };
+  data: leadsWithCallInfo,
+  meta: {
+    total,
+    page: Number(page),
+    limit: Number(limit),
+    totalPages: Math.ceil(total / limit),
+  },
+};
   }
 
 

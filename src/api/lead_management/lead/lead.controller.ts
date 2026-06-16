@@ -19,7 +19,7 @@ import { LeadLogic } from './lead.logic';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
-import { CreateLeadDto, UpdateLeadDto, ChangeLeadStatusDto, ChangeLeadStageDto } from 'src/dto/lead-management/lead.dto';
+import { CreateLeadDto,UpskillabLeadDto, UpdateLeadDto, ChangeLeadStatusDto, ChangeLeadStageDto } from 'src/dto/lead-management/lead.dto';
 import { AssignLeadDto } from 'src/dto/lead-management/assign-lead.dto';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ReassignLeadDto } from 'src/dto/lead-management/reassign-lead.dto';
@@ -47,6 +47,11 @@ export class LeadController {
         return this.logic.create(dto, req?.user);
     }
 
+    @Post("upskillab")
+    @ApiOperation({ summary: 'Add Lead from Upskill' })
+    createByUpskillab(@Body() dto: UpskillabLeadDto) {
+        return this.logic.createByUpskillab(dto);
+    }
     @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
@@ -282,5 +287,15 @@ mergeLeads(@Body() dto: MergeLeadsDTO, @Req() req) {
   return this.logic.mergeLeads(dto, req.user.userId);
 }
 
+@Get()
+getSettings() {
+  return this.logic.getSettings();
+}
 
+@Patch()
+updateSettings(
+  @Body() dto: any,
+) {
+  return this.logic.updateSettings(dto);
+}
 }

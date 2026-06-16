@@ -17,6 +17,7 @@ import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
 import { Pool, PoolSchema } from 'src/schema/Pool.schema';
 import { User, UserSchema } from 'src/schema/user.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
+import { MaskSetting,MaskSettingSchema } from 'src/schema/mask.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -27,6 +28,7 @@ import { Role, RoleSchema } from 'src/schema/role.schema';
       { name: Pool.name, schema: PoolSchema },
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
+      { name: MaskSetting.name, schema: MaskSettingSchema },
     ]),
     LeadHistoryModule,
     ProfileModule,

@@ -77,6 +77,62 @@ export class CreateLeadDto {
   @IsOptional()
   createdAt:Date;
 }
+
+export class UpskillabLeadDto {
+  @ApiProperty()
+  @IsString()
+  name: string;
+
+  @ApiProperty()
+  @IsString()
+  phone: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  email?: string;
+
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  assignedTo?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsDateString()
+  assignedDate?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  reason:string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsMongoId()
+  stageId: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsMongoId()
+  poolId: string;
+
+  @ApiProperty()
+  @IsOptional()
+  LeadHistory:string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  healthScore?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  source_campaign?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  createdAt:Date;
+}
 export class UpdateLeadDto extends PartialType(CreateLeadDto) {}
 
 export class ChangeLeadStatusDto {
