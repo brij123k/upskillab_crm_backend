@@ -12,13 +12,20 @@ export class RoleData {
     return this.roleModel.create(data);
   }
 
-  findAll() {
-    return this.roleModel.find().sort({ level: -1, name: 1 });
-  }
+findAll() {
+  return this.roleModel
+    .find()
+    .populate('levelId', 'name')
+    .populate('reportingRole', 'name')
+    .sort({ name: 1 });
+}
 
-  findById(id: string) {
-    return this.roleModel.findById(id);
-  }
+findById(id: string) {
+  return this.roleModel
+    .findById(id)
+    .populate('levelId', 'name')
+    .populate('reportingRole', 'name');
+}
 
   update(id: string, data: any) {
     return this.roleModel.findByIdAndUpdate(id, data, { new: true });

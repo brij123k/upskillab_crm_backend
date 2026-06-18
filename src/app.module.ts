@@ -31,6 +31,7 @@ import { SourceCampaignModule } from './api/source-campaigns/source-campaign.mod
 import { TargetsModule } from './api/targets/targets.module';
 import { UserReportModule } from './api/reports/user-activity/user-report.module';
 import { ProfileUploadModule } from './api/file-uploader/file-uploader.module';
+import {LevelModule} from './api/level/level.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -65,6 +66,7 @@ ConfigModule.forRoot({
     TargetsModule,
     UserReportModule,
     ProfileUploadModule,
+    LevelModule,
   ],
   controllers: [AppController],
   providers: [AppService],
