@@ -118,7 +118,39 @@ export class LeadController {
     poolWiseDataReport(@Query() query: any) {
         return this.logic.poolWiseDataReport(query);
     }
-  
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAD.MODULE,
+  PERMISSIONS.LEAD.ACTIONS.READ,
+)
+@Get('report/state-wise')
+stateWiseReport(
+  @Query() query: any,
+  @Req() req: any,
+) {
+  return this.logic.stateWiseReport(query, req.user);
+}
+
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAD.MODULE,
+  PERMISSIONS.LEAD.ACTIONS.READ,
+)
+@Get('report/state-wise-employee')
+stateWiseEmployeeReport(
+  @Query() query: any,
+  @Req() req: any,
+) {
+  return this.logic.stateWiseEmployeeReport(
+    query,
+    req.user,
+  );
+}
+
   @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
   @Roles('Admin', 'bd')
   @Get(':id')

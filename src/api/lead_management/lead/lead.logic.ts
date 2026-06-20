@@ -954,6 +954,714 @@ await this.notificationEngine.handleEvent({
   };
 }
 
+async stateWiseReport(query: any, user: any) {
+  const now = new Date();
+
+  let startDate = new Date();
+  let endDate = new Date();
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  if (query.dateFilter) {
+    const filter = query.dateFilter.toLowerCase();
+
+    if (filter === 'week') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+    }
+
+    if (filter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+
+  if (query.fromDate && query.toDate) {
+    startDate = new Date(query.fromDate);
+    startDate.setHours(0, 0, 0, 0);
+
+    endDate = new Date(query.toDate);
+    endDate.setHours(23, 59, 59, 999);
+  }
+
+  const match: any = {
+    createdAt: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  };
+
+  if (query.state) {
+    match.state = {
+      $regex: query.state,
+      $options: 'i',
+    };
+  }
+
+  if (query.source_campaign) {
+    match.source_campaign = {
+      $regex: query.source_campaign,
+      $options: 'i',
+    };
+  }
+
+  // hierarchy filter
+  if (!user.isSuperAdmin) {
+    const Pool = await this.poolModel
+      .findOne({
+        pool_owner: user.userId,
+      })
+      .select('_id');
+
+    const users = await this.userLogic.getUsersUnder(user);
+
+    const accessibleUserIds = users.map(
+      (u) => u._id.toString(),
+    );
+
+    accessibleUserIds.push(user.userId);
+
+    if (Pool?._id) {
+      match.$or = [
+        {
+          assignedTo: {
+            $in: accessibleUserIds,
+          },
+        },
+        {
+          poolId: Pool._id,
+        },
+      ];
+    } else {
+      match.assignedTo = {
+        $in: accessibleUserIds,
+      };
+    }
+  }
+
+  const results = await this.leadModel.aggregate([
+    {
+      $match: match,
+    },
+    {
+      $lookup: {
+        from: 'leadstages',
+        localField: 'stageId',
+        foreignField: '_id',
+        as: 'stage',
+      },
+    },
+    {
+      $unwind: {
+        path: '$stage',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+    {
+      $group: {
+        _id: {
+          state: {
+            $ifNull: ['$state', 'Unknown'],
+          },
+          sourceCampaign: {
+            $ifNull: [
+              '$source_campaign',
+              'Unknown',
+            ],
+          },
+          stage: {
+            $ifNull: [
+              '$stage.name',
+              'Unknown',
+            ],
+          },
+        },
+        count: {
+          $sum: 1,
+        },
+      },
+    },
+  ]);
+
+  const stateMap = new Map();
+
+  results.forEach((row) => {
+    const state = row._id.state;
+    const campaign = row._id.sourceCampaign;
+    const stage = row._id.stage;
+
+    if (!stateMap.has(state)) {
+      stateMap.set(state, {
+        state,
+        totalLeads: 0,
+        totalAdmissionDone: 0,
+        totalRevenue: 0,
+        campaignsMap: new Map(),
+      });
+    }
+
+    const stateItem = stateMap.get(state);
+
+    if (!stateItem.campaignsMap.has(campaign)) {
+      stateItem.campaignsMap.set(campaign, {
+        sourceCampaign: campaign,
+        totalLeads: 0,
+        pcatScheduled: 0,
+        pcatDone: 0,
+        registrationDone: 0,
+        admissionDone: 0,
+        revenue: 0,
+        stages: {},
+      });
+    }
+
+    const campaignItem =
+      stateItem.campaignsMap.get(campaign);
+
+    campaignItem.totalLeads += row.count;
+
+    campaignItem.stages[stage] =
+      (campaignItem.stages[stage] || 0) +
+      row.count;
+
+    const stageName = stage
+      .toLowerCase()
+      .trim();
+
+    if (
+      stageName === 'pcat schedule' ||
+      stageName === 'pcat scheduled'
+    ) {
+      campaignItem.pcatScheduled += row.count;
+    }
+
+    if (stageName === 'pcat done') {
+      campaignItem.pcatDone += row.count;
+    }
+
+    if (stageName === 'registration done') {
+      campaignItem.registrationDone += row.count;
+    }
+
+    if (stageName === 'admission done') {
+      campaignItem.admissionDone += row.count;
+    }
+
+    stateItem.totalLeads += row.count;
+  });
+
+  const report = Array.from(
+    stateMap.values(),
+  ).map((state: any) => {
+    const campaigns = Array.from(
+      state.campaignsMap.values(),
+    ).map((campaign: any) => {
+      campaign.conversionPercentage =
+        campaign.totalLeads > 0
+          ? Number(
+              (
+                (campaign.admissionDone /
+                  campaign.totalLeads) *
+                100
+              ).toFixed(2),
+            )
+          : 0;
+
+      return campaign;
+    });
+
+    const totalAdmissionDone =
+      campaigns.reduce(
+        (sum, c) =>
+          sum + c.admissionDone,
+        0,
+      );
+
+    return {
+      state: state.state,
+      totalLeads: state.totalLeads,
+      totalAdmissionDone,
+      totalRevenue: 0,
+      campaigns: campaigns.sort(
+        (a, b) =>
+          b.totalLeads - a.totalLeads,
+      ),
+    };
+  });
+
+  return {
+    startDate,
+    endDate,
+    data: report.sort(
+      (a, b) =>
+        b.totalLeads - a.totalLeads,
+    ),
+  };
+}
+
+async stateWiseEmployeeReport(query: any, user: any) {
+  const now = new Date();
+
+  let startDate = new Date();
+  let endDate = new Date();
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  // Date Filters
+  if (query.dateFilter) {
+    const filter = query.dateFilter.toLowerCase();
+
+    if (filter === 'week') {
+      startDate = new Date();
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+    }
+
+    if (filter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+
+  if (query.fromDate && query.toDate) {
+    startDate = new Date(query.fromDate);
+    startDate.setHours(0, 0, 0, 0);
+
+    endDate = new Date(query.toDate);
+    endDate.setHours(23, 59, 59, 999);
+  }
+
+  const match: any = {
+    createdAt: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  };
+
+  // Filters
+  if (query.state) {
+    match.state = {
+      $regex: query.state,
+      $options: 'i',
+    };
+  }
+
+  if (query.source) {
+    match.source = query.source;
+  }
+
+  if (query.status) {
+    match.status = query.status;
+  }
+
+  if (query.stageId) {
+    match.stageId = new Types.ObjectId(
+      query.stageId,
+    );
+  }
+
+  if (query.poolId) {
+    match.poolId = new Types.ObjectId(
+      query.poolId,
+    );
+  }
+
+  if (query.assignedTo) {
+    match.assignedTo = query.assignedTo;
+  }
+
+  if (query.counsellorId) {
+    match.assignedTo = query.counsellorId;
+  }
+
+  // Hierarchy Filter
+  if (!user.isSuperAdmin) {
+    const Pool = await this.poolModel
+      .findOne({
+        pool_owner: user.userId,
+      })
+      .select('_id');
+
+    const users = await this.userLogic.getUsersUnder(user);
+
+    const accessibleUserIds = users.map(
+      (u) => u._id.toString(),
+    );
+
+    accessibleUserIds.push(user.userId);
+
+    if (Pool?._id) {
+      match.$or = [
+        {
+          assignedTo: {
+            $in: accessibleUserIds,
+          },
+        },
+        {
+          poolId: Pool._id,
+        },
+      ];
+    } else {
+      match.assignedTo = {
+        $in: accessibleUserIds,
+      };
+    }
+  }
+
+  const results = await this.leadModel.aggregate([
+    {
+      $match: match,
+    },
+
+    {
+      $lookup: {
+        from: 'leadstages',
+        localField: 'stageId',
+        foreignField: '_id',
+        as: 'stage',
+      },
+    },
+
+    {
+      $unwind: {
+        path: '$stage',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    {
+  $addFields: {
+    employeeLookupId: {
+      $cond: [
+        {
+          $and: [
+            { $ne: ['$assignedTo', null] },
+            { $ne: ['$assignedTo', false] },
+            {
+              $eq: [
+                { $type: '$assignedTo' },
+                'objectId',
+              ],
+            },
+          ],
+        },
+        '$assignedTo',
+        {
+          $cond: [
+            {
+              $and: [
+                { $ne: ['$assignedTo', null] },
+                { $ne: ['$assignedTo', false] },
+              ],
+            },
+            {
+              $convert: {
+                input: '$assignedTo',
+                to: 'objectId',
+                onError: null,
+                onNull: null,
+              },
+            },
+            null,
+          ],
+        },
+      ],
+    },
+  },
+},
+{
+  $lookup: {
+    from: 'users',
+    localField: 'employeeLookupId',
+    foreignField: '_id',
+    as: 'employee',
+  },
+},
+
+    {
+      $unwind: {
+        path: '$employee',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    {
+      $group: {
+        _id: {
+          state: {
+            $ifNull: ['$state', 'Unknown'],
+          },
+
+          employeeId: {
+            $ifNull: [
+              '$employee._id',
+              null,
+            ],
+          },
+
+          employeeName: {
+            $ifNull: [
+              '$employee.name',
+              'Unassigned',
+            ],
+          },
+
+          employeeEmail: {
+            $ifNull: [
+              '$employee.email',
+              '',
+            ],
+          },
+
+          employeeCode: {
+            $ifNull: [
+              '$employee.employeeId',
+              '',
+            ],
+          },
+
+          stage: {
+            $ifNull: [
+              '$stage.name',
+              'Unknown',
+            ],
+          },
+        },
+
+        count: {
+          $sum: 1,
+        },
+      },
+    },
+  ]);
+
+  const stateMap = new Map();
+
+  results.forEach((row) => {
+    const state = row._id.state;
+    const employeeId =
+      row._id.employeeId?.toString() ||
+      'unassigned';
+
+    const stage = row._id.stage;
+
+    if (!stateMap.has(state)) {
+      stateMap.set(state, {
+        state,
+        totalLeads: 0,
+        totalAdmissionDone: 0,
+        totalRevenue: 0,
+        employeesMap: new Map(),
+      });
+    }
+
+    const stateItem =
+      stateMap.get(state);
+
+    if (
+      !stateItem.employeesMap.has(
+        employeeId,
+      )
+    ) {
+      stateItem.employeesMap.set(
+        employeeId,
+        {
+          employeeId,
+
+          employeeName:
+            row._id.employeeName,
+
+          employeeEmail:
+            row._id.employeeEmail,
+
+          employeeCode:
+            row._id.employeeCode,
+
+          totalLeads: 0,
+
+          pcatScheduled: 0,
+          pcatDone: 0,
+          registrationDone: 0,
+          admissionDone: 0,
+
+          revenue: 0,
+
+          stages: {},
+        },
+      );
+    }
+
+    const employee =
+      stateItem.employeesMap.get(
+        employeeId,
+      );
+
+    employee.totalLeads += row.count;
+
+    employee.stages[stage] =
+      (employee.stages[stage] || 0) +
+      row.count;
+
+    const stageName = stage
+      .toLowerCase()
+      .trim();
+
+    if (
+      stageName === 'pcat schedule' ||
+      stageName === 'pcat scheduled'
+    ) {
+      employee.pcatScheduled +=
+        row.count;
+    }
+
+    if (
+      stageName === 'pcat done'
+    ) {
+      employee.pcatDone += row.count;
+    }
+
+    if (
+      stageName ===
+      'registration done'
+    ) {
+      employee.registrationDone +=
+        row.count;
+    }
+
+    if (
+      stageName ===
+      'admission done'
+    ) {
+      employee.admissionDone +=
+        row.count;
+    }
+
+    stateItem.totalLeads += row.count;
+  });
+
+  const report = Array.from(
+    stateMap.values(),
+  ).map((state: any) => {
+    const employees = Array.from(
+      state.employeesMap.values(),
+    ).map((employee: any) => {
+      employee.conversionPercentage =
+        employee.totalLeads > 0
+          ? Number(
+              (
+                (employee.admissionDone /
+                  employee.totalLeads) *
+                100
+              ).toFixed(2),
+            )
+          : 0;
+
+      return employee;
+    });
+
+    const totalAdmissionDone =
+      employees.reduce(
+        (sum, emp) =>
+          sum +
+          emp.admissionDone,
+        0,
+      );
+
+    return {
+      state: state.state,
+      totalLeads:
+        state.totalLeads,
+
+      totalAdmissionDone,
+
+      totalRevenue: 0,
+
+      employees:
+        employees.sort(
+          (a, b) =>
+            b.totalLeads -
+            a.totalLeads,
+        ),
+    };
+  });
+
+  return {
+    startDate,
+    endDate,
+
+    data: report.sort(
+      (a, b) =>
+        b.totalLeads -
+        a.totalLeads,
+    ),
+  };
+}
+
   async findOne(id: string, user: any) {
     const lead = await this.leadData.findById(id);
     if (!lead) throw new NotFoundException('Lead not found');

@@ -33,13 +33,16 @@ export class ProfileData {
 findAll() {
   return this.profileModel
     .find()
-      .populate({
+    .populate({
       path: 'userId',
+      match: {
+        status: 'active', // or true depending on your schema
+      },
       select:
         'name email number employeeId status isBlocked lastLoginAt isDashboardEnabled role createdAt updatedAt',
       populate: {
         path: 'role',
-        select: 'name level isSuperAdmin permissions',
+        select: 'name levelId isSuperAdmin permissions',
       },
     })
     .populate('departmentId', 'name')

@@ -32,11 +32,13 @@ export class LevelService {
     return this.levelModel.create(dto);
   }
 
-  async findAll() {
-    return this.levelModel
-      .find()
-      .sort({ name: 1 });
-  }
+async findAll() {
+  return this.levelModel
+    .find({
+      name: { $ne: 'L100' },
+    })
+    .sort({ name: 1 });
+}
 
   async findOne(id: string) {
     const level = await this.levelModel.findById(id);
