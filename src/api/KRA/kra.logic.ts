@@ -210,6 +210,7 @@ export class KraLogic {
     const startDate = this.startOfDay(date);
     const endDate = this.endOfDay(date);
     const metrics = await this.getMetrics(userId, startDate, endDate);
+    console.log('Metrics:', metrics);
     const kra = roleId ? await this.data.findByRoleId(roleId) : null;
 
     if (!roleId || !kra) {

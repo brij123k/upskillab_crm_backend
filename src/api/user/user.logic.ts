@@ -270,7 +270,7 @@ export class UserLogic {
           logoutAt: new Date()
         },
       });
-      await this.attendanceLogic.recordLogout(userId, new Date());
+      // await this.attendanceLogic.recordLogout(userId, new Date());
       await this.safeLog({
         userId,
         ip: requestMeta.ip,
