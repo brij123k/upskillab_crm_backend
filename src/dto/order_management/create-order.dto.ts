@@ -47,6 +47,10 @@ export class CreateOrderDto {
   @IsString() 
   state: string;
 
+  @ApiPropertyOptional() 
+  @IsNumber() 
+  finalFee:number;
+
   @ApiProperty() 
   @IsString()
   courseVertical: string;

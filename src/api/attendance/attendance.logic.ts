@@ -134,8 +134,8 @@ export class AttendanceLogic {
 
     for (let offset = startOffset; offset <= endOffset; offset += 1) {
       const targetDate = this.startOfDay(this.addDays(referenceDate, -offset));
-      const existing = await this.data.findByUserAndDate(userId, targetDate);
-      if (existing) continue;
+      // const existing = await this.data.findByUserAndDate(userId, targetDate);
+      // if (existing) continue;
 
       const leave = await this.findLeaveForDate(userId, targetDate);
 

@@ -18,6 +18,7 @@ import { Pool, PoolSchema } from 'src/schema/Pool.schema';
 import { User, UserSchema } from 'src/schema/user.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
 import { MaskSetting,MaskSettingSchema } from 'src/schema/mask.schema';
+import { LeadStageHistoryModule } from '../LeadStageHistory/LeadStageHistory.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -36,6 +37,7 @@ import { MaskSetting,MaskSettingSchema } from 'src/schema/mask.schema';
     UserModule,
     LeadScheduleModule,
     UserActivityModule,
+    LeadStageHistoryModule,
   ],
   controllers: [LeadController],
   providers: [LeadLogic, LeadData],

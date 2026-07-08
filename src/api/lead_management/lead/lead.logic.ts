@@ -21,6 +21,7 @@ import { User } from 'src/schema/user.schema';
 import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
 import { MaskSetting } from 'src/schema/mask.schema';
+import { LeadStageHistoryService } from '../LeadStageHistory/LeadStageHistory.service';
 
 @Injectable()
 export class LeadLogic {
@@ -55,6 +56,7 @@ export class LeadLogic {
 
     private readonly userActivityLogic: UserActivityLogic,
     private readonly notificationEngine: NotificationEngineService,
+    private readonly leadStageHistoryService:LeadStageHistoryService,
   ) { }
 
   private canViewLeadDetails(user?: any) {
@@ -532,22 +534,6 @@ await this.notificationEngine.handleEvent({
       }
     }
 
-    const levelNumber = this.resolveLevel(query.level);
-    if (levelNumber === null) {
-      return { data: { startDate, endDate, sourceCampaigns: [], data: [], totalsByCampaign: {}, grandTotal: 0 } };
-    }
-    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
-    if (!levelUserIds.length) {
-      return { data: { startDate, endDate, sourceCampaigns: [], data: [], totalsByCampaign: {}, grandTotal: 0 } };
-    }
-    const levelMatch = { assignedTo: { $in: levelUserIds.map((id) =>id) } };
-    if (match.$or) {
-      match = { $and: [{ $or: match.$or }, levelMatch] };
-      delete match.$or;
-    } else {
-      match.assignedTo = levelMatch.assignedTo;
-    }
-
     const rows = await this.leadModel.aggregate([
       { $match: match },
       {
@@ -608,23 +594,57 @@ await this.notificationEngine.handleEvent({
     });
 
     const totalsByCampaign: Record<string, number> = {};
-    campaigns.forEach((campaign) => {
-      totalsByCampaign[campaign] = rows
-        .filter((row) => row._id.campaign === campaign)
-        .reduce((sum, row) => sum + row.count, 0);
-    });
+const admissionDoneByCampaign: Record<string, number> = {};
+const conversionPercentage: Record<string, number> = {};
 
-    const grandTotal = rows.reduce((sum, row) => sum + row.count, 0);
+campaigns.forEach((campaign) => {
+  totalsByCampaign[campaign] = 0;
+  admissionDoneByCampaign[campaign] = 0;
+});
 
-    return {data:{
-      startDate,
-      endDate,
-      sourceCampaigns: campaigns,
-      data,
-      totalsByCampaign,
-      grandTotal,
-    }
-    };
+rows.forEach((row) => {
+  const campaign = row._id.campaign;
+  const stageName = row._id.stageName
+    ?.toLowerCase()
+    .trim();
+
+  totalsByCampaign[campaign] += row.count;
+
+  if (stageName === 'admission done') {
+    admissionDoneByCampaign[campaign] += row.count;
+  }
+});
+
+campaigns.forEach((campaign) => {
+  conversionPercentage[campaign] =
+    totalsByCampaign[campaign] > 0
+      ? Number(
+          (
+            (admissionDoneByCampaign[campaign] /
+              totalsByCampaign[campaign]) *
+            100
+          ).toFixed(2),
+        )
+      : 0;
+});
+
+const grandTotal = rows.reduce(
+  (sum, row) => sum + row.count,
+  0,
+);
+
+return {
+  data: {
+    startDate,
+    endDate,
+    sourceCampaigns: campaigns,
+    data,
+    totalsByCampaign,
+    admissionDoneByCampaign,
+    conversionPercentage,
+    grandTotal,
+  },
+};
   }
 
   async allEmployeesStagesReport(query: any, user: any) {
@@ -1116,28 +1136,29 @@ async stateWiseReport(query: any, user: any) {
     },
   ]);
 
-  const stateMap = new Map();
+  // Campaign -> States
+  const campaignMap = new Map();
 
   results.forEach((row) => {
     const state = row._id.state;
     const campaign = row._id.sourceCampaign;
     const stage = row._id.stage;
 
-    if (!stateMap.has(state)) {
-      stateMap.set(state, {
-        state,
+    if (!campaignMap.has(campaign)) {
+      campaignMap.set(campaign, {
+        campaignName: campaign,
         totalLeads: 0,
         totalAdmissionDone: 0,
         totalRevenue: 0,
-        campaignsMap: new Map(),
+        statesMap: new Map(),
       });
     }
 
-    const stateItem = stateMap.get(state);
+    const campaignItem = campaignMap.get(campaign);
 
-    if (!stateItem.campaignsMap.has(campaign)) {
-      stateItem.campaignsMap.set(campaign, {
-        sourceCampaign: campaign,
+    if (!campaignItem.statesMap.has(state)) {
+      campaignItem.statesMap.set(state, {
+        state,
         totalLeads: 0,
         pcatScheduled: 0,
         pcatDone: 0,
@@ -1148,13 +1169,13 @@ async stateWiseReport(query: any, user: any) {
       });
     }
 
-    const campaignItem =
-      stateItem.campaignsMap.get(campaign);
+    const stateItem =
+      campaignItem.statesMap.get(state);
 
-    campaignItem.totalLeads += row.count;
+    stateItem.totalLeads += row.count;
 
-    campaignItem.stages[stage] =
-      (campaignItem.stages[stage] || 0) +
+    stateItem.stages[stage] =
+      (stateItem.stages[stage] || 0) +
       row.count;
 
     const stageName = stage
@@ -1165,61 +1186,59 @@ async stateWiseReport(query: any, user: any) {
       stageName === 'pcat schedule' ||
       stageName === 'pcat scheduled'
     ) {
-      campaignItem.pcatScheduled += row.count;
+      stateItem.pcatScheduled += row.count;
     }
 
     if (stageName === 'pcat done') {
-      campaignItem.pcatDone += row.count;
+      stateItem.pcatDone += row.count;
     }
 
     if (stageName === 'registration done') {
-      campaignItem.registrationDone += row.count;
+      stateItem.registrationDone += row.count;
     }
 
     if (stageName === 'admission done') {
-      campaignItem.admissionDone += row.count;
+      stateItem.admissionDone += row.count;
     }
 
-    stateItem.totalLeads += row.count;
+    campaignItem.totalLeads += row.count;
   });
 
   const report = Array.from(
-    stateMap.values(),
-  ).map((state: any) => {
-    const campaigns = Array.from(
-      state.campaignsMap.values(),
-    ).map((campaign: any) => {
-      campaign.conversionPercentage =
-        campaign.totalLeads > 0
+    campaignMap.values(),
+  ).map((campaign: any) => {
+    const states = Array.from(
+      campaign.statesMap.values(),
+    ).map((state: any) => {
+      state.conversionPercentage =
+        state.totalLeads > 0
           ? Number(
               (
-                (campaign.admissionDone /
-                  campaign.totalLeads) *
+                (state.admissionDone /
+                  state.totalLeads) *
                 100
               ).toFixed(2),
             )
           : 0;
 
-      return campaign;
+      return state;
     });
 
-    const totalAdmissionDone =
-      campaigns.reduce(
-        (sum, c) =>
-          sum + c.admissionDone,
+    campaign.totalAdmissionDone =
+      states.reduce(
+        (sum, state) =>
+          sum + state.admissionDone,
         0,
       );
 
-    return {
-      state: state.state,
-      totalLeads: state.totalLeads,
-      totalAdmissionDone,
-      totalRevenue: 0,
-      campaigns: campaigns.sort(
-        (a, b) =>
-          b.totalLeads - a.totalLeads,
-      ),
-    };
+    campaign.states = states.sort(
+      (a, b) =>
+        b.totalLeads - a.totalLeads,
+    );
+
+    delete campaign.statesMap;
+
+    return campaign;
   });
 
   return {
@@ -1500,155 +1519,124 @@ async stateWiseEmployeeReport(query: any, user: any) {
     },
   ]);
 
-  const stateMap = new Map();
+  const employeeMap = new Map();
 
   results.forEach((row) => {
-    const state = row._id.state;
-    const employeeId =
-      row._id.employeeId?.toString() ||
-      'unassigned';
+  const state = row._id.state;
+  const employeeId =
+    row._id.employeeId?.toString() ||
+    'unassigned';
 
-    const stage = row._id.stage;
+  const stage = row._id.stage;
 
-    if (!stateMap.has(state)) {
-      stateMap.set(state, {
-        state,
-        totalLeads: 0,
-        totalAdmissionDone: 0,
-        totalRevenue: 0,
-        employeesMap: new Map(),
-      });
-    }
-
-    const stateItem =
-      stateMap.get(state);
-
-    if (
-      !stateItem.employeesMap.has(
-        employeeId,
-      )
-    ) {
-      stateItem.employeesMap.set(
-        employeeId,
-        {
-          employeeId,
-
-          employeeName:
-            row._id.employeeName,
-
-          employeeEmail:
-            row._id.employeeEmail,
-
-          employeeCode:
-            row._id.employeeCode,
-
-          totalLeads: 0,
-
-          pcatScheduled: 0,
-          pcatDone: 0,
-          registrationDone: 0,
-          admissionDone: 0,
-
-          revenue: 0,
-
-          stages: {},
-        },
-      );
-    }
-
-    const employee =
-      stateItem.employeesMap.get(
-        employeeId,
-      );
-
-    employee.totalLeads += row.count;
-
-    employee.stages[stage] =
-      (employee.stages[stage] || 0) +
-      row.count;
-
-    const stageName = stage
-      .toLowerCase()
-      .trim();
-
-    if (
-      stageName === 'pcat schedule' ||
-      stageName === 'pcat scheduled'
-    ) {
-      employee.pcatScheduled +=
-        row.count;
-    }
-
-    if (
-      stageName === 'pcat done'
-    ) {
-      employee.pcatDone += row.count;
-    }
-
-    if (
-      stageName ===
-      'registration done'
-    ) {
-      employee.registrationDone +=
-        row.count;
-    }
-
-    if (
-      stageName ===
-      'admission done'
-    ) {
-      employee.admissionDone +=
-        row.count;
-    }
-
-    stateItem.totalLeads += row.count;
-  });
-
-  const report = Array.from(
-    stateMap.values(),
-  ).map((state: any) => {
-    const employees = Array.from(
-      state.employeesMap.values(),
-    ).map((employee: any) => {
-      employee.conversionPercentage =
-        employee.totalLeads > 0
-          ? Number(
-              (
-                (employee.admissionDone /
-                  employee.totalLeads) *
-                100
-              ).toFixed(2),
-            )
-          : 0;
-
-      return employee;
-    });
-
-    const totalAdmissionDone =
-      employees.reduce(
-        (sum, emp) =>
-          sum +
-          emp.admissionDone,
-        0,
-      );
-
-    return {
-      state: state.state,
-      totalLeads:
-        state.totalLeads,
-
-      totalAdmissionDone,
-
+  if (!employeeMap.has(employeeId)) {
+    employeeMap.set(employeeId, {
+      employeeId,
+      employeeName: row._id.employeeName,
+      employeeEmail: row._id.employeeEmail,
+      employeeCode: row._id.employeeCode,
+      totalLeads: 0,
+      totalAdmissionDone: 0,
       totalRevenue: 0,
+      statesMap: new Map(),
+    });
+  }
 
-      employees:
-        employees.sort(
-          (a, b) =>
-            b.totalLeads -
-            a.totalLeads,
-        ),
-    };
+  const employee =
+    employeeMap.get(employeeId);
+
+  if (!employee.statesMap.has(state)) {
+    employee.statesMap.set(state, {
+      state,
+      totalLeads: 0,
+      pcatScheduled: 0,
+      pcatDone: 0,
+      registrationDone: 0,
+      admissionDone: 0,
+      revenue: 0,
+      stages: {},
+    });
+  }
+
+  const stateItem =
+    employee.statesMap.get(state);
+
+  stateItem.totalLeads += row.count;
+
+  stateItem.stages[stage] =
+    (stateItem.stages[stage] || 0) +
+    row.count;
+
+  const stageName = stage
+    .toLowerCase()
+    .trim();
+
+  if (
+    stageName === 'pcat schedule' ||
+    stageName === 'pcat scheduled'
+  ) {
+    stateItem.pcatScheduled += row.count;
+  }
+
+  if (stageName === 'pcat done') {
+    stateItem.pcatDone += row.count;
+  }
+
+  if (
+    stageName ===
+    'registration done'
+  ) {
+    stateItem.registrationDone +=
+      row.count;
+  }
+
+  if (
+    stageName ===
+    'admission done'
+  ) {
+    stateItem.admissionDone +=
+      row.count;
+  }
+
+  employee.totalLeads += row.count;
+});
+
+const report = Array.from(
+  employeeMap.values(),
+).map((employee: any) => {
+  const states = Array.from(
+    employee.statesMap.values(),
+  ).map((state: any) => {
+    state.conversionPercentage =
+      state.totalLeads > 0
+        ? Number(
+            (
+              (state.admissionDone /
+                state.totalLeads) *
+              100
+            ).toFixed(2),
+          )
+        : 0;
+
+    return state;
   });
+
+  employee.totalAdmissionDone =
+    states.reduce(
+      (sum, state) =>
+        sum + state.admissionDone,
+      0,
+    );
+
+  employee.states = states.sort(
+    (a, b) =>
+      b.totalLeads - a.totalLeads,
+  );
+
+  delete employee.statesMap;
+
+  return employee;
+});
 
   return {
     startDate,
@@ -1674,7 +1662,8 @@ async stateWiseEmployeeReport(query: any, user: any) {
     const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
-
+    const leadStage = await this.leadStageModel.findById(new Types.ObjectId(dto.stageId));
+    if (!leadStage) throw new NotFoundException('Lead Stage not found');
     const updateData: any = {
       ...dto,
       assignedTo: dto.assignedTo === "" ? existingLead.assignedTo : dto.assignedTo,
@@ -1692,6 +1681,7 @@ async stateWiseEmployeeReport(query: any, user: any) {
     dto.stageId &&
     dto.stageId !== existingLead.stageId?.toString()
   ) {
+    this.leadStageHistoryService.createHistory({leadId:id,stageId:dto.stageId,stageName:leadStage.name,userId});  
     updateData.stageChangedAt = new Date();
   }
 
@@ -1834,12 +1824,17 @@ async stateWiseEmployeeReport(query: any, user: any) {
       throw new InternalServerErrorException(message);
     }
     console.log(user)
+    const leadStage = await this.leadStageModel.findOne({ name: 'PCAT Schedule' });
+    if (!leadStage) throw new NotFoundException('Lead Stage not found');
     // 4️⃣ update lead status and log
+    this.leadStageHistoryService.createHistory({leadId:lead._id.toString(),stageId:leadStage._id.toString(),stageName:leadStage.name,userId:user?.userId});  
     const updated = await this.leadData.update(lead._id.toString(), {
+      stageId: leadStage._id,
       status: LeadStatus.PCAT_REGISTERED,
       modifiedBy: user?.userId,
       modifiedAt: new Date(),
     });
+    
 
     // await this.leadHistoryLogic.log({
     //   leadId: lead.leadId.toString(),
@@ -1901,6 +1896,7 @@ async stateWiseEmployeeReport(query: any, user: any) {
         },
       },
     });
+    this.leadStageHistoryService.createHistory({leadId:existingLead._id.toString(),stageId:existstage._id.toString(),stageName:existstage.name,userId:user?.userId});  
     await this.userActivityLogic.log({
     userId: userId,
     action: 'Lead_Stage',
@@ -1937,6 +1933,7 @@ async stateWiseEmployeeReport(query: any, user: any) {
     if (!lead) {
       throw new NotFoundException("Lead Not found")
     }
+    this.leadStageHistoryService.createHistory({leadId:existingLead._id.toString(),stageId:stageId,stageName:existstage.name,userId});  
     const stage = existingLead.stageId as any;
     await this.leadHistoryLogic.log({
       leadId: lead?.leadId.toString(),

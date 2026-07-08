@@ -6,6 +6,7 @@ import { CallLog } from 'src/schema/call-log.schema';
 import { User } from 'src/schema/user.schema';
 import { AttendanceStatus } from 'src/schema/attendance.schema';
 import { KraData } from './kra.data';
+import { LeadStageHistoryService } from '../lead_management/LeadStageHistory/LeadStageHistory.service';
 
 type KraMetrics = {
   answeredCalls: number;
@@ -22,6 +23,7 @@ export class KraLogic {
     @InjectModel(CallLog.name) private readonly callLogModel: Model<CallLog>,
     @InjectModel(LeadHistory.name) private readonly leadHistoryModel: Model<LeadHistory>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly leadStageHistoryService:LeadStageHistoryService,
   ) {}
 
   private startOfDay(input = new Date()) {
@@ -145,56 +147,90 @@ export class KraLogic {
     return this.data.delete(id);
   }
 
-  private async getMetrics(userId: string, startDate: Date, endDate: Date): Promise<KraMetrics> {
-    const userObjectId = new Types.ObjectId(userId);
+  private async getMetrics(
+  userId: string,
+  startDate: Date,
+  endDate: Date,
+): Promise<KraMetrics> {
+  const [
+    dialLeadIds,
+    answeredResult,
+    talkTimeResult,
+    stageResult,
+  ] = await Promise.all([
+    this.callLogModel.distinct('leadId', {
+      userId,
+      createdAt: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+    }),
 
-    const [dialLeadIds, answeredResult, talkTimeResult, bookings, demoConducts] =
-      await Promise.all([
-        this.callLogModel.distinct('leadId', {
-          userId: userId,
-          createdAt: { $gte: startDate, $lte: endDate },
-        }),
-        this.callLogModel.countDocuments({
-          userId: userId,
-          createdAt: { $gte: startDate, $lte: endDate },
-          duration: { $gt: 0 },
-        }),
-        this.callLogModel.aggregate([
-          {
-            $match: {
-              userId: userId,
-              createdAt: { $gte: startDate, $lte: endDate },
+    this.callLogModel.countDocuments({
+      userId,
+      createdAt: {
+        $gte: startDate,
+        $lte: endDate,
+      },
+      duration: { $gt: 0 },
+    }),
+
+    this.callLogModel.aggregate([
+      {
+        $match: {
+          userId,
+          createdAt: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          talkTime: {
+            $sum: {
+              $ifNull: ['$duration', 0],
             },
           },
-          {
-            $group: {
-              _id: null,
-              talkTime: { $sum: { $ifNull: ['$duration', 0] } },
-            },
-          },
-        ]),
-        this.leadHistoryModel.distinct('leadId', {
-          actionBy: userObjectId,
-          createdAt: { $gte: startDate, $lte: endDate },
-          actionType: { $in: [LeadActionType.STAGE_CHANGED, LeadActionType.STAGE_CHANGED_CallS] },
-          'changes.status.to': { $regex: /pcat.*sched/i },
-        }),
-        this.leadHistoryModel.distinct('leadId', {
-          actionBy: userObjectId,
-          createdAt: { $gte: startDate, $lte: endDate },
-          actionType: { $in: [LeadActionType.STAGE_CHANGED, LeadActionType.STAGE_CHANGED_CallS] },
-          'changes.status.to': { $regex: /pcat.*(comp|done)/i },
-        }),
-      ]);
+        },
+      },
+    ]),
 
-    return {
-      dialCalls: dialLeadIds.length,
-      answeredCalls: answeredResult || 0,
-      talkTime: talkTimeResult[0]?.talkTime || 0,
-      bookings: bookings.length,
-      demoConducts: demoConducts.length,
-    };
-  }
+    this.leadStageHistoryService.getUserAllStageCountsByDate(
+      userId,
+      startDate,
+    ),
+  ]);
+
+  const pcatScheduled =
+    stageResult.stages.find(
+      (x) =>
+        x.stageName
+          .toLowerCase()
+          .trim() ===
+        'pcat schedule',
+    )?.count || 0;
+
+  const pcatDone =
+    stageResult.stages.find(
+      (x) =>
+        x.stageName
+          .toLowerCase()
+          .trim() ===
+        'pcat done',
+    )?.count || 0;
+
+  return {
+    dialCalls: dialLeadIds.length,
+    answeredCalls: answeredResult || 0,
+    talkTime: talkTimeResult[0]?.talkTime || 0,
+
+    // Existing KRA fields
+    bookings: pcatScheduled,
+    demoConducts: pcatDone,
+  };
+}
 
   async compareByRoleAndUser(roleId: string, userId: string, date = new Date()) {
     if (!userId) {
