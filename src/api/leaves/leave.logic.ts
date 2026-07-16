@@ -11,6 +11,11 @@ import { Role } from 'src/schema/role.schema';
 import { NotificationEngineService } from 'src/notifications/services/notification-engine.service';
 import { NOTIFICATION_EVENT } from 'src/notifications/enums/notification-event.enum';
 import { NOTIFICATION_ENTITY } from 'src/notifications/enums/notification-entity.enum';
+import { CreateLeavePolicyDto, UpdateLeavePolicyDto } from 'src/dto/leave-policy.dto';
+import { UserLeaveBalanceService } from './user-leave-balance/user-leave-balance.service';
+import { CreateLeaveDto } from 'src/dto/create-leave.dto';
+import { LeaveDecisionDto } from 'src/dto/leave-decision.dto';
+import { CancelLeaveDto } from 'src/dto/cancel-leave.dto';
 
 type LeaveRangeInput = {
   leaveFrom?: string;
@@ -29,14 +34,24 @@ type LeavePolicyInput = {
 @Injectable()
 export class LeaveLogic {
   constructor(
-    private readonly data: LeaveData,
-    private readonly policyData: LeavePolicyData,
-    private readonly notificationEngine: NotificationEngineService,
-    @InjectModel(User.name) private readonly userModel: Model<User>,
-    @InjectModel(Profile.name) private readonly profileModel: Model<Profile>,
-    @InjectModel(Role.name) private readonly roleModel: Model<Role>,
-    @InjectModel(LeavePolicy.name) private readonly leavePolicyModel: Model<LeavePolicy>,
-  ) {}
+  private readonly data: LeaveData,
+  private readonly policyData: LeavePolicyData,
+  private readonly notificationEngine: NotificationEngineService,
+
+  @InjectModel(User.name)
+  private readonly userModel: Model<User>,
+
+  @InjectModel(Role.name)
+  private readonly roleModel: Model<Role>,
+
+  @InjectModel(Profile.name)
+  private readonly profileModel: Model<Profile>,
+
+  @InjectModel(LeavePolicy.name)
+  private readonly leavePolicyModel: Model<LeavePolicy>,
+
+  private readonly leaveBalanceService: UserLeaveBalanceService,
+) {}
 
   private normalizeDate(value: any) {
     const d = new Date(value);
@@ -153,9 +168,15 @@ export class LeaveLogic {
     return user;
   }
 
-  private async getPolicyByRoleId(roleId: string) {
-    return this.policyData.findByRoleId(roleId);
-  }
+  private async getPolicyByRoleId(
+  roleId: string,
+  year: number,
+) {
+  return this.policyData.findByRoleAndYear(
+    roleId,
+    year,
+  );
+}
 
   private async getPolicyForUser(userId: string) {
     const user = await this.userModel.findById(userId).select('role').populate('role', 'name level isSuperAdmin');
@@ -165,7 +186,12 @@ export class LeaveLogic {
       throw new BadRequestException('User role is required to apply leave');
     }
 
-    const policy = await this.getPolicyByRoleId(roleId);
+    const currentYear = new Date().getFullYear();
+
+    const policy = await this.getPolicyByRoleId(
+      roleId,
+      currentYear,
+    );
     if (!policy) {
       throw new BadRequestException('Leave policy not configured for this role');
     }
@@ -336,250 +362,739 @@ export class LeaveLogic {
     });
   }
 
-  async createPolicy(dto: LeavePolicyInput) {
-    if (!dto.roleId) {
-      throw new BadRequestException('roleId is required');
-    }
+  /* -------------------------------------------------------------------------- */
+/*                              LEAVE POLICY                                  */
+/* -------------------------------------------------------------------------- */
 
-    const role = await this.roleModel.findById(dto.roleId).select('_id name');
-    if (!role) {
-      throw new NotFoundException('Role not found');
-    }
+async createPolicy(dto: CreateLeavePolicyDto) {
+  const role = await this.roleModel.findById(dto.roleId);
 
-    const existing = await this.policyData.findByRoleId(dto.roleId);
-    const payload = {
-      roleId: new Types.ObjectId(dto.roleId),
-      casualLeavePerMonth: Number(dto.casualLeavePerMonth || 0),
-      earnedLeavePerYear: Number(dto.earnedLeavePerYear || 0),
-      earnedLeaveCarryForwardCap: Number(dto.earnedLeaveCarryForwardCap || 0),
-      allowEarnedLeaveCarryForward: dto.allowEarnedLeaveCarryForward !== false,
-    };
-
-    if (existing) {
-      return { success: true, data: await this.policyData.update(existing._id.toString(), payload) };
-    }
-
-    return { success: true, data: await this.policyData.create(payload) };
+  if (!role) {
+    throw new NotFoundException('Role not found');
   }
 
-  async updatePolicy(id: string, dto: LeavePolicyInput) {
-    const existing = await this.policyData.findById(id);
-    if (!existing) {
-      throw new NotFoundException('Leave policy not found');
+  const exists = await this.policyData.findByRoleAndYear(
+    dto.roleId,
+    dto.year,
+  );
+
+  if (exists) {
+    throw new BadRequestException(
+      `Leave policy already exists for ${role.name} (${dto.year})`,
+    );
+  }
+
+  const policy = await this.policyData.create({
+    roleId: new Types.ObjectId(dto.roleId),
+    year: dto.year,
+    monthlyCL: dto.monthlyCL,
+    monthlyEL: dto.monthlyEL,
+    allowEarnedLeaveCarryForward:
+      dto.allowEarnedLeaveCarryForward ?? true,
+    allowEarnedLeaveEncashment:
+      dto.allowEarnedLeaveEncashment ?? true,
+    maxCarryForwardEL:
+      dto.maxCarryForwardEL ?? 0,
+    isActive: dto.isActive ?? true,
+  });
+
+  return {
+    success: true,
+    message: 'Leave policy created successfully.',
+    data: policy,
+  };
+}
+
+async updatePolicy(
+  id: string,
+  dto: UpdateLeavePolicyDto,
+) {
+  const policy = await this.policyData.findById(id);
+
+  if (!policy) {
+    throw new NotFoundException(
+      'Leave policy not found',
+    );
+  }
+
+  const payload: any = {};
+
+  if (dto.monthlyCL !== undefined) {
+    payload.monthlyCL = dto.monthlyCL;
+  }
+
+  if (dto.monthlyEL !== undefined) {
+    payload.monthlyEL = dto.monthlyEL;
+  }
+
+  if (
+    dto.allowEarnedLeaveCarryForward !== undefined
+  ) {
+    payload.allowEarnedLeaveCarryForward =
+      dto.allowEarnedLeaveCarryForward;
+  }
+
+  if (
+    dto.allowEarnedLeaveEncashment !== undefined
+  ) {
+    payload.allowEarnedLeaveEncashment =
+      dto.allowEarnedLeaveEncashment;
+  }
+
+  if (dto.maxCarryForwardEL !== undefined) {
+    payload.maxCarryForwardEL =
+      dto.maxCarryForwardEL;
+  }
+
+  if (dto.isActive !== undefined) {
+    payload.isActive = dto.isActive;
+  }
+
+  const updated =
+    await this.policyData.update(
+      id,
+      payload,
+    );
+
+  return {
+    success: true,
+    message: 'Leave policy updated successfully.',
+    data: updated,
+  };
+}
+
+async deletePolicy(id: string) {
+  const policy =
+    await this.policyData.findById(id);
+
+  if (!policy) {
+    throw new NotFoundException(
+      'Leave policy not found',
+    );
+  }
+
+  await this.policyData.delete(id);
+
+  return {
+    success: true,
+    message: 'Leave policy deleted successfully.',
+  };
+}
+
+async getPolicies(query?: any) {
+  const policies =
+    await this.policyData.findAll(query);
+
+  return {
+    success: true,
+    data: policies,
+  };
+}
+
+async getPolicyById(id: string) {
+  const policy =
+    await this.policyData.findById(id);
+
+  if (!policy) {
+    throw new NotFoundException(
+      'Leave policy not found',
+    );
+  }
+
+  return {
+    success: true,
+    data: policy,
+  };
+}
+
+async getPolicyByRole(
+  roleId: string,
+  year: number,
+) {
+  const policy =
+    await this.policyData.findByRoleAndYear(
+      roleId,
+      year,
+    );
+
+  if (!policy) {
+    throw new NotFoundException(
+      'Leave policy not found',
+    );
+  }
+
+  return {
+    success: true,
+    data: policy,
+  };
+}
+
+
+
+  async createLeave(
+  dto: CreateLeaveDto,
+  currentUserId: string,
+) {
+
+  if (!dto.subject) {
+    throw new BadRequestException(
+      'Subject is required',
+    );
+  }
+
+  if (!dto.reason) {
+    throw new BadRequestException(
+      'Reason is required',
+    );
+  }
+
+  const leaveFrom = new Date(dto.leaveFrom);
+
+  const leaveTo = dto.leaveTo
+    ? new Date(dto.leaveTo)
+    : leaveFrom;
+
+  if (leaveTo < leaveFrom) {
+    throw new BadRequestException(
+      'Leave To cannot be before Leave From',
+    );
+  }
+
+  /**
+   * Number of leave days
+   */
+  const totalDays =
+    Math.floor(
+      (leaveTo.getTime() -
+        leaveFrom.getTime()) /
+        (1000 * 60 * 60 * 24),
+    ) + 1;
+
+  /**
+   * Current Balance
+   */
+  const balance =
+    await this.leaveBalanceService.ensureBalance(
+      currentUserId,
+    );
+
+  if (dto.leaveType === LeaveType.CL) {
+
+    if (balance.availableCL < totalDays) {
+      throw new BadRequestException(
+        'Insufficient Casual Leave.',
+      );
     }
 
-    const payload: any = {};
-    if (dto.roleId !== undefined) {
-      const role = await this.roleModel.findById(dto.roleId).select('_id name');
-      if (!role) {
-        throw new NotFoundException('Role not found');
-      }
-      payload.roleId = new Types.ObjectId(dto.roleId);
-    }
-    if (dto.casualLeavePerMonth !== undefined) payload.casualLeavePerMonth = Number(dto.casualLeavePerMonth);
-    if (dto.earnedLeavePerYear !== undefined) payload.earnedLeavePerYear = Number(dto.earnedLeavePerYear);
-    if (dto.earnedLeaveCarryForwardCap !== undefined) payload.earnedLeaveCarryForwardCap = Number(dto.earnedLeaveCarryForwardCap);
-    if (dto.allowEarnedLeaveCarryForward !== undefined) payload.allowEarnedLeaveCarryForward = Boolean(dto.allowEarnedLeaveCarryForward);
+  } else {
 
-    return { success: true, data: await this.policyData.update(id, payload) };
-  }
-
-  async deletePolicy(id: string) {
-    const existing = await this.policyData.findById(id);
-    if (!existing) {
-      throw new NotFoundException('Leave policy not found');
-    }
-    return { success: true, data: await this.policyData.delete(id) };
-  }
-
-  getPolicies() {
-    return this.policyData.findAll();
-  }
-
-  getPolicyById(id: string) {
-    return this.policyData.findById(id);
-  }
-
-  getPolicyByRole(roleId: string) {
-    return this.policyData.findByRoleId(roleId);
-  }
-
-  async create(dto: any, currentUserId: string) {
-    if (!dto.reason) throw new BadRequestException('reason is required');
-    if (!dto.subject) throw new BadRequestException('subject is required');
-
-    const { leaveFrom, leaveTo, leaveDate } = this.getLeaveBounds(dto);
-    const leaveType = String(dto.leaveType || LeaveType.CL).toUpperCase() as LeaveType;
-    const policy = await this.getPolicyForUser(currentUserId);
-    const approverIds = await this.getApproverIds(currentUserId, dto);
-
-    if (!approverIds.length) {
-      throw new BadRequestException('reportToUserIds is required');
+    if (balance.availableEL < totalDays) {
+      throw new BadRequestException(
+        'Insufficient Earned Leave.',
+      );
     }
 
-    await this.validateLeaveQuota(currentUserId, policy, leaveFrom, leaveTo, leaveType);
+  }
 
-    const approver = await this.userModel.findById(approverIds[0]).select('name');
-    const currentUser = await this.getCurrentUser(currentUserId);
-
-    const payload = {
-      userId: new Types.ObjectId(currentUserId),
-      createdBy: new Types.ObjectId(currentUserId),
-      reportToUserId: new Types.ObjectId(String(approverIds[0])),
-      reportToUserIds: approverIds.map((id) => new Types.ObjectId(String(id))),
-      subject: dto.subject,
+  /**
+   * Prevent duplicate leave
+   */
+  const overlap =
+    await this.data.findByUserInRange(
+      currentUserId,
       leaveFrom,
       leaveTo,
-      leaveDate,
-      leaveType,
-      reason: dto.reason,
-      status: LeaveStatus.PENDING,
-    };
-
-    const result = await this.data.create(payload);
-    await this.notifyApprovalRequest(result, {
-      subject: dto.subject,
-      userName: currentUser.name,
-      approverName: approver?.name || 'Approver',
-      leaveFrom,
-      leaveTo,
-    });
-
-    return {
-      success: true,
-      data: result,
-    };
-  }
-
-  async updateMyLeave(id: string, userId: string, dto: any) {
-    const existing = await this.data.findByUserAndId(userId, id);
-    if (!existing) throw new NotFoundException('Leave request not found');
-    if (existing.status !== LeaveStatus.PENDING && existing.status !== LeaveStatus.CANCELLED) {
-      throw new BadRequestException('Only pending or cancelled leaves can be updated');
-    }
-
-    const payload: any = {};
-    if (dto.subject !== undefined) payload.subject = dto.subject;
-    if (dto.reason !== undefined) payload.reason = dto.reason;
-    if (dto.leaveType !== undefined) payload.leaveType = String(dto.leaveType).toUpperCase();
-
-    if (dto.leaveFrom !== undefined || dto.leaveTo !== undefined || dto.leaveDate !== undefined) {
-      const bounds = this.getLeaveBounds({
-        leaveFrom: dto.leaveFrom || dto.leaveDate || existing.leaveFrom,
-        leaveTo: dto.leaveTo || dto.leaveFrom || existing.leaveTo || dto.leaveFrom || dto.leaveDate,
-      });
-      payload.leaveFrom = bounds.leaveFrom;
-      payload.leaveTo = bounds.leaveTo;
-      payload.leaveDate = bounds.leaveDate;
-    }
-
-    if (dto.reportToUserId !== undefined) payload.reportToUserId = new Types.ObjectId(dto.reportToUserId);
-    if (dto.reportToUserIds !== undefined) {
-      payload.reportToUserIds = Array.isArray(dto.reportToUserIds)
-        ? dto.reportToUserIds.map((id: string) => new Types.ObjectId(id))
-        : [];
-    }
-
-    const leaveType = String(payload.leaveType || existing.leaveType || LeaveType.CL).toUpperCase() as LeaveType;
-    const finalLeaveFrom = payload.leaveFrom || existing.leaveFrom;
-    const finalLeaveTo = payload.leaveTo || existing.leaveTo || finalLeaveFrom;
-    const policy = await this.getPolicyForUser(userId);
-    await this.validateLeaveQuota(userId, policy, finalLeaveFrom, finalLeaveTo, leaveType, id);
-    payload.leaveType = leaveType;
-
-    const approverIds = [
-      ...(payload.reportToUserIds ? payload.reportToUserIds.map((id: any) => String(id)) : []),
-      payload.reportToUserId ? String(payload.reportToUserId) : null,
-    ].filter(Boolean);
-
-    if (approverIds.includes(String(userId))) {
-      throw new BadRequestException('A user cannot approve their own leave');
-    }
-
-    const updated = await this.data.update(id, payload);
-    return { success: true, data: updated };
-  }
-
-  async cancelMyLeave(id: string, userId: string) {
-    const existing = await this.data.findByUserAndId(userId, id);
-    if (!existing) throw new NotFoundException('Leave request not found');
-    if (existing.status === LeaveStatus.APPROVED) {
-      throw new BadRequestException('Approved leave cannot be cancelled');
-    }
-    const updated = await this.data.update(id, { status: LeaveStatus.CANCELLED });
-    return { success: true, data: updated };
-  }
-
-  async getMyLeaveSummary(userId: string, date = new Date()) {
-    const policy = await this.getPolicyForUser(userId);
-    const monthStart = this.startOfMonth(date);
-    const yearStart = this.startOfYear(date);
-    const clUsed = await this.getClUsageForMonth(userId, date);
-    const elUsed = await this.getElUsageForYear(userId, date);
-    const elOpening = await this.getEarnedLeaveOpeningForYear(userId, policy, date.getFullYear());
-
-    return {
-      policy,
-      month: {
-        key: this.getMonthKey(date),
-        casualLeaveLimit: Number(policy.casualLeavePerMonth || 0),
-        casualLeaveUsed: clUsed,
-        casualLeaveRemaining: Math.max(0, Number(policy.casualLeavePerMonth || 0) - clUsed),
-        start: monthStart,
-        end: this.endOfMonth(date),
+      {
+        statuses: [
+          LeaveStatus.PENDING,
+          LeaveStatus.APPROVED,
+        ],
       },
-      year: {
-        key: date.getFullYear(),
-        earnedLeaveOpening: elOpening,
-        earnedLeaveUsed: elUsed,
-        earnedLeaveRemaining: Math.max(0, elOpening - elUsed),
-        start: yearStart,
-        end: this.endOfYear(date),
-      },
-    };
-  }
+    );
 
-  getMyLeaves(userId: string, filters: any = {}) {
-    return this.data.findAllByUser(userId, filters);
+  if (overlap.length) {
+    throw new BadRequestException(
+      'Leave already exists for selected dates.',
+    );
   }
+const user = await this.userModel.findById(currentUserId).select('name role').populate('role', 'name level isSuperAdmin');
+if(!user){
+  throw new NotFoundException('User not found');
+}  
+const payload = {
 
-  getMyLeaveById(userId: string, id: string) {
-    return this.data.findByUserAndId(userId, id);
-  }
+    userId: new Types.ObjectId(
+      currentUserId,
+    ),
+
+    createdBy: new Types.ObjectId(
+      currentUserId,
+    ),
+
+    reportToUserId:
+      new Types.ObjectId(
+        dto.reportToUserId,
+      ),
+
+    reportToUserIds:
+      (dto.reportToUserIds || []).map(
+        (id) =>
+          new Types.ObjectId(id),
+      ),
+
+    subject: dto.subject,
+
+    leaveType: dto.leaveType,
+
+    leaveFrom,
+
+    leaveTo,
+
+    leaveDate: leaveFrom,
+
+    reason: dto.reason,
+
+    status: LeaveStatus.PENDING,
+  };
+
+  const leave =
+    await this.data.create(payload);
+await this.notifyApprovalRequest(leave, {
+    subject: dto.subject,
+    userName: user.name || 'Employee',
+    approverName:"Approver",
+    leaveFrom,
+    leaveTo,
+  });
+  return {
+
+    success: true,
+
+    message:
+      'Leave request submitted successfully.',
+
+    data: leave,
+  };
+}
+
+  // async updateMyLeave(id: string, userId: string, dto: any) {
+  //   const existing = await this.data.findByUserAndId(userId, id);
+  //   if (!existing) throw new NotFoundException('Leave request not found');
+  //   if (existing.status !== LeaveStatus.PENDING && existing.status !== LeaveStatus.CANCELLED) {
+  //     throw new BadRequestException('Only pending or cancelled leaves can be updated');
+  //   }
+
+  //   const payload: any = {};
+  //   if (dto.subject !== undefined) payload.subject = dto.subject;
+  //   if (dto.reason !== undefined) payload.reason = dto.reason;
+  //   if (dto.leaveType !== undefined) payload.leaveType = String(dto.leaveType).toUpperCase();
+
+  //   if (dto.leaveFrom !== undefined || dto.leaveTo !== undefined || dto.leaveDate !== undefined) {
+  //     const bounds = this.getLeaveBounds({
+  //       leaveFrom: dto.leaveFrom || dto.leaveDate || existing.leaveFrom,
+  //       leaveTo: dto.leaveTo || dto.leaveFrom || existing.leaveTo || dto.leaveFrom || dto.leaveDate,
+  //     });
+  //     payload.leaveFrom = bounds.leaveFrom;
+  //     payload.leaveTo = bounds.leaveTo;
+  //     payload.leaveDate = bounds.leaveDate;
+  //   }
+
+  //   if (dto.reportToUserId !== undefined) payload.reportToUserId = new Types.ObjectId(dto.reportToUserId);
+  //   if (dto.reportToUserIds !== undefined) {
+  //     payload.reportToUserIds = Array.isArray(dto.reportToUserIds)
+  //       ? dto.reportToUserIds.map((id: string) => new Types.ObjectId(id))
+  //       : [];
+  //   }
+
+  //   const leaveType = String(payload.leaveType || existing.leaveType || LeaveType.CL).toUpperCase() as LeaveType;
+  //   const finalLeaveFrom = payload.leaveFrom || existing.leaveFrom;
+  //   const finalLeaveTo = payload.leaveTo || existing.leaveTo || finalLeaveFrom;
+  //   const policy = await this.getPolicyForUser(userId);
+  //   await this.validateLeaveQuota(userId, policy, finalLeaveFrom, finalLeaveTo, leaveType, id);
+  //   payload.leaveType = leaveType;
+
+  //   const approverIds = [
+  //     ...(payload.reportToUserIds ? payload.reportToUserIds.map((id: any) => String(id)) : []),
+  //     payload.reportToUserId ? String(payload.reportToUserId) : null,
+  //   ].filter(Boolean);
+
+  //   if (approverIds.includes(String(userId))) {
+  //     throw new BadRequestException('A user cannot approve their own leave');
+  //   }
+
+  //   const updated = await this.data.update(id, payload);
+  //   return { success: true, data: updated };
+  // }
+
+  // async cancelMyLeave(id: string, userId: string) {
+  //   const existing = await this.data.findByUserAndId(userId, id);
+  //   if (!existing) throw new NotFoundException('Leave request not found');
+  //   if (existing.status === LeaveStatus.APPROVED) {
+  //     throw new BadRequestException('Approved leave cannot be cancelled');
+  //   }
+  //   const updated = await this.data.update(id, { status: LeaveStatus.CANCELLED });
+  //   return { success: true, data: updated };
+  // }
+
+  // async getMyLeaveSummary(userId: string, date = new Date()) {
+  //   const policy = await this.getPolicyForUser(userId);
+  //   const monthStart = this.startOfMonth(date);
+  //   const yearStart = this.startOfYear(date);
+  //   const clUsed = await this.getClUsageForMonth(userId, date);
+  //   const elUsed = await this.getElUsageForYear(userId, date);
+  //   const elOpening = await this.getEarnedLeaveOpeningForYear(userId, policy, date.getFullYear());
+
+  //   return {
+  //     policy,
+  //     month: {
+  //       key: this.getMonthKey(date),
+  //       casualLeaveLimit: Number(policy.casualLeave || 0),
+  //       casualLeaveUsed: clUsed,
+  //       casualLeaveRemaining: Math.max(0, Number(policy.casualLeave || 0) - clUsed),
+  //       start: monthStart,
+  //       end: this.endOfMonth(date),
+  //     },
+  //     year: {
+  //       key: date.getFullYear(),
+  //       earnedLeaveOpening: elOpening,
+  //       earnedLeaveUsed: elUsed,
+  //       earnedLeaveRemaining: Math.max(0, elOpening - elUsed),
+  //       start: yearStart,
+  //       end: this.endOfYear(date),
+  //     },
+  //   };
+  // }
+
+  // getMyLeaves(userId: string, filters: any = {}) {
+  //   return this.data.findAllByUser(userId, filters);
+  // }
+
+  // getMyLeaveById(userId: string, id: string) {
+  //   return this.data.findByUserAndId(userId, id);
+  // }
 
   getRequests(userId: string, filters: any = {}) {
     return this.data.findAllByApprover(userId, filters);
   }
 
-  getRequestById(userId: string, id: string) {
-    return this.data.findByApproverAndId(userId, id);
+  // getRequestById(userId: string, id: string) {
+  //   return this.data.findByApproverAndId(userId, id);
+  // }
+
+  // async decideLeave(id: string, approverId: string, dto: any) {
+  //   const existing = await this.data.findByApproverAndId(approverId, id);
+  //   if (!existing) throw new NotFoundException('Leave request not found');
+  //   if (String(existing.userId?._id || existing.userId) === String(approverId)) {
+  //     throw new BadRequestException('You cannot approve your own leave');
+  //   }
+  //   if (existing.status !== LeaveStatus.PENDING) {
+  //     throw new BadRequestException('Only pending leave requests can be updated');
+  //   }
+  //   if (!dto.status || ![LeaveStatus.APPROVED, LeaveStatus.REJECTED].includes(dto.status)) {
+  //     throw new BadRequestException('status must be approved or rejected');
+  //   }
+  //   if (dto.status === LeaveStatus.REJECTED && !dto.reason) {
+  //     throw new BadRequestException('reason is required when rejecting a leave');
+  //   }
+
+  //   const updated = await this.data.update(id, {
+  //     status: dto.status,
+  //     approvalReason: dto.reason || null,
+  //     approvedBy: new Types.ObjectId(approverId),
+  //     approvedAt: new Date(),
+  //   });
+
+  //   await this.notifyLeaveDecision(updated);
+
+  //   return { success: true, data: updated };
+  // }
+
+  async decideLeave(
+  leaveId: string,
+  approverId: string,
+  dto: LeaveDecisionDto,
+) {
+  const leave =
+    await this.data.findByApproverAndId(
+      approverId,
+      leaveId,
+    );
+console.log(leave)
+  if (!leave) {
+    throw new NotFoundException(
+      'Leave request not found.',
+    );
   }
 
-  async decideLeave(id: string, approverId: string, dto: any) {
-    const existing = await this.data.findByApproverAndId(approverId, id);
-    if (!existing) throw new NotFoundException('Leave request not found');
-    if (String(existing.userId?._id || existing.userId) === String(approverId)) {
-      throw new BadRequestException('You cannot approve your own leave');
-    }
-    if (existing.status !== LeaveStatus.PENDING) {
-      throw new BadRequestException('Only pending leave requests can be updated');
-    }
-    if (!dto.status || ![LeaveStatus.APPROVED, LeaveStatus.REJECTED].includes(dto.status)) {
-      throw new BadRequestException('status must be approved or rejected');
-    }
-    if (dto.status === LeaveStatus.REJECTED && !dto.reason) {
-      throw new BadRequestException('reason is required when rejecting a leave');
-    }
+  /**
+   * Prevent self approval
+   */
 
-    const updated = await this.data.update(id, {
-      status: dto.status,
-      approvalReason: dto.reason || null,
-      approvedBy: new Types.ObjectId(approverId),
-      approvedAt: new Date(),
-    });
-
-    await this.notifyLeaveDecision(updated);
-
-    return { success: true, data: updated };
+  if (
+    leave.userId.toString() === approverId
+  ) {
+    throw new BadRequestException(
+      'You cannot approve your own leave.'
+    );
   }
+
+  /**
+   * Already decided
+   */
+
+  if (
+    leave.status !== LeaveStatus.PENDING
+  ) {
+    throw new BadRequestException(
+      'Leave already processed.'
+    );
+  }
+
+  /**
+   * Reject Reason
+   */
+
+  if (
+    dto.status === LeaveStatus.REJECTED &&
+    !dto.reason
+  ) {
+    throw new BadRequestException(
+      'Reason is required.'
+    );
+  }
+
+  /**
+   * Leave Days
+   */
+
+  const leaveFrom = new Date(
+    leave.leaveFrom,
+  );
+
+  const leaveTo = new Date(
+    leave.leaveTo || leave.leaveFrom,
+  );
+
+  const totalDays =
+    Math.floor(
+      (leaveTo.getTime() -
+        leaveFrom.getTime()) /
+        (1000 * 60 * 60 * 24),
+    ) + 1;
+
+  /**
+   * Deduct Leave
+   */
+
+  if (
+    dto.status === LeaveStatus.APPROVED
+  ) {
+
+    await this.leaveBalanceService.deductLeave(
+      leave.userId._id.toString(),
+      leave.leaveType,
+      totalDays,
+    );
+  }
+
+  /**
+   * Update Leave
+   */
+
+  const updated =
+    await this.data.update(
+      leaveId,
+      {
+
+        status: dto.status,
+
+        approvalReason:
+          dto.reason || null,
+
+        approvedBy:
+          new Types.ObjectId(
+            approverId,
+          ),
+
+        approvedAt: new Date(),
+
+      },
+    );
+
+  /**
+   * Notification
+   */
+
+  await this.notifyLeaveDecision(
+    updated,
+  );
+
+  return {
+
+    success: true,
+
+    message:
+      dto.status ===
+      LeaveStatus.APPROVED
+        ? 'Leave approved successfully.'
+        : 'Leave rejected successfully.',
+
+    data: updated,
+  };
+}
+
+async cancelLeave(
+  leaveId: string,
+  userId: string,
+  dto: CancelLeaveDto,
+) {
+  const leave =
+    await this.data.findByUserAndId(
+      userId,
+      leaveId,
+    );
+
+  if (!leave) {
+    throw new NotFoundException(
+      'Leave request not found.',
+    );
+  }
+
+  if (
+    leave.status === LeaveStatus.CANCELLED
+  ) {
+    throw new BadRequestException(
+      'Leave already cancelled.',
+    );
+  }
+
+  if (
+    leave.status === LeaveStatus.REJECTED
+  ) {
+    throw new BadRequestException(
+      'Rejected leave cannot be cancelled.',
+    );
+  }
+
+  /**
+   * Cannot cancel after leave start
+   */
+
+  const today = new Date();
+
+  today.setHours(0, 0, 0, 0);
+
+  const leaveFrom = new Date(
+    leave.leaveFrom,
+  );
+
+  leaveFrom.setHours(0, 0, 0, 0);
+
+  if (
+    leaveFrom.getTime() <=
+    today.getTime()
+  ) {
+    throw new BadRequestException(
+      'Leave cannot be cancelled after it has started.',
+    );
+  }
+
+  /**
+   * Restore balance if approved
+   */
+
+  if (
+    leave.status === LeaveStatus.APPROVED
+  ) {
+    const leaveTo = new Date(
+      leave.leaveTo ||
+        leave.leaveFrom,
+    );
+
+    const totalDays =
+      Math.floor(
+        (leaveTo.getTime() -
+          leaveFrom.getTime()) /
+          (1000 * 60 * 60 * 24),
+      ) + 1;
+
+    await this.leaveBalanceService.restoreLeave(
+      leave.userId._id.toString(),
+      leave.leaveType,
+      totalDays,
+    );
+  }
+
+  /**
+   * Cancel leave
+   */
+
+  const updated =
+    await this.data.update(
+      leaveId,
+      {
+        status:
+          LeaveStatus.CANCELLED,
+
+        cancelledBy:
+          new Types.ObjectId(
+            userId,
+          ),
+
+        cancelledAt:
+          new Date(),
+
+        cancelReason:
+          dto.reason || null,
+      },
+    );
+
+  return {
+    success: true,
+    message:
+      'Leave cancelled successfully.',
+    data: updated,
+  };
+}
+
+async getMyLeaves(
+  userId: string,
+  query: any,
+) {
+  return this.data.findAllByUser(
+    userId,
+    query,
+  );
+}
+
+async getLeaveRequests(
+  approverId: string,
+  query: any,
+) {
+  return this.data.findAllByApprover(
+    approverId,
+    query,
+  );
+}
+async getLeaveRequestById(
+  approverId: string,
+  leaveId: string,
+) {
+  const leave =
+    await this.data.findByApproverAndId(
+      approverId,
+      leaveId,
+    );
+
+  if (!leave) {
+    throw new NotFoundException(
+      'Leave request not found.',
+    );
+  }
+
+  return {
+    success: true,
+    data: leave,
+  };
+}
 }

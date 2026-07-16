@@ -3,23 +3,94 @@ import { Document, Types } from 'mongoose';
 
 @Schema({ timestamps: true })
 export class LeavePolicy extends Document {
-  @Prop({ type: Types.ObjectId, ref: 'Role', required: true, unique: true, index: true })
+  @Prop({
+    type: Types.ObjectId,
+    ref: 'Role',
+    required: true,
+    index: true,
+  })
   roleId: Types.ObjectId;
 
-  @Prop({ type: Number, required: true, default: 0, min: 0 })
-  casualLeavePerMonth: number;
+  /**
+   * Policy Year
+   * Example: 2026, 2027
+   */
+  @Prop({
+    required: true,
+    index: true,
+  })
+  year: number;
 
-  @Prop({ type: Number, required: true, default: 0, min: 0 })
-  earnedLeavePerYear: number;
+  /**
+   * Monthly Casual Leave
+   */
+  @Prop({
+    required: true,
+    default: 0,
+    min: 0,
+  })
+  monthlyCL: number;
 
-  @Prop({ type: Number, required: true, default: 0, min: 0 })
-  earnedLeaveCarryForwardCap: number;
+  /**
+   * Monthly Earned Leave
+   */
+  @Prop({
+    required: true,
+    default: 0,
+    min: 0,
+  })
+  monthlyEL: number;
 
-  @Prop({ type: Boolean, default: true })
+  /**
+   * Allow EL Carry Forward
+   */
+  @Prop({
+    default: true,
+  })
   allowEarnedLeaveCarryForward: boolean;
+
+  /**
+   * Allow EL Encashment
+   */
+  @Prop({
+    default: true,
+  })
+  allowEarnedLeaveEncashment: boolean;
+
+  /**
+   * Maximum EL Carry Forward
+   * 0 = Unlimited
+   */
+  @Prop({
+    default: 0,
+    min: 0,
+  })
+  maxCarryForwardEL: number;
+
+  /**
+   * Active Policy
+   */
+  @Prop({
+    default: true,
+  })
+  isActive: boolean;
 
   createdAt: Date;
   updatedAt: Date;
 }
 
-export const LeavePolicySchema = SchemaFactory.createForClass(LeavePolicy);
+export const LeavePolicySchema =
+  SchemaFactory.createForClass(LeavePolicy);
+
+/**
+ * One policy per Role per Year
+ */
+LeavePolicySchema.index(
+  {
+    roleId: 1,
+    year: 1,
+  },
+  {
+    unique: true,
+  },
+);

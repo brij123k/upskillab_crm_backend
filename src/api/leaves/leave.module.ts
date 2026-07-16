@@ -10,6 +10,7 @@ import { Profile, ProfileSchema } from 'src/schema/profile.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
 import { LeavePolicy, LeavePolicySchema } from 'src/schema/leave-policy.schema';
 import { NotificationModule } from 'src/notifications/notification.module';
+import { UserLeaveBalanceModule } from './user-leave-balance/user-leave-balance.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
       { name: Profile.name, schema: ProfileSchema },
       { name: Role.name, schema: RoleSchema },
     ]),
+    UserLeaveBalanceModule
   ],
   controllers: [LeaveController],
   providers: [LeaveLogic, LeaveData, LeavePolicyData],

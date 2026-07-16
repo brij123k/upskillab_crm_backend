@@ -99,7 +99,14 @@ export class LeaveData {
     const [data, total] = await Promise.all([
       this.model
         .find(query)
-        .populate('userId', 'name email employeeId role')
+        .populate({
+  path: 'userId',
+  select: 'name email employeeId role',
+  populate: {
+    path: 'role',
+    select: 'name',
+  },
+})
         .populate('createdBy', 'name email employeeId role')
         .populate('reportToUserId', 'name email employeeId role')
         .populate('reportToUserIds', 'name email employeeId role')
@@ -128,12 +135,15 @@ export class LeaveData {
     });
   }
 
-  findAllByApprover(approverId: string, filters: any = {}) {
-    return this.findAll({
-      ...filters,
-      reportToUserId: approverId,
-    });
-  }
+findAllByApprover(
+  approverId: string,
+  filters: any = {},
+) {
+  return this.findAll({
+    ...filters,
+    reportToUserId: approverId,
+  });
+}
 
   async countMonthlyByUser(userId: string, date = new Date(), excludeId?: string) {
     const start = new Date(date);

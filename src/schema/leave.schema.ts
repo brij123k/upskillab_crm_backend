@@ -57,6 +57,20 @@ export class LeaveRequest extends Document {
   @Prop()
   approvedAt?: Date;
 
+
+  @Prop({
+  type: Types.ObjectId,
+  ref: 'User',
+})
+cancelledBy?: Types.ObjectId;
+
+@Prop()
+cancelledAt?: Date;
+
+@Prop()
+cancelReason?: string;
+
+
   createdAt: Date;
   updatedAt: Date;
 }

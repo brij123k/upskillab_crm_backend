@@ -32,6 +32,7 @@ import { TargetsModule } from './api/targets/targets.module';
 import { UserReportModule } from './api/reports/user-activity/user-report.module';
 import { ProfileUploadModule } from './api/file-uploader/file-uploader.module';
 import {LevelModule} from './api/level/level.module';
+import { UserLeaveBalanceModule } from './api/leaves/user-leave-balance/user-leave-balance.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -61,12 +62,13 @@ ConfigModule.forRoot({
     TaskModule,
     AnnouncementModule,
     PerformanceWarningModule,
-    LeaveModule,
     SourceCampaignModule,
     TargetsModule,
     UserReportModule,
     ProfileUploadModule,
     LevelModule,
+    LeaveModule,
+    UserLeaveBalanceModule
   ],
   controllers: [AppController],
   providers: [AppService],

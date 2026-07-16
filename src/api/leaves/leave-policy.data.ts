@@ -12,23 +12,131 @@ export class LeavePolicyData {
     return this.model.create(data);
   }
 
-  findAll() {
-    return this.model.find().populate('roleId', 'name level isSuperAdmin').sort({ createdAt: -1 });
+  createMany(data: any[]) {
+    return this.model.insertMany(data);
+  }
+
+  findAll(filters: any = {}) {
+    const query: any = {};
+
+    if (filters.roleId) {
+      query.roleId = new Types.ObjectId(filters.roleId);
+    }
+
+    if (filters.year) {
+      query.year = Number(filters.year);
+    }
+
+    if (filters.isActive !== undefined) {
+      query.isActive = filters.isActive;
+    }
+
+    return this.model
+      .find(query)
+      .populate('roleId', 'name level isSuperAdmin')
+      .sort({
+        year: -1,
+        createdAt: -1,
+      });
   }
 
   findById(id: string) {
-    return this.model.findById(id).populate('roleId', 'name level isSuperAdmin');
+    return this.model
+      .findById(id)
+      .populate('roleId', 'name level isSuperAdmin');
   }
 
-  findByRoleId(roleId: string) {
-    return this.model.findOne({ roleId: new Types.ObjectId(roleId) }).populate('roleId', 'name level isSuperAdmin');
+  findByRoleAndYear(
+    roleId: string,
+    year: number,
+  ) {
+    return this.model
+      .findOne({
+        roleId: new Types.ObjectId(roleId),
+        year,
+      })
+      .populate('roleId', 'name level isSuperAdmin');
   }
 
-  update(id: string, data: any) {
-    return this.model.findByIdAndUpdate(id, data, { new: true, runValidators: true }).populate('roleId', 'name level isSuperAdmin');
+  findActivePolicy(
+    roleId: string,
+    year: number,
+  ) {
+    return this.model
+      .findOne({
+        roleId: new Types.ObjectId(roleId),
+        year,
+        isActive: true,
+      })
+      .populate('roleId', 'name level isSuperAdmin');
+  }
+
+  findByYear(year: number) {
+    return this.model
+      .find({
+        year,
+      })
+      .populate('roleId', 'name level isSuperAdmin')
+      .sort({
+        createdAt: -1,
+      });
+  }
+
+  update(
+    id: string,
+    data: any,
+  ) {
+    return this.model
+      .findByIdAndUpdate(
+        id,
+        data,
+        {
+          new: true,
+          runValidators: true,
+        },
+      )
+      .populate('roleId', 'name level isSuperAdmin');
   }
 
   delete(id: string) {
     return this.model.findByIdAndDelete(id);
+  }
+
+  exists(
+    roleId: string,
+    year: number,
+  ) {
+    return this.model.exists({
+      roleId: new Types.ObjectId(roleId),
+      year,
+    });
+  }
+
+  activate(
+    id: string,
+  ) {
+    return this.model.findByIdAndUpdate(
+      id,
+      {
+        isActive: true,
+      },
+      {
+        new: true,
+      },
+    );
+  }
+
+  deactivate(
+    id: string,
+  ) {
+    return this.model.findByIdAndUpdate(
+      id,
+      {
+        isActive: false,
+      },
+      {
+        new: true,
+      },
+    );
   }
 }

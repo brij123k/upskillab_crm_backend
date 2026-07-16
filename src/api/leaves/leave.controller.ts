@@ -7,6 +7,10 @@ import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { LeaveLogic } from './leave.logic';
+import { CreateLeavePolicyDto, UpdateLeavePolicyDto } from 'src/dto/leave-policy.dto';
+import { CreateLeaveDto } from 'src/dto/create-leave.dto';
+import { LeaveDecisionDto } from 'src/dto/leave-decision.dto';
+import { CancelLeaveDto } from 'src/dto/cancel-leave.dto';
 
 @ApiTags('Leaves')
 @ApiBearerAuth()
@@ -14,12 +18,20 @@ import { LeaveLogic } from './leave.logic';
 export class LeaveController {
   constructor(private readonly logic: LeaveLogic) {}
 
-  @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Create leave request' })
-  create(@Body() dto: any, @Req() req: any) {
-    return this.logic.create(dto, req.user.userId);
-  }
+@Post()
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Apply Leave',
+})
+create(
+  @Req() req: any,
+  @Body() dto: CreateLeaveDto,
+) {
+  return this.logic.createLeave(
+    dto,
+    req.user.userId,
+  );
+}
 
   @Get()
   @UseGuards(JwtAuthGuard, RoleGuard)
@@ -29,110 +41,208 @@ export class LeaveController {
     return this.logic.getRequests(req.user.userId, query);
   }
 
-  @Get('policies')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'List leave policies' })
-  policies() {
-    return this.logic.getPolicies();
-  }
-
-  @Get('policies/role/:roleId')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get leave policy by role' })
-  policyByRole(@Param('roleId') roleId: string) {
-    return this.logic.getPolicyByRole(roleId);
-  }
-
-  @Get('policies/:id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get leave policy by id' })
-  policyById(@Param('id') id: string) {
-    return this.logic.getPolicyById(id);
-  }
+   /* -------------------------------------------------------------------------- */
+  /*                               LEAVE POLICY                                 */
+  /* -------------------------------------------------------------------------- */
 
   @Post('policies')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin')
-  @ApiOperation({ summary: 'Create or upsert leave policy' })
-  createPolicy(@Body() dto: any) {
+  @ApiOperation({
+    summary: 'Create Leave Policy',
+  })
+  createPolicy(
+    @Body()
+    dto: CreateLeavePolicyDto,
+  ) {
     return this.logic.createPolicy(dto);
+  }
+
+  @Get('policies')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get All Leave Policies',
+  })
+  getPolicies(
+    @Query() query: any,
+  ) {
+    return this.logic.getPolicies(query);
+  }
+
+  @Get('policies/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get Leave Policy By Id',
+  })
+  getPolicyById(
+    @Param('id')
+    id: string,
+  ) {
+    return this.logic.getPolicyById(id);
+  }
+
+  @Get('policies/role/:roleId')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary: 'Get Leave Policy By Role & Year',
+  })
+  getPolicyByRole(
+    @Param('roleId')
+    roleId: string,
+
+    @Query('year')
+    year: number,
+  ) {
+    return this.logic.getPolicyByRole(
+      roleId,
+      Number(year),
+    );
   }
 
   @Patch('policies/:id')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin')
-  @ApiOperation({ summary: 'Update leave policy' })
-  updatePolicy(@Param('id') id: string, @Body() dto: any) {
-    return this.logic.updatePolicy(id, dto);
+  @ApiOperation({
+    summary: 'Update Leave Policy',
+  })
+  updatePolicy(
+    @Param('id')
+    id: string,
+
+    @Body()
+    dto: UpdateLeavePolicyDto,
+  ) {
+    return this.logic.updatePolicy(
+      id,
+      dto,
+    );
   }
 
   @Delete('policies/:id')
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin')
-  @ApiOperation({ summary: 'Delete leave policy' })
-  deletePolicy(@Param('id') id: string) {
+  @ApiOperation({
+    summary: 'Delete Leave Policy',
+  })
+  deletePolicy(
+    @Param('id')
+    id: string,
+  ) {
     return this.logic.deletePolicy(id);
   }
 
-  @Get('me')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get current user leaves' })
-  myLeaves(@Req() req: any, @Query() query: any) {
-    return this.logic.getMyLeaves(req.user.userId, query);
-  }
+@Patch(':id/decision')
+@UseGuards(
+  JwtAuthGuard,
+  RoleGuard,
+  PermissionGuard,
+)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAVE.MODULE,
+  PERMISSIONS.LEAVE.ACTIONS.APPROVE,
+)
+@ApiOperation({
+  summary: 'Approve / Reject Leave',
+})
+decision(
+  @Param('id')
+  id: string,
 
-  @Get('me/summary')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get current user leave balance summary' })
-  mySummary(@Req() req: any) {
-    return this.logic.getMyLeaveSummary(req.user.userId);
-  }
+  @Req()
+  req: any,
 
-  @Get('me/:id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get current user leave by id' })
-  myLeaveById(@Req() req: any, @Param('id') id: string) {
-    return this.logic.getMyLeaveById(req.user.userId, id);
-  }
+  @Body()
+  dto: LeaveDecisionDto,
+) {
+  return this.logic.decideLeave(
+    id,
+    req.user.userId,
+    dto,
+  );
+}
+@Patch('me/:id/cancel')
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Cancel My Leave',
+})
+cancelLeave(
+  @Req() req: any,
 
-  @Patch('me/:id')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Update current user leave' })
-  updateMine(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
-    return this.logic.updateMyLeave(id, req.user.userId, dto);
-  }
+  @Param('id')
+  id: string,
 
-  @Patch('me/:id/cancel')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Cancel current user leave' })
-  cancelMine(@Req() req: any, @Param('id') id: string) {
-    return this.logic.cancelMyLeave(id, req.user.userId);
-  }
+  @Body()
+  dto: CancelLeaveDto,
+) {
+  return this.logic.cancelLeave(
+    id,
+    req.user.userId,
+    dto,
+  );
+}
 
-  @Get('requests')
-  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-  @Roles('Admin', 'bd')
-  @RequirePermission(PERMISSIONS.LEAVE.MODULE, PERMISSIONS.LEAVE.ACTIONS.APPROVE)
-  @ApiOperation({ summary: 'Get leave requests that need approval for current user' })
-  requests(@Req() req: any, @Query() query: any) {
-    return this.logic.getRequests(req.user.userId, query);
-  }
+@Get('me')
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Get My Leave Requests',
+})
+myLeaves(
+  @Req() req: any,
+  @Query() query: any,
+) {
+  return this.logic.getMyLeaves(
+    req.user.userId,
+    query,
+  );
+}
 
-  @Get('requests/:id')
-  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-  @Roles('Admin', 'bd')
-  @RequirePermission(PERMISSIONS.LEAVE.MODULE, PERMISSIONS.LEAVE.ACTIONS.APPROVE)
-  @ApiOperation({ summary: 'Get a leave request assigned to current user' })
-  requestById(@Req() req: any, @Param('id') id: string) {
-    return this.logic.getRequestById(req.user.userId, id);
-  }
+@Get('requests')
+@UseGuards(
+  JwtAuthGuard,
+  RoleGuard,
+  PermissionGuard,
+)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAVE.MODULE,
+  PERMISSIONS.LEAVE.ACTIONS.APPROVE,
+)
+@ApiOperation({
+  summary: 'Get Leave Requests For Approval',
+})
+getRequests(
+  @Req() req: any,
+  @Query() query: any,
+) {
+  return this.logic.getLeaveRequests(
+    req.user.userId,
+    query,
+  );
+}
+@Get('requests/:id')
+@UseGuards(
+  JwtAuthGuard,
+  RoleGuard,
+  PermissionGuard,
+)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAVE.MODULE,
+  PERMISSIONS.LEAVE.ACTIONS.APPROVE,
+)
+@ApiOperation({
+  summary: 'Get Leave Request By Id',
+})
+getRequestById(
+  @Req() req: any,
 
-  @Patch(':id/decision')
-  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-  @Roles('Admin', 'bd')
-  @RequirePermission(PERMISSIONS.LEAVE.MODULE, PERMISSIONS.LEAVE.ACTIONS.APPROVE)
-  @ApiOperation({ summary: 'Approve or reject a leave request' })
-  decide(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
-    return this.logic.decideLeave(id, req.user.userId, dto);
-  }
+  @Param('id')
+  id: string,
+) {
+  return this.logic.getLeaveRequestById(
+    req.user.userId,
+    id,
+  );
+}
 }
