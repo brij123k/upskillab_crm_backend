@@ -48,6 +48,32 @@ userAttendence(
   return this.logic.getMyAttendance(userId, { month });
 }
 
+  @Post('reconcile')
+  // @UseGuards(JwtAuthGuard, RoleGuard)
+  // @Roles('Admin', 'hr')
+  @ApiOperation({ summary: 'Reconcile attendance for all active employees based on their last 30 days and KRA status' })
+  reconcileAll(@Query('days') days?: string, @Query('referenceDate') referenceDate?: string) {
+    return this.logic.reconcileAttendanceForAllUsers(
+      referenceDate ? new Date(referenceDate) : new Date(),
+      days ? Number(days) : 30,
+    );
+  }
+
+  @Get('metrics/:userId')
+  // @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Return per-day KRA metrics and attendance decision for a user over a requested range' })
+  getUserDailyMetrics(
+    @Param('userId') userId: string,
+    @Query('days') days?: string,
+    @Query('referenceDate') referenceDate?: string,
+  ) {
+    return this.logic.getUserDailyMetrics(
+      userId,
+      referenceDate ? new Date(referenceDate) : new Date(),
+      days ? Number(days) : 30,
+    );
+  }
+
   @Get('report/salary-sheet')
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
   @Roles('Admin', 'hr')

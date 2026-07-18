@@ -79,6 +79,19 @@ export class AttendanceLogic {
     return { start, end };
   }
 
+  private isSunday(date: Date) {
+    return new Date(date).getDay() === 0;
+  }
+
+  private buildWeekOffPayload(date: Date, loginTime = this.startOfDay(date)) {
+    return {
+      loginTime,
+      workHours: 0,
+      status: AttendanceStatus.WEEK_OFF,
+      reason: 'Auto-marked week off for Sunday',
+    };
+  }
+
   private async findLeaveForDate(userId: string, date: Date) {
     const { start, end } = this.getAttendanceDateRange(date);
     const leaves = await this.leaveData.findByUserInRange(userId, start, end, {
@@ -115,33 +128,108 @@ export class AttendanceLogic {
     return AttendanceLeaveType.CL;
   }
 
+  private toUserReference(userId: string) {
+    return Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId;
+  }
+
   private async createOrUpdateAutoAttendance(userId: string, date: Date, payload: any) {
-    const existing = await this.data.findByUserAndDate(userId, date);
+    const existing = await this.data.findByUserAndDate(userId, this.startOfDay(date));
     if (existing) {
       return existing;
     }
 
-    return this.data.upsert(userId, date, {
-      userId: new Types.ObjectId(userId),
-      date,
+    return this.data.upsert(userId, this.startOfDay(date), {
+      userId: this.toUserReference(userId),
+      date: this.startOfDay(date),
       ...payload,
     });
   }
 
-  private async reconcileMissingAttendanceDays(userId: string, referenceDate = new Date(), days = 4) {
-    const startOffset = 1;
-    const endOffset = Math.max(days, 0);
+  private async refreshExistingAttendanceRecord(userId: string, targetDate: Date, existing: any) {
+    if (!existing) {
+      return null;
+    }
 
-    for (let offset = startOffset; offset <= endOffset; offset += 1) {
-      const targetDate = this.startOfDay(this.addDays(referenceDate, -offset));
-      // const existing = await this.data.findByUserAndDate(userId, targetDate);
-      // if (existing) continue;
+    const currentStatus = String(existing?.status || '').toLowerCase();
+    const isPresent = currentStatus === AttendanceStatus.PRESENT;
+    if (isPresent) {
+      return existing;
+    }
+
+    if (this.isSunday(targetDate)) {
+      return this.data.update(existing._id.toString(), {
+        ...this.buildWeekOffPayload(targetDate),
+        logoutTime: existing.logoutTime,
+      });
+    }
+
+    const leave = await this.findLeaveForDate(userId, targetDate);
+
+    if (leave) {
+      const leaveType = this.getLeaveType(leave.leaveType);
+      const payload = {
+        loginTime: existing.loginTime || targetDate,
+        logoutTime: existing.logoutTime,
+        workHours: existing.workHours ?? this.getAutoWorkHours(AttendanceStatus.LEAVE),
+        status: AttendanceStatus.LEAVE,
+        leaveType,
+        reason: this.getLeaveAttendanceReason(leave),
+        kraResult: {
+          source: 'leave',
+          leaveId: leave?._id?.toString?.() || null,
+          leaveType,
+          leaveStatus: leave?.status || null,
+        },
+      };
+
+      return this.data.update(existing._id.toString(), payload);
+    }
+
+    const kraResult = await this.kraLogic.compareByUser(userId, targetDate);
+    const status = kraResult?.status || AttendanceStatus.PRESENT;
+    const payload = {
+      loginTime: existing.loginTime || targetDate,
+      logoutTime: existing.logoutTime,
+      workHours: existing.workHours ?? this.getAutoWorkHours(status),
+      status,
+      reason: kraResult?.reason || 'Auto-marked from KRA comparison',
+      kraResult,
+    };
+
+    return this.data.update(existing._id.toString(), payload);
+  }
+
+  async reconcileAttendanceForUser(userId: string, referenceDate = new Date(), days = 4) {
+    const normalizedReferenceDate = this.startOfDay(referenceDate);
+    const safeDays = Math.max(0, Number(days) || 0);
+    const processed: any[] = [];
+
+    for (let offset = 1; offset <= safeDays; offset += 1) {
+      const targetDate = this.startOfDay(this.addDays(normalizedReferenceDate, -offset));
+
+      const existing = await this.data.findByUserAndDate(userId, targetDate);
+      if (existing) {
+        const refreshed = await this.refreshExistingAttendanceRecord(userId, targetDate, existing);
+        processed.push({
+          date: targetDate,
+          status: refreshed?.status || existing.status,
+          skipped: true,
+          refreshed: Boolean(refreshed && String(refreshed.status || '').toLowerCase() !== String(existing.status || '').toLowerCase()),
+        });
+        continue;
+      }
+
+      if (this.isSunday(targetDate)) {
+        const record = await this.createOrUpdateAutoAttendance(userId, targetDate, this.buildWeekOffPayload(targetDate));
+        processed.push({ date: targetDate, status: record?.status || AttendanceStatus.WEEK_OFF, created: true, source: 'week_off' });
+        continue;
+      }
 
       const leave = await this.findLeaveForDate(userId, targetDate);
 
       if (leave) {
         const leaveType = this.getLeaveType(leave.leaveType);
-        await this.createOrUpdateAutoAttendance(userId, targetDate, {
+        const record = await this.createOrUpdateAutoAttendance(userId, targetDate, {
           loginTime: targetDate,
           workHours: this.getAutoWorkHours(AttendanceStatus.LEAVE),
           status: AttendanceStatus.LEAVE,
@@ -154,20 +242,88 @@ export class AttendanceLogic {
             leaveStatus: leave?.status || null,
           },
         });
+        processed.push({ date: targetDate, status: record?.status || AttendanceStatus.LEAVE, created: true, source: 'leave' });
         continue;
       }
 
       const kraResult = await this.kraLogic.compareByUser(userId, targetDate);
       const status = kraResult?.status || AttendanceStatus.PRESENT;
 
-      await this.createOrUpdateAutoAttendance(userId, targetDate, {
+      const record = await this.createOrUpdateAutoAttendance(userId, targetDate, {
         loginTime: targetDate,
         workHours: this.getAutoWorkHours(status),
         status,
         reason: kraResult?.reason || 'Auto-marked from KRA comparison',
         kraResult,
       });
+      processed.push({ date: targetDate, status: record?.status || status, created: true, source: 'kra' });
     }
+
+    return processed;
+  }
+
+  async reconcileAttendanceForAllUsers(referenceDate = new Date(), days = 30) {
+    const profiles = await this.profileData.findAll();
+    const userIds = (profiles || [])
+      .map((profile: any) => profile?.userId?._id?.toString?.() || profile?.userId?.toString?.())
+      .filter(Boolean);
+
+    const results: any[] = [];
+
+    for (const userId of userIds) {
+      const processed = await this.reconcileAttendanceForUser(userId, referenceDate, days);
+      results.push({ userId, processed });
+    }
+
+    return {
+      processedUsers: userIds.length,
+      days,
+      referenceDate: this.startOfDay(referenceDate),
+      results,
+    };
+  }
+
+  async getUserDailyMetrics(userId: string, referenceDate = new Date(), days = 30) {
+    if (!userId) {
+      throw new BadRequestException('userId is required');
+    }
+
+    const normalizedReferenceDate = this.startOfDay(referenceDate);
+    const safeDays = Math.max(0, Number(days) || 0);
+    const results: any[] = [];
+
+    for (let offset = 1; offset <= safeDays; offset += 1) {
+      const targetDate = this.startOfDay(this.addDays(normalizedReferenceDate, -offset));
+      const existing = await this.data.findByUserAndDate(userId, targetDate);
+      const leave = await this.findLeaveForDate(userId, targetDate);
+      const kraResult = await this.kraLogic.compareByUser(userId, targetDate);
+      const status = leave
+        ? AttendanceStatus.LEAVE
+        : kraResult?.status || AttendanceStatus.PRESENT;
+
+      results.push({
+        date: targetDate,
+        hasAttendance: Boolean(existing),
+        leave: leave ? {
+          leaveId: leave?._id?.toString?.() || null,
+          leaveType: leave?.leaveType || null,
+          status: leave?.status || null,
+        } : null,
+        metrics: kraResult?.metrics || null,
+        status,
+        reason: leave
+          ? this.getLeaveAttendanceReason(leave)
+          : kraResult?.reason || 'KRA comparison result',
+        kraResult,
+      });
+    }
+
+    return {
+      userId,
+      days: safeDays,
+      referenceDate: normalizedReferenceDate,
+      results,
+    };
   }
 
   private getSalarySheetRange(query: any) {
@@ -323,7 +479,7 @@ export class AttendanceLogic {
   }
 
   async recordLogin(userId: string, loginTime = new Date()) {
-    await this.reconcileMissingAttendanceDays(userId, loginTime, 4);
+    await this.reconcileAttendanceForUser(userId, loginTime, 4);
 
     const date = this.startOfDay(loginTime);
     const existing = await this.data.findByUserAndDate(userId, date);
@@ -337,6 +493,14 @@ export class AttendanceLogic {
       }
 
       return existing;
+    }
+
+    if (this.isSunday(date)) {
+      return this.data.create({
+        userId: new Types.ObjectId(userId),
+        date,
+        ...this.buildWeekOffPayload(date, loginTime),
+      });
     }
 
     return this.data.create({
