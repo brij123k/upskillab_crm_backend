@@ -22,6 +22,7 @@ import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
 import { MaskSetting } from 'src/schema/mask.schema';
 import { LeadStageHistoryService } from '../LeadStageHistory/LeadStageHistory.service';
+import { Order } from 'src/schema/order_Management/order.schema';
 
 @Injectable()
 export class LeadLogic {
@@ -47,6 +48,9 @@ export class LeadLogic {
 
     @InjectModel(Pool.name)
     private readonly poolModel: Model<Pool>,
+
+    @InjectModel(Order.name)
+    private readonly orderModel: Model<Order>,
 
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
@@ -976,7 +980,6 @@ return {
 
 async stateWiseReport(query: any, user: any) {
   const now = new Date();
-
   let startDate = new Date();
   let endDate = new Date();
 
@@ -990,15 +993,8 @@ async stateWiseReport(query: any, user: any) {
       startDate = new Date();
       startDate.setDate(startDate.getDate() - 6);
       startDate.setHours(0, 0, 0, 0);
-    }
-
-    if (filter === 'month') {
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        1,
-      );
-
+    } else if (filter === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       endDate = new Date(
         now.getFullYear(),
         now.getMonth() + 1,
@@ -1008,94 +1004,69 @@ async stateWiseReport(query: any, user: any) {
         59,
         999,
       );
-    }
-
-    if (filter === 'year') {
-      startDate = new Date(
-        now.getFullYear(),
-        0,
-        1,
-      );
-
-      endDate = new Date(
-        now.getFullYear(),
-        11,
-        31,
-        23,
-        59,
-        59,
-        999,
-      );
+    } else if (filter === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
     }
   }
 
   if (query.fromDate && query.toDate) {
     startDate = new Date(query.fromDate);
     startDate.setHours(0, 0, 0, 0);
-
     endDate = new Date(query.toDate);
     endDate.setHours(23, 59, 59, 999);
   }
 
-  const match: any = {
-    createdAt: {
-      $gte: startDate,
-      $lte: endDate,
-    },
+  const leadMatch: any = {
+    createdAt: { $gte: startDate, $lte: endDate },
   };
+  const revenueLeadMatch: any = {};
 
   if (query.state) {
-    match.state = {
-      $regex: query.state,
-      $options: 'i',
-    };
+    const stateFilter = { $regex: query.state, $options: 'i' };
+    leadMatch.state = stateFilter;
+    revenueLeadMatch['lead.state'] = stateFilter;
   }
 
   if (query.source_campaign) {
-    match.source_campaign = {
+    const campaignFilter = {
       $regex: query.source_campaign,
       $options: 'i',
     };
+    leadMatch.source_campaign = campaignFilter;
+    revenueLeadMatch['lead.source_campaign'] = campaignFilter;
   }
 
-  // hierarchy filter
   if (!user.isSuperAdmin) {
-    const Pool = await this.poolModel
-      .findOne({
-        pool_owner: user.userId,
-      })
+    const pool = await this.poolModel
+      .findOne({ pool_owner: user.userId })
       .select('_id');
-
     const users = await this.userLogic.getUsersUnder(user);
+    const accessibleUserIds = [
+      ...new Set([...users.map((item) => item._id.toString()), user.userId]),
+    ]
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
 
-    const accessibleUserIds = users.map(
-      (u) => u._id.toString(),
-    );
-
-    accessibleUserIds.push(user.userId);
-
-    if (Pool?._id) {
-      match.$or = [
-        {
-          assignedTo: {
-            $in: accessibleUserIds,
-          },
-        },
-        {
-          poolId: Pool._id,
-        },
+    if (pool?._id) {
+      leadMatch.$or = [
+        { assignedTo: { $in: accessibleUserIds } },
+        { poolId: pool._id },
+      ];
+      revenueLeadMatch.$or = [
+        { 'lead.assignedTo': { $in: accessibleUserIds } },
+        { 'lead.poolId': pool._id },
       ];
     } else {
-      match.assignedTo = {
+      leadMatch.assignedTo = { $in: accessibleUserIds };
+      revenueLeadMatch['lead.assignedTo'] = {
         $in: accessibleUserIds,
       };
     }
   }
 
-  const results = await this.leadModel.aggregate([
-    {
-      $match: match,
-    },
+  const leadResults = await this.leadModel.aggregate([
+    { $match: leadMatch },
     {
       $lookup: {
         from: 'leadstages',
@@ -1104,60 +1075,98 @@ async stateWiseReport(query: any, user: any) {
         as: 'stage',
       },
     },
-    {
-      $unwind: {
-        path: '$stage',
-        preserveNullAndEmptyArrays: true,
-      },
-    },
+    { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
     {
       $group: {
         _id: {
-          state: {
-            $ifNull: ['$state', 'Unknown'],
+          state: { $ifNull: ['$state', 'Unknown'] },
+          sourceCampaign: { $ifNull: ['$source_campaign', 'Unknown'] },
+          stage: { $ifNull: ['$stage.name', 'Unknown'] },
+        },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  // Revenue is filtered by the order date, then attributed to the matching
+  // lead's campaign and state. Phone is included because many leads/orders
+  // do not share a usable email address.
+  const revenueResults = await this.orderModel.aggregate([
+    {
+      $match: {
+        Approved: true,
+        orderDate: { $gte: startDate, $lte: endDate },
+      },
+    },
+    {
+      $lookup: {
+        from: 'leads',
+        let: { orderEmail: '$email', orderMobile: '$mobile' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$$orderEmail', ''] }, ''] },
+                      { $eq: ['$email', '$$orderEmail'] },
+                    ],
+                  },
+                  {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$$orderMobile', ''] }, ''] },
+                      { $eq: ['$phone', '$$orderMobile'] },
+                    ],
+                  },
+                ],
+              },
+            },
           },
+          {
+            $addFields: {
+              emailMatch: { $eq: ['$email', '$$orderEmail'] },
+            },
+          },
+          { $sort: { emailMatch: -1, createdAt: -1 } },
+          // One order must be attributed once, not once for every duplicate lead.
+          { $limit: 1 },
+        ],
+        as: 'lead',
+      },
+    },
+    { $unwind: '$lead' },
+    { $match: revenueLeadMatch },
+    {
+      $group: {
+        _id: {
+          state: { $ifNull: ['$lead.state', 'Unknown'] },
           sourceCampaign: {
-            $ifNull: [
-              '$source_campaign',
-              'Unknown',
-            ],
-          },
-          stage: {
-            $ifNull: [
-              '$stage.name',
-              'Unknown',
-            ],
+            $ifNull: ['$lead.source_campaign', 'Unknown'],
           },
         },
-        count: {
-          $sum: 1,
+        revenue: {
+          $sum: { $ifNull: ['$countedRevenue', '$finalFee'] },
         },
       },
     },
   ]);
 
-  // Campaign -> States
-  const campaignMap = new Map();
-
-  results.forEach((row) => {
-    const state = row._id.state;
-    const campaign = row._id.sourceCampaign;
-    const stage = row._id.stage;
-
-    if (!campaignMap.has(campaign)) {
-      campaignMap.set(campaign, {
-        campaignName: campaign,
+  const campaignMap = new Map<string, any>();
+  const ensureState = (campaignName: string, state: string) => {
+    if (!campaignMap.has(campaignName)) {
+      campaignMap.set(campaignName, {
+        campaignName,
         totalLeads: 0,
         totalAdmissionDone: 0,
         totalRevenue: 0,
-        statesMap: new Map(),
+        statesMap: new Map<string, any>(),
       });
     }
 
-    const campaignItem = campaignMap.get(campaign);
-
-    if (!campaignItem.statesMap.has(state)) {
-      campaignItem.statesMap.set(state, {
+    const campaign = campaignMap.get(campaignName);
+    if (!campaign.statesMap.has(state)) {
+      campaign.statesMap.set(state, {
         state,
         totalLeads: 0,
         pcatScheduled: 0,
@@ -1169,73 +1178,63 @@ async stateWiseReport(query: any, user: any) {
       });
     }
 
-    const stateItem =
-      campaignItem.statesMap.get(state);
+    return {
+      campaign,
+      state: campaign.statesMap.get(state),
+    };
+  };
 
-    stateItem.totalLeads += row.count;
+  leadResults.forEach((row) => {
+    const campaignName = row._id.sourceCampaign;
+    const stateName = row._id.state;
+    const stage = row._id.stage;
+    const item = ensureState(campaignName, stateName);
 
-    stateItem.stages[stage] =
-      (stateItem.stages[stage] || 0) +
-      row.count;
+    item.state.totalLeads += row.count;
+    item.state.stages[stage] = (item.state.stages[stage] || 0) + row.count;
+    item.campaign.totalLeads += row.count;
 
-    const stageName = stage
-      .toLowerCase()
-      .trim();
-
-    if (
-      stageName === 'pcat schedule' ||
-      stageName === 'pcat scheduled'
-    ) {
-      stateItem.pcatScheduled += row.count;
+    const stageName = stage.toLowerCase().trim();
+    if (stageName === 'pcat schedule' || stageName === 'pcat scheduled') {
+      item.state.pcatScheduled += row.count;
+    } else if (stageName === 'pcat done') {
+      item.state.pcatDone += row.count;
+    } else if (stageName === 'registration done') {
+      item.state.registrationDone += row.count;
+    } else if (stageName === 'admission done') {
+      item.state.admissionDone += row.count;
     }
-
-    if (stageName === 'pcat done') {
-      stateItem.pcatDone += row.count;
-    }
-
-    if (stageName === 'registration done') {
-      stateItem.registrationDone += row.count;
-    }
-
-    if (stageName === 'admission done') {
-      stateItem.admissionDone += row.count;
-    }
-
-    campaignItem.totalLeads += row.count;
   });
 
-  const report = Array.from(
-    campaignMap.values(),
-  ).map((campaign: any) => {
-    const states = Array.from(
-      campaign.statesMap.values(),
-    ).map((state: any) => {
-      state.conversionPercentage =
-        state.totalLeads > 0
-          ? Number(
-              (
-                (state.admissionDone /
-                  state.totalLeads) *
-                100
-              ).toFixed(2),
-            )
-          : 0;
+  // Keep revenue-only campaign/state rows too. An order can be in this date
+  // range even when its lead was created before the selected range.
+  revenueResults.forEach((row) => {
+    const item = ensureState(row._id.sourceCampaign, row._id.state);
+    item.state.revenue = Number(row.revenue) || 0;
+  });
 
-      return state;
-    });
-
-    campaign.totalAdmissionDone =
-      states.reduce(
-        (sum, state) =>
-          sum + state.admissionDone,
-        0,
-      );
-
-    campaign.states = states.sort(
-      (a, b) =>
-        b.totalLeads - a.totalLeads,
+  const report = Array.from(campaignMap.values()).map((campaign: any) => {
+    const states = Array.from(campaign.statesMap.values()).map(
+      (state: any) => ({
+        ...state,
+        conversionPercentage:
+          state.totalLeads > 0
+            ? Number(
+                ((state.admissionDone / state.totalLeads) * 100).toFixed(2),
+              )
+            : 0,
+      }),
     );
 
+    campaign.totalAdmissionDone = states.reduce(
+      (sum, state) => sum + state.admissionDone,
+      0,
+    );
+    campaign.totalRevenue = states.reduce(
+      (sum, state) => sum + state.revenue,
+      0,
+    );
+    campaign.states = states.sort((a, b) => b.totalLeads - a.totalLeads);
     delete campaign.statesMap;
 
     return campaign;
@@ -1244,23 +1243,17 @@ async stateWiseReport(query: any, user: any) {
   return {
     startDate,
     endDate,
-    data: report.sort(
-      (a, b) =>
-        b.totalLeads - a.totalLeads,
-    ),
+    data: report.sort((a, b) => b.totalLeads - a.totalLeads),
   };
 }
-
 async stateWiseEmployeeReport(query: any, user: any) {
   const now = new Date();
-
   let startDate = new Date();
   let endDate = new Date();
 
   startDate.setHours(0, 0, 0, 0);
   endDate.setHours(23, 59, 59, 999);
 
-  // Date Filters
   if (query.dateFilter) {
     const filter = query.dateFilter.toLowerCase();
 
@@ -1268,15 +1261,8 @@ async stateWiseEmployeeReport(query: any, user: any) {
       startDate = new Date();
       startDate.setDate(startDate.getDate() - 6);
       startDate.setHours(0, 0, 0, 0);
-    }
-
-    if (filter === 'month') {
-      startDate = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        1,
-      );
-
+    } else if (filter === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       endDate = new Date(
         now.getFullYear(),
         now.getMonth() + 1,
@@ -1286,117 +1272,87 @@ async stateWiseEmployeeReport(query: any, user: any) {
         59,
         999,
       );
-    }
-
-    if (filter === 'year') {
-      startDate = new Date(
-        now.getFullYear(),
-        0,
-        1,
-      );
-
-      endDate = new Date(
-        now.getFullYear(),
-        11,
-        31,
-        23,
-        59,
-        59,
-        999,
-      );
+    } else if (filter === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
     }
   }
 
   if (query.fromDate && query.toDate) {
     startDate = new Date(query.fromDate);
     startDate.setHours(0, 0, 0, 0);
-
     endDate = new Date(query.toDate);
     endDate.setHours(23, 59, 59, 999);
   }
 
-  const match: any = {
-    createdAt: {
-      $gte: startDate,
-      $lte: endDate,
-    },
+  const leadMatch: any = {
+    createdAt: { $gte: startDate, $lte: endDate },
   };
+  const revenueLeadMatch: any = {};
+  const revenueOrderMatch: any = {};
 
-  // Filters
   if (query.state) {
-    match.state = {
-      $regex: query.state,
-      $options: 'i',
-    };
+    const stateFilter = { $regex: query.state, $options: 'i' };
+    leadMatch.state = stateFilter;
+    revenueLeadMatch['lead.state'] = stateFilter;
   }
 
   if (query.source) {
-    match.source = query.source;
+    leadMatch.source = query.source;
+    revenueLeadMatch['lead.source'] = query.source;
   }
 
   if (query.status) {
-    match.status = query.status;
+    leadMatch.status = query.status;
+    revenueLeadMatch['lead.status'] = query.status;
   }
 
   if (query.stageId) {
-    match.stageId = new Types.ObjectId(
-      query.stageId,
-    );
+    const stageId = new Types.ObjectId(query.stageId);
+    leadMatch.stageId = stageId;
+    revenueLeadMatch['lead.stageId'] = stageId;
   }
 
   if (query.poolId) {
-    match.poolId = new Types.ObjectId(
-      query.poolId,
-    );
+    const poolId = new Types.ObjectId(query.poolId);
+    leadMatch.poolId = poolId;
+    revenueLeadMatch['lead.poolId'] = poolId;
   }
 
-  if (query.assignedTo) {
-    match.assignedTo = query.assignedTo;
+  const requestedEmployeeId = query.counsellorId || query.assignedTo;
+  if (requestedEmployeeId && Types.ObjectId.isValid(requestedEmployeeId)) {
+    const employeeId = new Types.ObjectId(requestedEmployeeId);
+    leadMatch.assignedTo = employeeId;
+    revenueOrderMatch.counsellorId = employeeId;
   }
 
-  if (query.counsellorId) {
-    match.assignedTo = query.counsellorId;
-  }
+  let accessibleUserIds: Types.ObjectId[] = [];
+  let poolId: any = null;
 
-  // Hierarchy Filter
   if (!user.isSuperAdmin) {
-    const Pool = await this.poolModel
-      .findOne({
-        pool_owner: user.userId,
-      })
+    const pool = await this.poolModel
+      .findOne({ pool_owner: user.userId })
       .select('_id');
-
+    poolId = pool?._id;
     const users = await this.userLogic.getUsersUnder(user);
+    accessibleUserIds = [
+      ...new Set([...users.map((item) => item._id.toString()), user.userId]),
+    ]
+      .filter((id) => Types.ObjectId.isValid(id))
+      .map((id) => new Types.ObjectId(id));
 
-    const accessibleUserIds = users.map(
-      (u) => u._id.toString(),
-    );
-
-    accessibleUserIds.push(user.userId);
-
-    if (Pool?._id) {
-      match.$or = [
-        {
-          assignedTo: {
-            $in: accessibleUserIds,
-          },
-        },
-        {
-          poolId: Pool._id,
-        },
+    if (poolId) {
+      leadMatch.$or = [
+        { assignedTo: { $in: accessibleUserIds } },
+        { poolId },
       ];
     } else {
-      match.assignedTo = {
-        $in: accessibleUserIds,
-      };
+      leadMatch.assignedTo = { $in: accessibleUserIds };
     }
   }
 
-  const results = await this.leadModel.aggregate([
-    {
-      $match: match,
-    },
-
+  const leadResults = await this.leadModel.aggregate([
+    { $match: leadMatch },
     {
       $lookup: {
         from: 'leadstages',
@@ -1405,251 +1361,261 @@ async stateWiseEmployeeReport(query: any, user: any) {
         as: 'stage',
       },
     },
-
+    { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
     {
-      $unwind: {
-        path: '$stage',
-        preserveNullAndEmptyArrays: true,
+      $addFields: {
+        employeeLookupId: {
+          $convert: {
+            input: '$assignedTo',
+            to: 'objectId',
+            onError: null,
+            onNull: null,
+          },
+        },
       },
     },
-
     {
-  $addFields: {
-    employeeLookupId: {
-      $cond: [
-        {
-          $and: [
-            { $ne: ['$assignedTo', null] },
-            { $ne: ['$assignedTo', false] },
-            {
-              $eq: [
-                { $type: '$assignedTo' },
-                'objectId',
-              ],
-            },
-          ],
-        },
-        '$assignedTo',
-        {
-          $cond: [
-            {
-              $and: [
-                { $ne: ['$assignedTo', null] },
-                { $ne: ['$assignedTo', false] },
-              ],
-            },
-            {
-              $convert: {
-                input: '$assignedTo',
-                to: 'objectId',
-                onError: null,
-                onNull: null,
-              },
-            },
-            null,
-          ],
-        },
-      ],
-    },
-  },
-},
-{
-  $lookup: {
-    from: 'users',
-    localField: 'employeeLookupId',
-    foreignField: '_id',
-    as: 'employee',
-  },
-},
-
-    {
-      $unwind: {
-        path: '$employee',
-        preserveNullAndEmptyArrays: true,
+      $lookup: {
+        from: 'users',
+        localField: 'employeeLookupId',
+        foreignField: '_id',
+        as: 'employee',
       },
     },
-
+    { $unwind: { path: '$employee', preserveNullAndEmptyArrays: false } },
     {
       $group: {
         _id: {
-          state: {
-            $ifNull: ['$state', 'Unknown'],
-          },
-
-          employeeId: {
-            $ifNull: [
-              '$employee._id',
-              null,
-            ],
-          },
-
-          employeeName: {
-            $ifNull: [
-              '$employee.name',
-              'Unassigned',
-            ],
-          },
-
-          employeeEmail: {
-            $ifNull: [
-              '$employee.email',
-              '',
-            ],
-          },
-
-          employeeCode: {
-            $ifNull: [
-              '$employee.employeeId',
-              '',
-            ],
-          },
-
-          stage: {
-            $ifNull: [
-              '$stage.name',
-              'Unknown',
-            ],
-          },
+          state: { $ifNull: ['$state', 'Unknown'] },
+          employeeId: { $ifNull: ['$employee._id', null] },
+          employeeName: { $ifNull: ['$employee.name', 'Unassigned'] },
+          employeeEmail: { $ifNull: ['$employee.email', ''] },
+          employeeCode: { $ifNull: ['$employee.employeeId', ''] },
+          stage: { $ifNull: ['$stage.name', 'Unknown'] },
         },
-
-        count: {
-          $sum: 1,
-        },
+        count: { $sum: 1 },
       },
     },
   ]);
 
-  const employeeMap = new Map();
+  // Revenue is owned by the employee who created the order (counsellorId),
+  // while state is read from the related lead. Match both email and mobile so
+  // valid orders are not lost when one contact field differs or is empty.
+  const revenuePipeline: any[] = [
+    {
+      $match: {
+        Approved: true,
+        orderDate: { $gte: startDate, $lte: endDate },
+        ...revenueOrderMatch,
+      },
+    },
+    {
+      $lookup: {
+        from: 'leads',
+        let: { orderEmail: '$email', orderMobile: '$mobile' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$$orderEmail', ''] }, ''] },
+                      { $eq: ['$email', '$$orderEmail'] },
+                    ],
+                  },
+                  {
+                    $and: [
+                      { $ne: [{ $ifNull: ['$$orderMobile', ''] }, ''] },
+                      { $eq: ['$phone', '$$orderMobile'] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $addFields: { emailMatch: { $eq: ['$email', '$$orderEmail'] } } },
+          { $sort: { emailMatch: -1, createdAt: -1 } },
+          { $limit: 1 },
+        ],
+        as: 'lead',
+      },
+    },
+    { $unwind: '$lead' },
+    { $match: revenueLeadMatch },
+  ];
 
-  results.forEach((row) => {
-  const state = row._id.state;
-  const employeeId =
-    row._id.employeeId?.toString() ||
-    'unassigned';
-
-  const stage = row._id.stage;
-
-  if (!employeeMap.has(employeeId)) {
-    employeeMap.set(employeeId, {
-      employeeId,
-      employeeName: row._id.employeeName,
-      employeeEmail: row._id.employeeEmail,
-      employeeCode: row._id.employeeCode,
-      totalLeads: 0,
-      totalAdmissionDone: 0,
-      totalRevenue: 0,
-      statesMap: new Map(),
-    });
+  if (!user.isSuperAdmin) {
+    if (poolId) {
+      revenuePipeline.push({
+        $match: {
+          $or: [
+            { counsellorId: { $in: accessibleUserIds } },
+            { 'lead.poolId': poolId },
+          ],
+        },
+      });
+    } else {
+      revenuePipeline.push({
+        $match: { counsellorId: { $in: accessibleUserIds } },
+      });
+    }
   }
 
-  const employee =
-    employeeMap.get(employeeId);
-
-  if (!employee.statesMap.has(state)) {
-    employee.statesMap.set(state, {
-      state,
-      totalLeads: 0,
-      pcatScheduled: 0,
-      pcatDone: 0,
-      registrationDone: 0,
-      admissionDone: 0,
-      revenue: 0,
-      stages: {},
-    });
-  }
-
-  const stateItem =
-    employee.statesMap.get(state);
-
-  stateItem.totalLeads += row.count;
-
-  stateItem.stages[stage] =
-    (stateItem.stages[stage] || 0) +
-    row.count;
-
-  const stageName = stage
-    .toLowerCase()
-    .trim();
-
-  if (
-    stageName === 'pcat schedule' ||
-    stageName === 'pcat scheduled'
-  ) {
-    stateItem.pcatScheduled += row.count;
-  }
-
-  if (stageName === 'pcat done') {
-    stateItem.pcatDone += row.count;
-  }
-
-  if (
-    stageName ===
-    'registration done'
-  ) {
-    stateItem.registrationDone +=
-      row.count;
-  }
-
-  if (
-    stageName ===
-    'admission done'
-  ) {
-    stateItem.admissionDone +=
-      row.count;
-  }
-
-  employee.totalLeads += row.count;
-});
-
-const report = Array.from(
-  employeeMap.values(),
-).map((employee: any) => {
-  const states = Array.from(
-    employee.statesMap.values(),
-  ).map((state: any) => {
-    state.conversionPercentage =
-      state.totalLeads > 0
-        ? Number(
-            (
-              (state.admissionDone /
-                state.totalLeads) *
-              100
-            ).toFixed(2),
-          )
-        : 0;
-
-    return state;
-  });
-
-  employee.totalAdmissionDone =
-    states.reduce(
-      (sum, state) =>
-        sum + state.admissionDone,
-      0,
-    );
-
-  employee.states = states.sort(
-    (a, b) =>
-      b.totalLeads - a.totalLeads,
+  revenuePipeline.push(
+    {
+      $group: {
+        _id: {
+          state: { $ifNull: ['$lead.state', 'Unknown'] },
+          employeeId: '$counsellorId',
+        },
+        revenue: { $sum: { $ifNull: ['$countedRevenue', '$finalFee'] } },
+      },
+    },
+    {
+      $addFields: {
+        employeeLookupId: {
+          $convert: {
+            input: '$_id.employeeId',
+            to: 'objectId',
+            onError: null,
+            onNull: null,
+          },
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'employeeLookupId',
+        foreignField: '_id',
+        as: 'employee',
+      },
+    },
+    { $unwind: { path: '$employee', preserveNullAndEmptyArrays: false } },
+    {
+      $project: {
+        _id: 1,
+        revenue: 1,
+        employeeName: { $ifNull: ['$employee.name', 'Unknown'] },
+        employeeEmail: { $ifNull: ['$employee.email', ''] },
+        employeeCode: { $ifNull: ['$employee.employeeId', ''] },
+      },
+    },
   );
 
-  delete employee.statesMap;
+  const revenueResults = await this.orderModel.aggregate(revenuePipeline);
+  const employeeMap = new Map<string, any>();
+  const ensureEmployeeState = (
+    employeeId: string,
+    employeeName: string,
+    employeeEmail: string,
+    employeeCode: string,
+    state: string,
+  ) => {
+    if (!employeeMap.has(employeeId)) {
+      employeeMap.set(employeeId, {
+        employeeId,
+        employeeName,
+        employeeEmail,
+        employeeCode,
+        totalLeads: 0,
+        totalAdmissionDone: 0,
+        totalRevenue: 0,
+        statesMap: new Map<string, any>(),
+      });
+    }
 
-  return employee;
-});
+    const employee = employeeMap.get(employeeId);
+    if (!employee.statesMap.has(state)) {
+      employee.statesMap.set(state, {
+        state,
+        totalLeads: 0,
+        pcatScheduled: 0,
+        pcatDone: 0,
+        registrationDone: 0,
+        admissionDone: 0,
+        revenue: 0,
+        stages: {},
+      });
+    }
+
+    return { employee, state: employee.statesMap.get(state) };
+  };
+
+  leadResults.forEach((row) => {
+    const employeeId = row._id.employeeId?.toString() || 'unassigned';
+    const item = ensureEmployeeState(
+      employeeId,
+      row._id.employeeName,
+      row._id.employeeEmail,
+      row._id.employeeCode,
+      row._id.state,
+    );
+    const stage = row._id.stage;
+
+    item.state.totalLeads += row.count;
+    item.state.stages[stage] = (item.state.stages[stage] || 0) + row.count;
+    item.employee.totalLeads += row.count;
+
+    const stageName = stage.toLowerCase().trim();
+    if (stageName === 'pcat schedule' || stageName === 'pcat scheduled') {
+      item.state.pcatScheduled += row.count;
+    } else if (stageName === 'pcat done') {
+      item.state.pcatDone += row.count;
+    } else if (stageName === 'registration done') {
+      item.state.registrationDone += row.count;
+    } else if (stageName === 'admission done') {
+      item.state.admissionDone += row.count;
+    }
+  });
+
+  // Include states that only have approved orders during this range.
+  revenueResults.forEach((row) => {
+    const employeeId = row._id.employeeId?.toString() || 'unknown';
+    const item = ensureEmployeeState(
+      employeeId,
+      row.employeeName,
+      row.employeeEmail,
+      row.employeeCode,
+      row._id.state,
+    );
+    item.state.revenue = Number(row.revenue) || 0;
+  });
+
+  const report = Array.from(employeeMap.values()).map((employee: any) => {
+    const states = Array.from(employee.statesMap.values()).map(
+      (state: any) => ({
+        ...state,
+        conversionPercentage:
+          state.totalLeads > 0
+            ? Number(
+                ((state.admissionDone / state.totalLeads) * 100).toFixed(2),
+              )
+            : 0,
+      }),
+    );
+
+    employee.totalAdmissionDone = states.reduce(
+      (sum, state) => sum + state.admissionDone,
+      0,
+    );
+    employee.totalRevenue = states.reduce(
+      (sum, state) => sum + state.revenue,
+      0,
+    );
+    employee.states = states.sort((a, b) => b.totalLeads - a.totalLeads);
+    delete employee.statesMap;
+
+    return employee;
+  });
 
   return {
     startDate,
     endDate,
-
-    data: report.sort(
-      (a, b) =>
-        b.totalLeads -
-        a.totalLeads,
-    ),
+    data: report.sort((a, b) => b.totalLeads - a.totalLeads),
   };
 }
-
   async findOne(id: string, user: any) {
     const lead = await this.leadData.findById(id);
     if (!lead) throw new NotFoundException('Lead not found');

@@ -19,6 +19,7 @@ import { User, UserSchema } from 'src/schema/user.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
 import { MaskSetting,MaskSettingSchema } from 'src/schema/mask.schema';
 import { LeadStageHistoryModule } from '../LeadStageHistory/LeadStageHistory.module';
+import { Order, OrderSchema } from 'src/schema/order_Management/order.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -29,6 +30,7 @@ import { LeadStageHistoryModule } from '../LeadStageHistory/LeadStageHistory.mod
       { name: Pool.name, schema: PoolSchema },
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
+      { name: Order.name, schema: OrderSchema },
       { name: MaskSetting.name, schema: MaskSettingSchema },
     ]),
     LeadHistoryModule,
