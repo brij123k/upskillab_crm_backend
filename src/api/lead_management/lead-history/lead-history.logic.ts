@@ -1,12 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { LeadHistoryData } from './lead-history.data';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
+import { Lead } from 'src/schema/lead_management/lead.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
 
 @Injectable()
 export class LeadHistoryLogic {
-  constructor(private readonly historyData: LeadHistoryData) {}
+  constructor(
+    private readonly historyData: LeadHistoryData,
+    @InjectModel(Lead.name)
+    private readonly leadModel: Model<Lead>,
+  ) {}
 
-  log(data: {
+  async log(data: {
     leadId: string;
     actionType: LeadActionType;
     fromUser?: string;
@@ -16,6 +23,11 @@ export class LeadHistoryLogic {
     changes?: Record<string, any>;
     reason?:string;
   }) {
+    const lead = await this.leadModel.findOne({leadId:Number(data.leadId)})
+    console.log(lead)
+    if(!lead){
+      return false
+    }
     return this.historyData.create(data);
   }
 

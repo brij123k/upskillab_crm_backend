@@ -253,40 +253,10 @@ await this.notificationEngine.handleEvent({
       },
     });
     }
-    
-    // const salesManagers = await this.userModel.find({
-    //   roleName: 'sales_manager',   // adjust if needed
-    //   status: 'active',
-    // }).select('_id');
-
-    // const managerIds = salesManagers.map(u => u._id.toString());
-
-    // // 3️⃣ Emit notification event
-    // await this.notificationEngine.handleEvent({
-    //   event: NOTIFICATION_EVENT.LEAD_ASSIGNED,
-    //   actorId: actorId,
-
-    //   recipients: {
-    //     userIds: managerIds, // 🔥 Sales Managers only
-    //   },
-
-    //   title: 'Lead Assigned',
-    //   message: `A lead has been assigned to a sales executive.`,
-
-    //   entity: {
-    //     type: NOTIFICATION_ENTITY.LEAD,
-    //     id: lead._id.toString(),
-    //   },
-
-    //   metadata: {
-    //     redirectUrl: `/leads/${lead._id}`,
-    //   },
-    // });
-
     return this.maskLeadResponse(lead, user);
   }
 
-    async createByUpskillab(dto: UpskillabLeadDto) {
+  async createByUpskillab(dto: UpskillabLeadDto) {
     const getAdmin = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
     const NewLead = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');
     const assignedTo =  getAdmin?._id?getAdmin._id:"";
