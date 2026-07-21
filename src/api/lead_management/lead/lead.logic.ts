@@ -1121,7 +1121,6 @@ async stateWiseReport(query: any, user: any) {
       },
     },
   ]);
-
   const campaignMap = new Map<string, any>();
   const ensureState = (campaignName: string, state: string) => {
     if (!campaignMap.has(campaignName)) {
@@ -1802,16 +1801,16 @@ async stateWiseEmployeeReport(query: any, user: any) {
 
   async changeStage(
     id: string,
-    stageId: string,
+    dto: any,
     user: any,
   ) {
     const userId = user?.userId;
     const existingLead = await this.leadData.findById(id);
     if (!existingLead) throw new NotFoundException('Lead not found');
-    const existstage = await this.leadStageModel.findById(stageId)
+    const existstage = await this.leadStageModel.findById(dto.stageId)
     if (!existstage) throw new NotFoundException('Stage not found');
     const lead = await this.leadData.update(id, {
-      stageId:new Types.ObjectId(stageId),
+      stageId:new Types.ObjectId(dto.stageId),
       modifiedBy: userId,
       modifiedAt: new Date(),
       stageChangedAt:new Date(),
@@ -1825,6 +1824,7 @@ async stateWiseEmployeeReport(query: any, user: any) {
       leadId: lead?.leadId.toString(),
       actionType: LeadActionType.STAGE_CHANGED,
       actionBy: userId,
+      reason:dto.reason,
       changes: {
         status: {
           from: stage.name,

@@ -210,7 +210,7 @@ stateWiseEmployeeReport(
         @Body() dto: ChangeLeadStageDto,
         @Req() req: any
     ) {
-        return this.logic.changeStage(id, dto.stageId, req?.user);
+        return this.logic.changeStage(id, dto, req?.user);
     }
 
     

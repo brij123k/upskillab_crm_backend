@@ -145,4 +145,8 @@ export class ChangeLeadStageDto {
   @ApiProperty()
   @IsString()
   stageId: string;
+
+  @ApiProperty()
+  @IsString()
+  reason:string;
 }

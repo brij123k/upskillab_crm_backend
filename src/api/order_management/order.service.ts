@@ -345,12 +345,12 @@ export class OrderService {
       }
 
       if (start) {
-        query.createdAt = { $gte: start };
+        query.orderDate = { $gte: start };
       }
     }
 
     if (fromDate && toDate) {
-      query.createdAt = {
+      query.orderDate = {
         $gte: new Date(fromDate),
         $lte: new Date(toDate),
       };
