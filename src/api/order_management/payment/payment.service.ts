@@ -162,6 +162,7 @@ async createleadPaymentLink(data: {
           leadId: data.leadId,
           userId
         }
+        try {
       const response = await axios.post(
         'https://api.cashfree.com/pg/links',
         // 'https://sandbox.cashfree.com/pg/links',
@@ -175,6 +176,11 @@ async createleadPaymentLink(data: {
           },
         },
       );
+    }catch(err:any){
+      console.log(err.response?.status);
+  console.log(err.response?.data);
+  console.log(err.message);
+    }
 
       await this.leadHistoryLogic.log({
             leadId: lead?.leadId.toString(),
