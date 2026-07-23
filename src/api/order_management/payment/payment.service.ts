@@ -165,7 +165,6 @@ async createleadPaymentLink(data: {
         try {
       const response = await axios.post(
         'https://api.cashfree.com/pg/links',
-        // 'https://sandbox.cashfree.com/pg/links',
         payload,
         {
           headers: {
