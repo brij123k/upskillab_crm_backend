@@ -177,11 +177,7 @@ async createleadPaymentLink(data: {
         },
       );
       console.log("Link Response:",response)
-    }catch(err:any){
-      console.log(err.response?.status);
-  console.log(err.response?.data);
-  console.log(err.message);
-    }
+   
 
       await this.leadHistoryLogic.log({
             leadId: lead?.leadId.toString(),
@@ -204,6 +200,11 @@ async createleadPaymentLink(data: {
         linkId: response.data.link_id,
         paymentLink: response.data.link_url,
       };
+       }catch(err:any){
+      console.log(err.response?.status);
+  console.log(err.response?.data);
+  console.log(err.message);
+    }
     } catch (error:any) {
       console.error(error.response?.data || error.message);
       throw new BadRequestException('Payment link creation failed');
