@@ -11,6 +11,8 @@ import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { UserModule } from 'src/api/user/user.module';
 import { UserActivityModule } from 'src/api/user-activity/user-activity.module';
 import { LeadStage,LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
+import { LeadHistoryModule } from 'src/api/lead_management/lead-history/lead-history.module';
+import { LeadModule } from 'src/api/lead_management/lead/lead.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -24,6 +26,8 @@ import { LeadStage,LeadStageSchema } from 'src/schema/lead_management/lead-stage
         ,OrderModule,
         UserModule,
         UserActivityModule,
+        LeadHistoryModule,
+        LeadModule
       ],
   providers: [PaymentService],
   controllers: [PaymentController],

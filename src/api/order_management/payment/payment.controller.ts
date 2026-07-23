@@ -27,6 +27,7 @@ import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
+import { LeadLogic } from 'src/api/lead_management/lead/lead.logic';
 
 
 export class CreatePlanDto {
@@ -50,7 +51,7 @@ export class PaymentController {
     private readonly userActivityLogic: UserActivityLogic,
     @InjectModel(LeadStage.name)
     private readonly leadStageModel: Model<LeadStage>,
-
+    private readonly Leadlogic: LeadLogic,
   ) { }
 
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
@@ -64,6 +65,18 @@ export class PaymentController {
     return this.paymentService.createPaymentLink(body, req.user.userId);
   }
 
+  // @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles('Admin', 'bd')
+  @Post('leadPayment-link')
+  // @RequirePermission(
+  //   PERMISSIONS.Orders.MODULE,
+  //   PERMISSIONS.Orders.ACTIONS.PAYMENTLINKGENERATOR,
+  // )
+  async createleadPaymentLink(@Body() body: any, @Req() req: any) {
+    return this.paymentService.createleadPaymentLink(body, req.user.userId);
+  }
+
   @Post('webhook')
   async webhook(@Body() body: any) {
     try {
@@ -73,14 +86,13 @@ export class PaymentController {
         const data = body?.data;
 
         const orderId =
-          data?.link_notes?.orderId ||
-          data?.order?.order_id;
+          data?.link_notes?.orderId
         // const orderId = body?.data?.order?.order_tags?.orderId;
 
         let order: any = null;
         let counsellorId: Types.ObjectId | undefined;
         let leadId: Types.ObjectId | undefined;
-
+        counsellorId=new Types.ObjectId(data?.link_notes?.userId)
         if (orderId) {
           order = await this.orderService.findById(orderId);
           if (order) {
@@ -95,9 +107,24 @@ export class PaymentController {
             }
           }
         }
-
+        const lId =
+          data?.link_notes?.leadId
+          const userId = data?.link_notes?.userId
+          if(lId){
+            const lead = await this.leadModel.findOne({leadId:lId})
+            if (!!lead){
+              leadId = lead._id;
+              counsellorId=new Types.ObjectId(data?.link_notes?.userId)
+              if(data.link_purpose=="Registration Payment"){
+                const stage = await this.leadStageModel.findOne({name:"Registration Done"})
+                if(!!stage){
+                  await this.Leadlogic.changeStagebyLeadId(lead.leadId,(stage._id).toString(),userId)
+                }
+              }
+            }
+          }
         // ================= STORE PAYMENT =================
-        await this.paymentModel.create({
+        const res = await this.paymentModel.create({
           cf_link_id: data?.cf_link_id,
           link_id: data?.link_id,
           link_status: data?.link_status,
@@ -126,6 +153,11 @@ export class PaymentController {
           event_type: body?.type,
           event_time: body?.event_time,
         });
+        console.log( res);
+        const saved = await this.paymentModel
+  .findById(res._id)
+  .lean();
+        console.log("Saved from DB:", saved);
         console.log('Payment record created for link event.', data?.order?.transaction_status);
         // ================= APPLY PAYMENT =================
         if (data?.order?.transaction_status === 'SUCCESS' && orderId) {

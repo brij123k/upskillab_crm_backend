@@ -29,6 +29,7 @@ import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import { MergeLeadsDTO } from 'src/dto/lead-management/MergeLeadsDTO';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { AssignPoolDto } from 'src/dto/lead-management/assign-pool.dto';
+import { StageChangeDto } from 'src/dto/lead-management/stageChange.dto';
 
 @ApiTags('Leads')
 @Controller('leads')
@@ -248,6 +249,24 @@ stateWiseEmployeeReport(
         @CurrentUser() user: any,
     ) {
         return this.logic.assignPool(dto, user.userId);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+    @Roles('Admin', 'bd')
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.STAGE_CHANGE,
+    )
+    @Patch('bulkStage/change')
+    @ApiOperation({
+        summary:
+            'Assign Pool to leads by leadIds, or both',
+    })
+    bulkStageChange(
+        @Body() dto: StageChangeDto,
+        @CurrentUser() user: any,
+    ) {
+        return this.logic.bulkStagechange(dto, user.userId);
     }
 
 

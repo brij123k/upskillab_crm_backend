@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { OrderService } from '../order.service';
@@ -11,6 +11,8 @@ import { Payment } from 'src/schema/order_Management/payment.schema';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { UserLogic } from 'src/api/user/user.logic';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
+import { LeadHistoryLogic } from 'src/api/lead_management/lead-history/lead-history.logic';
+import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 
 @Injectable()
 export class PaymentService {
@@ -26,6 +28,7 @@ export class PaymentService {
     private leadModel: Model<Lead>,
     private readonly userLogic: UserLogic,
     private readonly userActivityLogic: UserActivityLogic,
+    private readonly leadHistoryLogic: LeadHistoryLogic,
 
   ) { }
   private getCashfreeHeaders() {
@@ -36,6 +39,7 @@ export class PaymentService {
       'Content-Type': 'application/json',
     };
   }
+
   async createPaymentLink(data: {
     name: string;
     email: string;
@@ -52,6 +56,7 @@ export class PaymentService {
         throw new BadRequestException(`Amount should be ${order.finalFee - (order.lumpsumDetails?.totalReceived || 0)}`);
       }
     }
+    const lead= await this.leadModel.findOne({email:data.email})
     try {
       const payload: any = {
         customer_details: {
@@ -79,10 +84,11 @@ export class PaymentService {
       if (data.orderId) {
         payload.link_notes = {
           orderId: data.orderId,
+          userId
         };
       }
       const response = await axios.post(
-        'https://sandbox.cashfree.com/pg/links',
+        'https://api.cashfree.com/pg/links',
         payload,
         {
           headers: {
@@ -93,6 +99,14 @@ export class PaymentService {
           },
         },
       );
+      if(!!lead){
+        await this.leadHistoryLogic.log({
+            leadId: lead?.leadId.toString(),
+            actionType: LeadActionType.PAYMENTLOG,
+            actionBy: userId,
+            reason:`Payment link Comes`
+          });
+      }
       await this.userActivityLogic.log({
               userId: userId,
               action: 'Payment Link Created',
@@ -107,7 +121,83 @@ export class PaymentService {
         linkId: response.data.link_id,
         paymentLink: response.data.link_url,
       };
-    } catch (error) {
+    } catch (error:any) {
+      console.error(error.response?.data || error.message);
+      throw new BadRequestException('Payment link creation failed');
+    }
+  }
+
+async createleadPaymentLink(data: {
+  course:string;
+    amount: number;
+    leadId: string;
+  },userId: string) {
+      const lead = await this.leadModel.findOne({leadId:Number(data.leadId)})
+      if(!lead){
+        throw new NotFoundException("Lead Not Found")
+      }
+    try {
+      const payload: any = {
+        customer_details: {
+          customer_name: lead.name,
+          customer_email: lead.email,
+          customer_phone: lead.phone,
+        },
+
+        link_amount: data.amount,
+        link_currency: 'INR',
+
+        link_purpose: 'Registration Payment',
+
+        link_notify: {
+          send_sms: true,
+          send_email: true,
+        },
+
+        link_meta: {
+          notify_url: 'https://crm.upskillab.in/payment/webhook',
+        },
+      };
+        payload.link_notes = {
+          leadId: data.leadId,
+          userId
+        }
+      const response = await axios.post(
+        'https://api.cashfree.com/pg/links',
+        // 'https://sandbox.cashfree.com/pg/links',
+        payload,
+        {
+          headers: {
+            'x-client-id': process.env.CASHFREE_APP_ID,
+            'x-client-secret': process.env.CASHFREE_SECRET_KEY,
+            'x-api-version': '2025-01-01',
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      await this.leadHistoryLogic.log({
+            leadId: lead?.leadId.toString(),
+            actionType: LeadActionType.PAYMENTLOG,
+            actionBy: userId,
+            reason:`Registration payment link in ${data.course} generated`
+          });
+      // await this.leadHistory
+      await this.userActivityLogic.log({
+              userId: userId,
+              action: 'Payment Link Created',
+              referenceType: 'Payment Link',
+              referenceId: data?.leadId,
+              meta: {
+                message:"Payment Link Created",
+                payload: { ...payload, leadId: data?.leadId },
+                paymentLink: response.data.link_url,},
+            });
+      return {
+        linkId: response.data.link_id,
+        paymentLink: response.data.link_url,
+      };
+    } catch (error:any) {
       console.error(error.response?.data || error.message);
       throw new BadRequestException('Payment link creation failed');
     }
@@ -131,39 +221,31 @@ async getAllPayments(filters: any, user: any) {
 
   /* ================= GET ACCESSIBLE COUNSELLORS ================= */
 
-  let accessibleUserIds: string[] = [];
+  let accessibleUserIds: any[] = [];
 
   if (group === true || group === 'true') {
     const users = await this.userLogic.getUsersUnder(user);
-    accessibleUserIds = users.map((u) => u._id.toString());
+    accessibleUserIds = users.map((u) => new Types.ObjectId(u._id));
     accessibleUserIds.push(user.userId);
   } else if (user.roleName === 'bd') {
-    accessibleUserIds = [user.userId];
+    accessibleUserIds = [new Types.ObjectId(user.userId)];
+    console.log(accessibleUserIds)
   }
 
   // If counsellorId explicitly passed → override everything
   if (counsellorId) {
-    accessibleUserIds = [counsellorId];
+    accessibleUserIds = [new Types.ObjectId(counsellorId)];
   }
 
   /* ================= GET ORDERS FIRST ================= */
 
-  let orderFilter: any = {};
-
-  if (accessibleUserIds.length) {
-    orderFilter.counsellorId = { $in: accessibleUserIds };
-  }
 
   if (orderId) {
-    orderFilter._id = orderId;
+    query.link_notes.orderId = orderId;
   }
 
-  const orders = await this.orderModel.find(orderFilter).select('_id');
-
-  const orderIds = orders.map((o) => o._id.toString());
-
   // If no orders → return empty
-  if (!orderIds.length) {
+  if (!accessibleUserIds.length) {
     return {
       data: [],
       total: 0,
@@ -172,11 +254,7 @@ async getAllPayments(filters: any, user: any) {
       totalPages: 0,
     };
   }
-
-  /* ================= PAYMENT FILTER ================= */
-
-  query['link_notes.orderId'] = { $in: orderIds };
-
+  query['counsellorId'] = {$in:accessibleUserIds}
   if (leadId) query.leadId = leadId;
 
   /* ================= SEARCH ================= */
@@ -313,6 +391,7 @@ async getPaymentById(orderId: string) {
       throw new BadRequestException('Failed to fetch plans');
     }
   }
+
 
   async togglePlanStatus(planId: string) {
     const existingPlan = await this.subscriptionsPlanModel.findOne({ planId });

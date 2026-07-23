@@ -2042,7 +2042,10 @@ async stateWiseEmployeeReport(query: any, user: any) {
         actionType: LeadActionType.POOL_ADDED,
         actionBy: currentUserId,
         changes: {
+          status:{
+          from:"No Pool",
           to:poolExsist.name,
+          }
         },
       });      
     }else{
@@ -2052,8 +2055,10 @@ async stateWiseEmployeeReport(query: any, user: any) {
         actionType: LeadActionType.POOL_CHANGED,
         actionBy: currentUserId,
         changes: {
-          from :Ispool?.name,
-          to:poolExsist.name,
+          status:{
+            from :Ispool?.name,
+            to:poolExsist.name,
+          }
         },
       });
     }
@@ -2084,6 +2089,62 @@ async stateWiseEmployeeReport(query: any, user: any) {
     };
   }
 
+      async bulkStagechange(
+    dto: {
+      leadIds: string[];
+      stageId: string;
+      reason:string;
+    },
+    currentUserId: string,
+  ) {
+    const { leadIds, stageId,reason } = dto;
+    if (!stageId) {
+      throw new BadRequestException('StageId is required');
+    }
+    const stageExsist = await this.leadStageModel.findById(new Types.ObjectId(stageId));
+    if(!stageExsist){
+      throw new BadRequestException('Invalid StageId');
+    }
+    const leads = await this.leadData.findByIds(leadIds);
+    console.log(leads)
+    if (!leads.length) {
+      throw new BadRequestException('No leads found');
+    }
+
+    let updatePayload: any = {
+      modifiedBy: currentUserId,
+      stageId: stageId,
+    };
+
+    // 🔹 Update leads
+    const result = await this.leadData.bulkUpdate(
+      leadIds,
+      updatePayload,
+    );
+
+    // 🔹 History
+    for (const lead of leads) {
+      const stage = await this.leadStageModel.findById(new Types.ObjectId(lead.stageId));
+      console.log(lead,"!")
+      this.leadStageHistoryService.createHistory({leadId:lead._id.toString(),stageId:stageId,stageName:stageExsist.name,userId:currentUserId});  
+      console.log("added")
+      await this.leadHistoryLogic.log({
+        leadId: lead?.leadId.toString(),
+        actionType: LeadActionType.STAGE_CHANGED,
+        actionBy: currentUserId,
+        changes: {
+        status: {
+          from:stage?.name || "No Stage",
+          to:stageExsist.name,
+        },
+      },
+      });      
+     }
+    return {
+      message: 'stage updated successfully'
+      // modifiedCount: result.modifiedCount,
+    };
+  }
 
 
   async pullBackAndReassign(
