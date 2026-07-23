@@ -402,7 +402,6 @@ export class OrderService {
       userId: userId,
       action: 'Order Updated',
       referenceType: 'ORDER',
-      referenceId: existing._id.toString(),
       meta: {
         message: "Order updated",
         order: existing
@@ -421,7 +420,6 @@ export class OrderService {
       userId: approvedBy,
       action: 'Order Approved',
       referenceType: 'ORDER',
-      referenceId: id.toString(),
       meta: {
         message: "Order approved",
         order: order
