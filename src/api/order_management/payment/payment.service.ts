@@ -176,6 +176,7 @@ async createleadPaymentLink(data: {
           },
         },
       );
+      console.log("Link Response:",response)
     }catch(err:any){
       console.log(err.response?.status);
   console.log(err.response?.data);
