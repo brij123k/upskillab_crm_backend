@@ -232,7 +232,6 @@ export class OrderService {
         userId: userId,
         action: 'Order Created',
         referenceType: 'ORDER',
-        referenceId: order._id.toString(),
         meta: {
           message: dto.remarks,
           PaymentMode: dto.paymentMode,
