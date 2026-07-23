@@ -88,7 +88,7 @@ export class PaymentService {
         };
       }
       const response = await axios.post(
-        'https://api.cashfree.com/pg/links',
+        'https://sandbox.cashfree.com/pg/links',
         payload,
         {
           headers: {
@@ -163,8 +163,8 @@ async createleadPaymentLink(data: {
           userId
         }
       const response = await axios.post(
-        'https://api.cashfree.com/pg/links',
-        // 'https://sandbox.cashfree.com/pg/links',
+        // 'https://api.cashfree.com/pg/links',
+        'https://sandbox.cashfree.com/pg/links',
         payload,
         {
           headers: {
