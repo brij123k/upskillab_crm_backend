@@ -342,12 +342,12 @@ export class OrderService {
         start = new Date();
         start.setFullYear(start.getFullYear() - 1);
       }
-
+      console.log(start)
       if (start) {
         query.orderDate = { $gte: start };
       }
     }
-
+    console.log("sdfsd",dateFilter)
     if (fromDate && toDate) {
       query.orderDate = {
         $gte: new Date(fromDate),
@@ -358,7 +358,6 @@ export class OrderService {
     /* ================= PAGINATION ================= */
 
     const skip = (page - 1) * limit;
-
     const [data, total] = await Promise.all([
       this.orderModel
         .find(query)
@@ -1274,236 +1273,307 @@ export class OrderService {
     };
   }
 
-  async sourceCampaignWiseLeadRevenueReport(query: any) {
-    const now = new Date();
-    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+async sourceCampaignWiseLeadRevenueReport(query: any) {
+  const now = new Date();
+  let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+  let endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
 
-    // Date filter (today/week/month/year)
-    if (query.dateFilter) {
-      const filter = query.dateFilter.toString().toLowerCase();
-      if (filter === 'today') {
-        startDate = new Date(now);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'week') {
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      } else if (filter === 'year') {
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-      }
+  // Date filter
+  if (query.dateFilter) {
+    const filter = query.dateFilter.toString().toLowerCase();
+
+    if (filter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (filter === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
     }
+  }
 
-    // Month filter (specific month-year)
-    if (query.month) {
-      const [year, month] = query.month.split('-').map(Number);
-      startDate = new Date(year, month - 1, 1);
-      endDate = new Date(year, month, 0, 23, 59, 59, 999);
+  // Specific month
+  if (query.month) {
+    const [year, month] = query.month.split('-').map(Number);
+
+    startDate = new Date(year, month - 1, 1);
+    endDate = new Date(year, month, 0, 23, 59, 59, 999);
+  }
+
+  // From Date
+  if (query.fromDate) {
+    const from = new Date(query.fromDate);
+
+    if (!Number.isNaN(from.getTime())) {
+      startDate = new Date(from);
+      startDate.setHours(0, 0, 0, 0);
     }
+  }
 
-    // From/To date range
-    if (query.fromDate) {
-      const from = new Date(query.fromDate);
-      if (!Number.isNaN(from.getTime())) {
-        startDate = new Date(from);
-        startDate.setHours(0, 0, 0, 0);
-      }
+  // To Date
+  if (query.toDate) {
+    const to = new Date(query.toDate);
+
+    if (!Number.isNaN(to.getTime())) {
+      endDate = new Date(to);
+      endDate.setHours(23, 59, 59, 999);
     }
-    if (query.toDate) {
-      const to = new Date(query.toDate);
-      if (!Number.isNaN(to.getTime())) {
-        endDate = new Date(to);
-        endDate.setHours(23, 59, 59, 999);
-      }
-    }
+  }
 
-    const levelNumber = this.resolveLevel(query.level);
-    if (levelNumber === null) {
-      return {
-        startDate,
-        endDate,
-        data: [],
-        summary: {},
-      };
-    }
+  // -----------------------------
+  // STEP 1 : FETCH ORDERS FIRST
+  // -----------------------------
+  const orderMatch: any = {
+    orderDate: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  };
 
-    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
-    if (!levelUserIds.length) {
-      return {
-        startDate,
-        endDate,
-        data: [],
-        summary: {},
-      };
-    }
+  // Optional
+  orderMatch.Approved = true;
 
-    const levelObjectIds = levelUserIds.map((id) => id.toString());
+  const orders = await this.orderModel.find(orderMatch).lean();
 
-    const leadMatch: any = {
-      createdAt: { $gte: startDate, $lte: endDate },
-      assignedTo: { $in: levelObjectIds },
-      // status: 'active', 
-    };
-
-    if (query.source) {
-      leadMatch.source = query.source.toLowerCase();
-    }
-    if (query.state) {
-      leadMatch.state = query.state;
-    }
-    if (query.stageId) {
-      leadMatch.stageId = new Types.ObjectId(query.stageId);
-    }
-
-    // Fetch leads
-    const leads = await this.leadModel
-      .find(leadMatch)
-      .populate('stageId', 'name order')
-      .lean();
-
-    const filteredLeads = query.stage
-      ? leads.filter((lead: any) =>
-        String(lead?.stageId?.name || '').toLowerCase().includes(String(query.stage).toLowerCase()),
-      )
-      : leads;
-    if (!filteredLeads.length) {
-      return {
-        startDate,
-        endDate,
-        data: [],
-        summary: {},
-      };
-    }
-
-    // Fetch orders for these leads (need to match by student somehow - using email/phone)
-    const leadPhones = filteredLeads.map((l) => l.phone);
-    const orders = await this.orderModel
-      .find({
-        mobile: { $in: leadPhones },
-        orderDate: { $gte: startDate, $lte: endDate },
-      })
-      .lean();
-
-    // Create a map of phone -> orders for quick lookup
-    const ordersByPhone = new Map<string, any[]>();
-    orders.forEach((order) => {
-      if (!ordersByPhone.has(order.mobile)) {
-        ordersByPhone.set(order.mobile, []);
-      }
-      const phoneOrders = ordersByPhone.get(order.mobile);
-      if (phoneOrders) {
-        phoneOrders.push(order);
-      }
-    });
-
-    // Group by source and source campaign
-    const groupedData = new Map<string, any>();
-
-    filteredLeads.forEach((lead: any) => {
-      const source = lead.source || 'Unknown';
-      const campaignName = lead.source_campaign || 'Unknown';
-      const key = `${source}`;
-
-      if (!groupedData.has(key)) {
-        groupedData.set(key, {
-          source,
-          campaigns: new Map(),
-        });
-      }
-
-      if (!groupedData.get(key).campaigns.has(campaignName)) {
-        groupedData.get(key).campaigns.set(campaignName, {
-          campaignName,
-          totalLead: 0,
-          revenue: 0,
-        });
-      }
-
-      const campaign = groupedData.get(key).campaigns.get(campaignName);
-      campaign.totalLead += 1;
-
-      // Add revenue from orders
-      const ordersForLead = ordersByPhone.get(lead.phone) || [];
-      ordersForLead.forEach((order) => {
-        campaign.revenue += order.countedRevenue || order.finalFee || 0;
-      });
-    });
-
-    // Build response in Excel format
-    const allCampaigns = new Set<string>();
-    const sourceNames: string[] = [];
-
-    groupedData.forEach((data) => {
-      sourceNames.push(data.source);
-      data.campaigns.forEach((campaign) => {
-        allCampaigns.add(campaign.campaignName);
-      });
-    });
-
-    const campaigns = Array.from(allCampaigns).sort();
-    const response: any = {
+  if (!orders.length) {
+    return {
       startDate,
       endDate,
-      campaigns,
+      campaigns: [],
       data: [],
       totals: {
-        total: { totalLead: 0, revenue: 0 },
+        total: {
+          totalLead: 0,
+          revenue: 0,
+        },
         byCampaign: {},
       },
       stats: {
-        totalLead: filteredLeads.length,
+        totalLead: 0,
+        totalRevenue: 0,
+        totalOrders: 0,
+      },
+    };
+  }
+
+  // -----------------------------
+  // STEP 2 : FETCH LEADS
+  // -----------------------------
+  const mobiles = [...new Set(orders.map((o: any) => o.mobile))];
+
+  const leadMatch: any = {
+    phone: {
+      $in: mobiles,
+    },
+  };
+
+  if (query.source) {
+    leadMatch.source = query.source.toLowerCase();
+  }
+
+  if (query.state) {
+    leadMatch.state = query.state;
+  }
+
+  if (query.stageId) {
+    leadMatch.stageId = new Types.ObjectId(query.stageId);
+  }
+
+  const leads = await this.leadModel
+    .find(leadMatch)
+    .populate('stageId', 'name order')
+    .lean();
+
+  const filteredLeads = query.stage
+    ? leads.filter((lead: any) =>
+        String(lead?.stageId?.name || '')
+          .toLowerCase()
+          .includes(String(query.stage).toLowerCase()),
+      )
+    : leads;
+
+  if (!filteredLeads.length) {
+    return {
+      startDate,
+      endDate,
+      campaigns: [],
+      data: [],
+      totals: {
+        total: {
+          totalLead: 0,
+          revenue: 0,
+        },
+        byCampaign: {},
+      },
+      stats: {
+        totalLead: 0,
         totalRevenue: 0,
         totalOrders: orders.length,
       },
     };
+  }
 
-    // Add rows for each source
-    sourceNames.sort().forEach((source) => {
-      const sourceData = groupedData.get(source);
-      const row: any = {
+  // -----------------------------
+  // STEP 3 : MAP LEADS
+  // -----------------------------
+  const leadByPhone = new Map<string, any>();
+
+  filteredLeads.forEach((lead: any) => {
+    leadByPhone.set(lead.phone, lead);
+  });
+
+  // -----------------------------
+  // STEP 4 : GROUP DATA
+  // -----------------------------
+  const groupedData = new Map<string, any>();
+
+  orders.forEach((order: any) => {
+    const lead = leadByPhone.get(order.mobile);
+
+    if (!lead) return;
+
+    const source = lead.source || 'Unknown';
+    const campaignName = lead.source_campaign || 'Unknown';
+
+    if (!groupedData.has(source)) {
+      groupedData.set(source, {
         source,
-      };
-
-      campaigns.forEach((campaign) => {
-        const campaignData = sourceData.campaigns.get(campaign);
-        if (campaignData) {
-          row[`${campaign}_lead`] = campaignData.totalLead;
-          row[`${campaign}_revenue`] = campaignData.revenue;
-
-          // Update campaign totals
-          if (!response.totals.byCampaign[campaign]) {
-            response.totals.byCampaign[campaign] = { totalLead: 0, revenue: 0 };
-          }
-          response.totals.byCampaign[campaign].totalLead += campaignData.totalLead;
-          response.totals.byCampaign[campaign].revenue += campaignData.revenue;
-
-          // Update grand total
-          response.totals.total.totalLead += campaignData.totalLead;
-          response.totals.total.revenue += campaignData.revenue;
-          response.stats.totalRevenue += campaignData.revenue;
-        } else {
-          row[`${campaign}_lead`] = 0;
-          row[`${campaign}_revenue`] = 0;
-        }
+        campaigns: new Map(),
       });
+    }
 
-      // Calculate source totals
-      row.totalLead = campaigns.reduce((sum, campaign) => sum + (row[`${campaign}_lead`] || 0), 0);
-      row.totalRevenue = campaigns.reduce((sum, campaign) => sum + (row[`${campaign}_revenue`] || 0), 0);
+    const sourceGroup = groupedData.get(source);
 
-      response.data.push(row);
+    if (!sourceGroup.campaigns.has(campaignName)) {
+      sourceGroup.campaigns.set(campaignName, {
+        campaignName,
+        revenue: 0,
+        leadIds: new Set<string>(),
+      });
+    }
+
+    const campaign = sourceGroup.campaigns.get(campaignName);
+
+    campaign.revenue +=
+      Number(order.countedRevenue || order.finalFee || 0);
+
+    campaign.leadIds.add(String(lead._id));
+  });
+
+  // -----------------------------
+  // RESPONSE
+  // -----------------------------
+  const allCampaigns = new Set<string>();
+  const sourceNames: string[] = [];
+
+  groupedData.forEach((data) => {
+    sourceNames.push(data.source);
+
+    data.campaigns.forEach((campaign: any) => {
+      allCampaigns.add(campaign.campaignName);
+    });
+  });
+
+  const campaigns = Array.from(allCampaigns).sort();
+
+  const response: any = {
+    startDate,
+    endDate,
+    campaigns,
+    data: [],
+    totals: {
+      total: {
+        totalLead: 0,
+        revenue: 0,
+      },
+      byCampaign: {},
+    },
+    stats: {
+      totalLead: 0,
+      totalRevenue: 0,
+      totalOrders: orders.length,
+    },
+  };
+
+  sourceNames.sort().forEach((source) => {
+    const sourceData = groupedData.get(source);
+
+    const row: any = {
+      source,
+    };
+
+    campaigns.forEach((campaignName) => {
+      const campaign = sourceData.campaigns.get(campaignName);
+
+      if (campaign) {
+        const leadCount = campaign.leadIds.size;
+
+        row[`${campaignName}_lead`] = leadCount;
+        row[`${campaignName}_revenue`] = campaign.revenue;
+
+        if (!response.totals.byCampaign[campaignName]) {
+          response.totals.byCampaign[campaignName] = {
+            totalLead: 0,
+            revenue: 0,
+          };
+        }
+
+        response.totals.byCampaign[campaignName].totalLead += leadCount;
+        response.totals.byCampaign[campaignName].revenue += campaign.revenue;
+
+        response.totals.total.totalLead += leadCount;
+        response.totals.total.revenue += campaign.revenue;
+        response.stats.totalRevenue += campaign.revenue;
+        response.stats.totalLead += leadCount;
+      } else {
+        row[`${campaignName}_lead`] = 0;
+        row[`${campaignName}_revenue`] = 0;
+      }
     });
 
-    return response;
-  }
+    row.totalLead = campaigns.reduce(
+      (sum, c) => sum + (row[`${c}_lead`] || 0),
+      0,
+    );
+
+    row.totalRevenue = campaigns.reduce(
+      (sum, c) => sum + (row[`${c}_revenue`] || 0),
+      0,
+    );
+
+    response.data.push(row);
+  });
+
+  return response;
+}
 
   async stateLeadStageRevenueReport(query: any) {
     const now = new Date();
