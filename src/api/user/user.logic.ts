@@ -131,7 +131,6 @@ export class UserLogic {
         userId: user._id.toString(),
         action: 'USER_LOGIN',
         referenceType: 'Login',
-        referenceId: null,
         meta: { LoginAt: new Date() },
       });
       await this.attendanceLogic.recordLogin(user._id.toString(), new Date());
@@ -265,7 +264,6 @@ export class UserLogic {
         userId,
         action: 'USER_Logout',
         referenceType: 'Logout',
-        referenceId: null,
         meta: {
           logoutAt: new Date()
         },

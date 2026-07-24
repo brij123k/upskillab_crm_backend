@@ -193,7 +193,6 @@ export class PaymentController {
           userId: counsellorId,
           action: 'Payment updated',
           referenceType: 'Payment',
-          referenceId: orderId?.toString(),
           meta: {
             message: "Payment updated from webhook",
             transaction_status: data?.order?.transaction_status,

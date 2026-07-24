@@ -111,7 +111,6 @@ export class PaymentService {
               userId: userId,
               action: 'Payment Link Created',
               referenceType: 'Payment Link',
-              referenceId: data?.orderId?.toString(),
               meta: {
                 message:"Payment Link Created",
                 payload: { ...payload, orderId: data?.orderId },
