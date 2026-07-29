@@ -347,7 +347,6 @@ export class OrderService {
         query.orderDate = { $gte: start };
       }
     }
-    console.log("sdfsd",dateFilter)
     if (fromDate && toDate) {
       query.orderDate = {
         $gte: new Date(fromDate),

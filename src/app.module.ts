@@ -33,6 +33,7 @@ import { UserReportModule } from './api/reports/user-activity/user-report.module
 import { ProfileUploadModule } from './api/file-uploader/file-uploader.module';
 import {LevelModule} from './api/level/level.module';
 import { UserLeaveBalanceModule } from './api/leaves/user-leave-balance/user-leave-balance.module';
+import { LeadStatsModule } from './api/leadStats/leadStats.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -68,7 +69,8 @@ ConfigModule.forRoot({
     ProfileUploadModule,
     LevelModule,
     LeaveModule,
-    UserLeaveBalanceModule
+    UserLeaveBalanceModule,
+    LeadStatsModule
   ],
   controllers: [AppController],
   providers: [AppService],
