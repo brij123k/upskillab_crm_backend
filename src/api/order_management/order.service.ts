@@ -113,8 +113,12 @@ export class OrderService {
       if (!user) throw new BadRequestException('Invalid counsellorId');
       const pool = await this.poolModel.findById(dto.courseVertical);
       if (!pool) throw new BadRequestException('Invalid pool');
-
-      let finalFee = dto.totalFee - (dto.discount || 0);
+      let finalFee:number
+      if(dto.finalFee && dto.finalFee > 0){
+        finalFee = dto.finalFee
+      }else{
+        finalFee = dto.totalFee - (dto.discount || 0);
+      }
       let status = OrderStatus.PARTIALLY_PAID;
       let countedRevenue = Number(pool.revenue_percentage) * finalFee / 100;
       // 🔥 STEP 1: CREATE ORDER FIRST

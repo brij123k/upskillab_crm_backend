@@ -63,6 +63,10 @@ export class CreateOrderDto {
   @IsNumber() 
   totalFee: number;
 
+  @ApiProperty() 
+  @IsNumber() 
+  finalFee: number;
+
   @ApiPropertyOptional() 
   @IsNumber() 
   discount: number;

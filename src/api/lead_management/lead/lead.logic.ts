@@ -284,6 +284,7 @@ await this.notificationEngine.handleEvent({
 
   async findAll(filters: any, user: any) {
     if (user.isSuperAdmin) {
+      console.log(filters)
       return this.maskLeadResponse(await this.leadData.findAllWithFilters(filters), user);
     }
     const Pool= await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
@@ -2025,7 +2026,7 @@ async stateWiseEmployeeReport(query: any, user: any) {
 
     let updatePayload: any = {
       modifiedBy: currentUserId,
-      poolId: poolId,
+      poolId: new Types.ObjectId(poolId),
     };
 
     // 🔹 Update leads
