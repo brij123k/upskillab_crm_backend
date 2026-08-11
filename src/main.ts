@@ -14,18 +14,49 @@ async function bootstrap() {
     transform: true,
     stopAtFirstError: true,
     exceptionFactory: (errors) => {
-      const firstError = errors[0];
+  const flattenErrors = (
+    validationErrors: any[],
+    parentPath = '',
+  ): string[] => {
+    const messages: string[] = [];
 
-      const message =
-        firstError.constraints
-          ? Object.values(firstError.constraints)[0]
-          : 'Validation failed';
+    for (const error of validationErrors) {
+      const path = parentPath
+        ? `${parentPath}.${error.property}`
+        : error.property;
 
-      return new BadRequestException({
-        success: false,
-        message,
-      });
-    },
+      // Direct validation error
+      if (error.constraints) {
+        messages.push(
+          ...Object.values(error.constraints).map(
+            (message: any) =>
+              `${path}: ${message}`,
+          ),
+        );
+      }
+
+      // Nested validation error
+      if (error.children?.length) {
+        messages.push(
+          ...flattenErrors(
+            error.children,
+            path,
+          ),
+        );
+      }
+    }
+
+    return messages;
+  };
+
+  const messages = flattenErrors(errors);
+
+  return new BadRequestException({
+    success: false,
+    message: 'Validation failed',
+    errors: messages,
+  });
+},
   }),
 );
 

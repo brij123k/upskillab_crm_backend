@@ -103,4 +103,53 @@ async sendTemplate(data: SendTemplateDto) {
     );
   }
 }
+
+
+async sendCustomMessage(
+  payload: any,
+) {
+  try {
+    console.log('========== CUSTOM WHATSAPP REQUEST PAYLOAD ==========');
+    console.log(JSON.stringify(payload, null, 2));
+    const url = this.baseUrl;
+
+    console.log(
+      '========== CUSTOM WHATSAPP REQUEST ==========',
+    );
+
+    console.log('URL:', url);
+    console.log(
+      'BODY:',
+      JSON.stringify(payload, null, 2),
+    );
+
+    const response =
+      await firstValueFrom(
+        this.httpService.post(
+          url,
+          payload,
+          {
+            headers: this.headers,
+          },
+        ),
+      );
+
+    console.log(
+      'CUSTOM WHATSAPP RESPONSE:',
+      response.data,
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.log(
+      'CUSTOM WHATSAPP ERROR:',
+      error?.response?.data,
+    );
+
+    throw new InternalServerErrorException(
+      error?.response?.data?.message ||
+        'Unable to send custom WhatsApp message',
+    );
+  }
+}
 }
