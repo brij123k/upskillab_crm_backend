@@ -109,6 +109,17 @@ export class OrderController {
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/consultant-performance/details')
+consultantPerformanceDetails(@Query() query: any) {
+  return this.service.consultantPerformanceDetails(query);
+}
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
         PERMISSIONS.Orders.MODULE,

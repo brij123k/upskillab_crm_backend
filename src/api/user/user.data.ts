@@ -1,10 +1,14 @@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Profile } from 'src/schema/profile.schema';
+import { Role } from 'src/schema/role.schema';
 import { User } from 'src/schema/user.schema';
 export class UserData {
   constructor(
-    @InjectModel(User.name)
+    @InjectModel(Role.name)
+    private readonly roleModel: Model<Role>,
+
+     @InjectModel(User.name)
     private readonly userModel: Model<User>,
 
     @InjectModel(Profile.name)
@@ -127,20 +131,37 @@ toggleBlock(userId: string, isBlocked: boolean) {
 }
 
   async getAllUsers(status?: string | string[]) {
-    const query: any = {};
-    this.applyStatusFilter(query, status);
+  const query: any = {};
 
-    return this.userModel
-      .find(query)
-      .select(
-        'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
-      )
-    .populate({
-        path: 'role',
-        select: 'name level isSuperAdmin permissions',
-      })
+  this.applyStatusFilter(query, status);
+
+  // Get Admin role(s)
+  const adminRoles = await this.roleModel
+    .find({isSuperAdmin: true})
+    .select('_id')
     .lean();
+  const adminRoleIds = adminRoles.map(
+    (role) => role._id.toString(),
+  );
+
+  // Exclude Admin / Super Admin users
+  if (adminRoleIds.length) {
+    query.role = {
+      $nin: adminRoleIds,
+    };
   }
+
+  return this.userModel
+    .find(query)
+    .select(
+      'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
+    )
+    .populate({
+      path: 'role',
+      select: 'name level isSuperAdmin permissions',
+    })
+    .lean();
+}
 
   async findAllSubordinates(
   seniorUserId: string,

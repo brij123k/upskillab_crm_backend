@@ -566,7 +566,7 @@ export class UserLogic {
   // async addIVRUser()
 
 
-  async getUsersUnder(user: any, status?: string | string[]) {
+  async getUsersUnder(user: any, status: string | string[] = 'active',) {
     if (user.roleName.toLowerCase() == "admin") {
       return this.userData.getAllUsers(status);
     }

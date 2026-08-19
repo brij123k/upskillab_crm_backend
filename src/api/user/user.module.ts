@@ -10,11 +10,13 @@ import { UserActivityModule } from '../user-activity/user-activity.module';
 import { SmartfloModule } from '../smartflo/smartflo.module';
 import { UserLogModule } from '../user-logs/user-log.module';
 import { AttendanceModule } from '../attendance/attendance.module';
+import { Role, RoleSchema } from 'src/schema/role.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: Profile.name, schema: ProfileSchema },
+      { name: Role.name, schema: RoleSchema },
     ]),
     ProfileModule,
     UserActivityModule,
