@@ -9,6 +9,7 @@ import { AttendanceLogic } from './attendance.logic';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import { ChangeAttendanceStatusDto } from 'src/dto/attendance/change-attendance-status.dto';
 
 @ApiTags('Attendance')
 @ApiBearerAuth()
@@ -32,12 +33,25 @@ export class AttendanceController {
     return this.logic.findAll(query);
   }
 
-  @Get('me')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Get attendance for current user' })
-  me(@Req() req: any,@Query('month') month?: string,) {
-    return this.logic.getMyAttendance(req.user.userId, { month });
-  }
+@Get('me')
+@UseGuards(JwtAuthGuard)
+@ApiOperation({
+  summary: 'Get current user attendance by month and year',
+})
+me(
+  @Req() req: any,
+  @Query('month') month?: string,
+  @Query('year') year?: string,
+) {
+  return this.logic.getMyAttendance(
+    req.user.userId,
+    {
+      month,
+      year,
+    },
+  );
+}
+
   @Get('user/:userId')
 @UseGuards(JwtAuthGuard)
 @ApiOperation({ summary: 'Get attendance for user (monthly filter)' })
@@ -50,7 +64,7 @@ userAttendence(
 
   @Post('reconcile')
   // @UseGuards(JwtAuthGuard, RoleGuard)
-  // @Roles('Admin', 'hr')
+  // @Roles('Admin', 'bd')
   @ApiOperation({ summary: 'Reconcile attendance for all active employees based on their last 30 days and KRA status' })
   reconcileAll(@Query('days') days?: string, @Query('referenceDate') referenceDate?: string) {
     return this.logic.reconcileAttendanceForAllUsers(
@@ -76,7 +90,7 @@ userAttendence(
 
   @Get('report/salary-sheet')
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-  @Roles('Admin', 'hr')
+  @Roles('Admin', 'bd')
   @RequirePermission(
     PERMISSIONS.REPORTS.MODULE,
     PERMISSIONS.REPORTS.ACTIONS.SALARY_SHEET,
@@ -88,7 +102,7 @@ userAttendence(
 
   @Get(':id')
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'hr')
+  @Roles('Admin', 'bd')
   @ApiOperation({ summary: 'Get attendance by id' })
   findOne(@Param('id') id: string) {
     return this.logic.findById(id);
@@ -96,7 +110,7 @@ userAttendence(
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'hr')
+  @Roles('Admin', 'bd')
   @ApiOperation({ summary: 'Update attendance record' })
   update(@Param('id') id: string, @Body() dto: UpdateAttendanceDto) {
     return this.logic.update(id, dto);
@@ -104,9 +118,29 @@ userAttendence(
 
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin', 'hr')
+  @Roles('Admin', 'bd')
   @ApiOperation({ summary: 'Delete attendance record' })
   delete(@Param('id') id: string) {
     return this.logic.delete(id);
   }
+
+
+  @Patch(':id/change-status')
+@UseGuards(JwtAuthGuard, RoleGuard)
+@Roles('Admin', 'bd')
+@ApiOperation({
+  summary: 'Change attendance status with remark',
+})
+changeStatus(
+  @Param('id') id: string,
+  @Body() dto: ChangeAttendanceStatusDto,
+  @Req() req: any,
+) {
+  console.log("Data",id,dto,req.user)
+  return this.logic.changeStatus(
+    id,
+    dto,
+    req.user.userId,
+  );
+}
 }

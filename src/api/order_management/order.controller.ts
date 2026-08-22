@@ -214,6 +214,27 @@ consultantPerformanceDetails(@Query() query: any) {
         return this.service.sendReminder(id, dto);
     }
 
+
+   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/monthly-revenue-graph')
+@ApiOperation({
+  summary: 'Get monthly revenue graph for current user/team',
+})
+monthlyRevenueGraph(
+  @Req() req: any,
+  @Query() query: any,
+) {
+  return this.service.monthlyRevenueGraph(
+    query,
+    req.user,
+  );
+}
+
     // @Get('subscription/:orderId')
     // getSubscription(@Param('orderId') orderId: string) {
     //     return this.subscriptionModel.findOne({ orderId });

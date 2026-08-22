@@ -331,33 +331,112 @@ export class OrderService {
 
     const now = new Date();
 
-    if (dateFilter) {
-      let start: Date | null = null;
+if (dateFilter) {
+  const filter = String(dateFilter).toLowerCase();
 
-      if (dateFilter === 'today') {
-        start = new Date();
-        start.setHours(0, 0, 0, 0);
-      } else if (dateFilter === 'week') {
-        start = new Date();
-        start.setDate(start.getDate() - 7);
-      } else if (dateFilter === 'month') {
-        start = new Date();
-        start.setMonth(start.getMonth() - 1);
-      } else if (dateFilter === 'year') {
-        start = new Date();
-        start.setFullYear(start.getFullYear() - 1);
-      }
-      console.log(start)
-      if (start) {
-        query.orderDate = { $gte: start };
-      }
-    }
-    if (fromDate && toDate) {
-      query.orderDate = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
+  if (filter === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+
+    query.orderDate = {
+      $gte: start,
+      $lte: end,
+    };
+  }
+
+  else if (filter === 'week') {
+    // Last 7 days - same rolling logic
+    // used by the Leads API
+    const start = new Date();
+    start.setDate(start.getDate() - 7);
+
+    const end = new Date();
+
+    query.orderDate = {
+      $gte: start,
+      $lte: end,
+    };
+  }
+
+  else if (filter === 'month') {
+    // Current calendar month
+    const start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const end = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+
+    query.orderDate = {
+      $gte: start,
+      $lte: end,
+    };
+  }
+
+  else if (filter === 'year') {
+    // Current calendar year
+    const start = new Date(
+      now.getFullYear(),
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const end = new Date(
+      now.getFullYear(),
+      11,
+      31,
+      23,
+      59,
+      59,
+      999,
+    );
+
+    query.orderDate = {
+      $gte: start,
+      $lte: end,
+    };
+  }
+}
+
+/* ================= CUSTOM DATE ================= */
+
+if (fromDate && toDate) {
+  const from = new Date(fromDate);
+  const to = new Date(toDate);
+
+  if (
+    !Number.isNaN(from.getTime()) &&
+    !Number.isNaN(to.getTime())
+  ) {
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+
+    query.orderDate = {
+      $gte: from,
+      $lte: to,
+    };
+  }
+}
 
     /* ================= PAGINATION ================= */
 
@@ -2572,7 +2651,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
   orderMatch.Approved = true;
 
   const orders = await this.orderModel.find(orderMatch).lean();
-
+  
   if (!orders.length) {
     return {
       startDate,
@@ -4070,4 +4149,389 @@ async employeePoolRevenueReport(query: any) {
       emiDate,
     };
   }
+async monthlyRevenueGraph(
+  query: any,
+  currentUser: any,
+) {
+  const now = new Date();
+  let year = now.getFullYear();
+
+  if (query.year) {
+    const requestedYear =
+      Number(query.year);
+
+    if (
+      Number.isInteger(requestedYear) &&
+      requestedYear >= 2000 &&
+      requestedYear <= 2100
+    ) {
+      year = requestedYear;
+    }
+  }
+  const startDate = new Date(
+    year,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+  );
+
+  const endDate = new Date(
+    year,
+    11,
+    31,
+    23,
+    59,
+    59,
+    999,
+  );
+
+  // ---------------------------------------------------------
+  // MONTHS
+  // ---------------------------------------------------------
+
+  const monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  // =========================================================
+  // FIND USERS WHOSE ORDERS SHOULD BE INCLUDED
+  // =========================================================
+
+  const currentUserId =
+    currentUser?._id ||
+    currentUser?.userId;
+
+  if (!currentUserId) {
+    throw new BadRequestException(
+      'User information not found',
+    );
+  }
+
+  const userId =
+    currentUserId.toString();
+
+  // ---------------------------------------------------------
+  // Determine role
+  // ---------------------------------------------------------
+
+  let roleName =
+    currentUser?.roleName ||
+    currentUser?.role?.name ||
+    '';
+
+  roleName =
+    String(roleName)
+      .toLowerCase();
+
+  // ---------------------------------------------------------
+  // ADMIN
+  //
+  // Admin sees ALL orders.
+  // ---------------------------------------------------------
+
+  let allowedUserIds:
+    | string[]
+    | null = null;
+  if (roleName === 'admin') {
+    // null means don't filter counsellorId
+    allowedUserIds = null;
+  }
+
+  // ---------------------------------------------------------
+  // BD
+  //
+  // BD sees:
+  // 1. Own orders
+  // 2. Orders of everyone under them
+  // ---------------------------------------------------------
+  
+  else if (roleName === 'bd') {
+    const userIds =
+      await this.getUserAndSubordinateIds(
+        userId,
+      );
+    allowedUserIds = [
+      ...new Set([
+        userId,
+        ...userIds.map((id) =>
+          id.toString(),
+        ),
+      ]),
+    ];
+  }
+
+  // ---------------------------------------------------------
+  // FALLBACK
+  //
+  // If some other role reaches this endpoint,
+  // only show their own orders.
+  // ---------------------------------------------------------
+
+  else {
+    allowedUserIds = [
+      userId,
+    ];
+  }
+
+  // =========================================================
+  // ORDER MATCH
+  // =========================================================
+
+  const orderMatch: any = {
+    orderDate: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+
+    Approved: true,
+
+    // -------------------------------------------------------
+    // Only actual revenue orders
+    // -------------------------------------------------------
+
+    $or: [
+      {
+        paymentMode:
+          PaymentMode.LUMPSUM,
+
+        'lumpsumDetails.totalReceived': {
+          $gt: 0,
+        },
+      },
+
+      {
+        paymentMode:
+          PaymentMode.LOAN,
+
+        'loanDetails.disbursementAmount': {
+          $gt: 0,
+        },
+      },
+
+      // Subscription will be added later.
+    ],
+  };
+
+  // ---------------------------------------------------------
+  // Apply counsellor filter only for BD/non-admin
+  // ---------------------------------------------------------
+
+  if (
+    allowedUserIds !== null
+  ) {
+    orderMatch.counsellorId = {
+      $in:allowedUserIds
+    };
+  }
+
+  // =========================================================
+  // AGGREGATE REVENUE
+  // =========================================================
+
+  const revenueRows =
+    await this.orderModel.aggregate([
+      {
+        $match:
+          orderMatch,
+      },
+
+      // -----------------------------------------------------
+      // CALCULATE REVENUE
+      // -----------------------------------------------------
+
+      {
+        $addFields: {
+          calculatedRevenue: {
+            $switch: {
+              branches: [
+                // -------------------------------------------
+                // LUMPSUM
+                // -------------------------------------------
+
+                {
+                  case: {
+                    $eq: [
+                      '$paymentMode',
+                      PaymentMode.LUMPSUM,
+                    ],
+                  },
+
+                  then: {
+                    $ifNull: [
+                      '$lumpsumDetails.totalReceived',
+                      0,
+                    ],
+                  },
+                },
+
+                // -------------------------------------------
+                // LOAN
+                // -------------------------------------------
+
+                {
+                  case: {
+                    $eq: [
+                      '$paymentMode',
+                      PaymentMode.LOAN,
+                    ],
+                  },
+
+                  then: {
+                    $ifNull: [
+                      '$loanDetails.disbursementAmount',
+                      0,
+                    ],
+                  },
+                },
+
+                // -------------------------------------------
+                // SUBSCRIPTION
+                // -------------------------------------------
+
+                // TODO:
+                // Subscription revenue later.
+              ],
+
+              default: 0,
+            },
+          },
+
+          monthNumber: {
+            $month:
+              '$orderDate',
+          },
+        },
+      },
+
+      // -----------------------------------------------------
+      // SAFETY CHECK
+      // -----------------------------------------------------
+
+      {
+        $match: {
+          calculatedRevenue: {
+            $gt: 0,
+          },
+        },
+      },
+
+      // -----------------------------------------------------
+      // GROUP BY MONTH
+      // -----------------------------------------------------
+
+      {
+        $group: {
+          _id:
+            '$monthNumber',
+
+          revenue: {
+            $sum:
+              '$calculatedRevenue',
+          },
+        },
+      },
+
+      {
+        $sort: {
+          _id: 1,
+        },
+      },
+    ]);
+
+  // =========================================================
+  // MAP REVENUE BY MONTH
+  // =========================================================
+
+  const revenueByMonth =
+    new Map<number, number>();
+
+  revenueRows.forEach(
+    (row: any) => {
+      revenueByMonth.set(
+        Number(row._id),
+        Number(
+          row.revenue || 0,
+        ),
+      );
+    },
+  );
+
+  // =========================================================
+  // RETURN ALL 12 MONTHS
+  // =========================================================
+
+  const data =
+    monthNames.map(
+      (month, index) => {
+        const monthNumber =
+          index + 1;
+
+        // Future months of current year
+        // should return 0.
+
+        const isFutureMonth =
+          year ===
+            now.getFullYear() &&
+          monthNumber >
+            now.getMonth() + 1;
+
+        return {
+          month,
+
+          monthNumber,
+
+          revenue:
+            isFutureMonth
+              ? 0
+              : revenueByMonth.get(
+                  monthNumber,
+                ) || 0,
+        };
+      },
+    );
+
+  // =========================================================
+  // TOTAL REVENUE
+  // =========================================================
+
+  const totalRevenue =
+    data.reduce(
+      (sum, item) =>
+        sum +
+        Number(
+          item.revenue || 0,
+        ),
+      0,
+    );
+
+  // =========================================================
+  // RESPONSE
+  // =========================================================
+
+  return {
+    year,
+
+    startDate,
+
+    endDate,
+
+    data,
+
+    totalRevenue,
+  };
+}
 }

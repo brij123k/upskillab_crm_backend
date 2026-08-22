@@ -8,6 +8,8 @@ import { KraLogic } from '../KRA/kra.logic';
 import { ProfileData } from '../profile/profile.data';
 import { LeaveData } from '../leaves/leave.data';
 import { LeaveStatus, LeaveType } from 'src/schema/leave.schema';
+import { ChangeAttendanceStatusDto } from 'src/dto/attendance/change-attendance-status.dto';
+import { HolidayLogic } from '../holiday/holiday.logic';
 
 @Injectable()
 export class AttendanceLogic {
@@ -16,6 +18,7 @@ export class AttendanceLogic {
     private readonly kraLogic: KraLogic,
     private readonly profileData: ProfileData,
     private readonly leaveData: LeaveData,
+    private readonly holidayLogic: HolidayLogic,
   ) {}
 
   private startOfDay(input = new Date()) {
@@ -163,6 +166,51 @@ export class AttendanceLogic {
       });
     }
 
+    const holiday =
+    await this.holidayLogic.isHoliday(
+      targetDate,
+    );
+
+  if (holiday) {
+    return this.data.update(
+      existing._id.toString(),
+      {
+        loginTime:
+          existing.loginTime ||
+          targetDate,
+
+        logoutTime:
+          existing.logoutTime,
+
+        workHours: 0,
+
+        status:
+          AttendanceStatus.HOLIDAY,
+
+        leaveType: undefined,
+
+        reason:
+          holiday.name ||
+          'Auto-marked as holiday',
+
+        kraResult: {
+          source: 'holiday',
+
+          holidayId:
+            holiday?._id
+              ?.toString?.() || null,
+
+          holidayName:
+            holiday?.name || null,
+
+          holidayDescription:
+            holiday?.description || null,
+        },
+      },
+    );
+  }
+
+
     const leave = await this.findLeaveForDate(userId, targetDate);
 
     if (leave) {
@@ -225,6 +273,81 @@ export class AttendanceLogic {
         continue;
       }
 
+      // ---------------------------------------
+    // Holiday
+    // ---------------------------------------
+    const holiday =
+      await this.holidayLogic.isHoliday(
+        targetDate,
+      );
+
+    if (holiday) {
+      const record =
+        await this.createOrUpdateAutoAttendance(
+          userId,
+          targetDate,
+          {
+            loginTime: targetDate,
+
+            workHours: 0,
+
+            status:
+              AttendanceStatus.HOLIDAY,
+
+            reason:
+              holiday.name ||
+              'Auto-marked as holiday',
+
+            kraResult: {
+              source: 'holiday',
+
+              holidayId:
+                holiday?._id
+                  ?.toString?.() ||
+                null,
+
+              holidayName:
+                holiday?.name ||
+                null,
+
+              holidayDescription:
+                holiday?.description ||
+                null,
+            },
+          },
+        );
+
+      processed.push({
+        date: targetDate,
+
+        status:
+          record?.status ||
+          AttendanceStatus.HOLIDAY,
+
+        created: true,
+
+        source: 'holiday',
+
+        holiday: {
+          id:
+            holiday?._id
+              ?.toString?.() ||
+            null,
+
+          name:
+            holiday?.name ||
+            null,
+
+          description:
+            holiday?.description ||
+            null,
+        },
+      });
+
+      continue;
+    }
+
+      
       const leave = await this.findLeaveForDate(userId, targetDate);
 
       if (leave) {
@@ -609,7 +732,45 @@ export class AttendanceLogic {
     return this.data.findById(id);
   }
 
-  getMyAttendance(userId: string, filters: any) {
-    return this.data.findByUser(userId, filters);
+ getMyAttendance(
+  userId: string,
+  filters: any = {},
+) {
+  return this.data.findByUser(
+    userId,
+    filters,
+  );
+}
+
+
+  async changeStatus(
+  id: string,
+  dto: ChangeAttendanceStatusDto,
+  changedBy: string,
+) {
+  const existing = await this.data.findById(id);
+
+  if (!existing) {
+    throw new NotFoundException('Attendance not found');
   }
+
+  if (!changedBy) {
+    throw new BadRequestException(
+      'User who changed attendance is required',
+    );
+  }
+
+  const updated = await this.data.changeStatus(
+    id,
+    dto.status,
+    dto.remark,
+    changedBy,
+  );
+
+  if (!updated) {
+    throw new NotFoundException('Attendance not found');
+  }
+
+  return updated;
+}
 }

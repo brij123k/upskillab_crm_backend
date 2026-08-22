@@ -35,6 +35,7 @@ import {LevelModule} from './api/level/level.module';
 import { UserLeaveBalanceModule } from './api/leaves/user-leave-balance/user-leave-balance.module';
 import { LeadStatsModule } from './api/leadStats/leadStats.module';
 import { CampaignsModule } from './api/campaigns/campaigns.module';
+import { HolidayModule } from './api/holiday/holiday.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -72,7 +73,8 @@ ConfigModule.forRoot({
     LeaveModule,
     UserLeaveBalanceModule,
     LeadStatsModule,
-    CampaignsModule
+    CampaignsModule,
+    HolidayModule,
   ],
   controllers: [AppController],
   providers: [AppService],

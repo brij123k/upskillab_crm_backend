@@ -47,6 +47,16 @@ export class Attendance extends Document {
   @Prop({ type: Object, default: null })
   kraResult?: Record<string, any>;
 
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+statusChangedBy?: Types.ObjectId;
+
+@Prop()
+statusChangedAt?: Date;
+
+@Prop()
+statusChangeRemark?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }

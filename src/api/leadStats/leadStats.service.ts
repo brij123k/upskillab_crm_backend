@@ -31,20 +31,28 @@ constructor(
 
 async getLeadStats(query: any, user: any) {
   const now = new Date();
-
   const startOfToday = new Date(now);
   startOfToday.setHours(0, 0, 0, 0);
 
   const endOfToday = new Date(now);
   endOfToday.setHours(23, 59, 59, 999);
 
-  const startOfMonth = new Date(
+  // =========================================================
+  // DEFAULT DATE RANGE
+  // Current calendar month
+  // =========================================================
+
+  let startDate = new Date(
     now.getFullYear(),
     now.getMonth(),
     1,
+    0,
+    0,
+    0,
+    0,
   );
 
-  const endOfMonth = new Date(
+  let endDate = new Date(
     now.getFullYear(),
     now.getMonth() + 1,
     0,
@@ -54,98 +62,338 @@ async getLeadStats(query: any, user: any) {
     999,
   );
 
-  // Registration & Admission stage ids
-  const stages = await this.leadStageModel.find({
-    name: {
-      $in: ['Registration Done', 'Admission Done'],
-    },
-  });
+  // =========================================================
+  // DATE FILTER
+  // =========================================================
 
-  const stageIds = stages.map((s) => s._id);
+  if (query.dateFilter) {
+    const filter =
+      String(query.dateFilter).toLowerCase();
 
-  // All leads assigned to this counsellor
-  const assignedLeads = await this.leadModel
-    .find({
-      assignedTo: user.userId,
-      isActive: true,
-    })
-    .select('_id leadId');
+    // -------------------------------------------------------
+    // TODAY
+    // -------------------------------------------------------
 
-  const leadObjectIds = assignedLeads.map(
-    (lead) => lead._id,
-  );
+    if (filter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
 
-  const leadIds = assignedLeads.map(
-    (lead) => lead.leadId,
-  );
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    }
+
+    // -------------------------------------------------------
+    // WEEK
+    // Last 7 days
+    // -------------------------------------------------------
+
+    else if (filter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(
+        startDate.getDate() - 7,
+      );
+
+      endDate = new Date(now);
+    }
+
+    // -------------------------------------------------------
+    // MONTH
+    // Current calendar month
+    // -------------------------------------------------------
+
+    else if (filter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    // -------------------------------------------------------
+    // YEAR
+    // Current calendar year
+    // -------------------------------------------------------
+
+    else if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+
+  // =========================================================
+  // REGISTRATION & ADMISSION STAGE IDS
+  // =========================================================
+
+  const stages =
+    await this.leadStageModel.find({
+      name: {
+        $in: [
+          'Registration Done',
+          'Admission Done',
+        ],
+      },
+    });
+
+  const stageIds =
+    stages.map(
+      (s) => s._id,
+    );
+
+  // =========================================================
+  // ALL LEADS ASSIGNED TO THIS COUNSELLOR
+  // =========================================================
+
+  const assignedLeads =
+    await this.leadModel
+      .find({
+        assignedTo: user.userId,
+        isActive: true,
+      })
+      .select(
+        '_id leadId',
+      );
+
+  const leadObjectIds =
+    assignedLeads.map(
+      (lead) => lead._id,
+    );
+
+  const leadIds =
+    assignedLeads.map(
+      (lead) => lead.leadId,
+    );
+
+  // =========================================================
+  // STATS
+  // =========================================================
 
   const [
     todayFollowUps,
     stageConversions,
     revenue,
   ] = await Promise.all([
-    // Today's followups of this user's leads
+
+    // =======================================================
+    // TODAY'S FOLLOWUPS
+    // Always today regardless of selected dateFilter
+    // =======================================================
+
     this.leadScheduleModel.countDocuments({
       leadId: {
         $in: leadIds,
       },
+
       scheduledAt: {
         $gte: startOfToday,
         $lte: endOfToday,
       },
     }),
 
-    // Registration Done / Admission Done this month
+    // =======================================================
+    // REGISTRATION / ADMISSION CONVERSIONS
+    // Uses selected date filter
+    // =======================================================
+
     this.leadStageHistoryModel.countDocuments({
       leadId: {
         $in: leadObjectIds,
       },
+
       stageId: {
         $in: stageIds,
       },
+
       changedAt: {
-        $gte: startOfMonth,
-        $lte: endOfMonth,
+        $gte: startDate,
+        $lte: endDate,
       },
     }),
 
-    // Revenue this month
+    // =======================================================
+    // REVENUE
+    //
+    // Lumpsum -> lumpsumDetails.totalReceived
+    // Loan    -> loanDetails.disbursementAmount
+    // Subscription -> ignored for now
+    //
+    // Uses selected date filter
+    // =======================================================
+
     this.orderModel.aggregate([
       {
         $match: {
           counsellorId: user.userId,
+
           Approved: true,
+
           orderDate: {
-            $gte: startOfMonth,
-            $lte: endOfMonth,
+            $gte: startDate,
+            $lte: endDate,
+          },
+
+          // Only orders with actual revenue
+          $or: [
+            {
+              paymentMode: 'Lumpsum',
+
+              'lumpsumDetails.totalReceived': {
+                $gt: 0,
+              },
+            },
+
+            {
+              paymentMode: 'Loan',
+
+              'loanDetails.disbursementAmount': {
+                $gt: 0,
+              },
+            },
+
+            // Subscription intentionally excluded
+            // until its revenue calculation is added.
+          ],
+        },
+      },
+
+      // =====================================================
+      // CALCULATE ACTUAL REVENUE
+      // =====================================================
+
+      {
+        $addFields: {
+          calculatedRevenue: {
+            $switch: {
+              branches: [
+
+                // -------------------------------------------
+                // LUMPSUM
+                // -------------------------------------------
+
+                {
+                  case: {
+                    $eq: [
+                      '$paymentMode',
+                      'Lumpsum',
+                    ],
+                  },
+
+                  then: {
+                    $ifNull: [
+                      '$lumpsumDetails.totalReceived',
+                      0,
+                    ],
+                  },
+                },
+
+                // -------------------------------------------
+                // LOAN
+                // -------------------------------------------
+
+                {
+                  case: {
+                    $eq: [
+                      '$paymentMode',
+                      'Loan',
+                    ],
+                  },
+
+                  then: {
+                    $ifNull: [
+                      '$loanDetails.disbursementAmount',
+                      0,
+                    ],
+                  },
+                },
+
+                // -------------------------------------------
+                // SUBSCRIPTION
+                // -------------------------------------------
+
+                // TODO:
+                // Subscription revenue calculation later.
+              ],
+
+              default: 0,
+            },
           },
         },
       },
+
+      // =====================================================
+      // SAFETY CHECK
+      // =====================================================
+
+      {
+        $match: {
+          calculatedRevenue: {
+            $gt: 0,
+          },
+        },
+      },
+
+      // =====================================================
+      // TOTAL
+      // =====================================================
+
       {
         $group: {
           _id: null,
+
           orders: {
             $sum: 1,
           },
+
           revenue: {
-            $sum: {
-              $ifNull: [
-                '$countedRevenue',
-                0,
-              ],
-            },
+            $sum: '$calculatedRevenue',
           },
         },
       },
     ]),
   ]);
 
+  // =========================================================
+  // RESPONSE
+  // =========================================================
+
   return {
-    totalLeads: assignedLeads.length,
+    totalLeads:
+      assignedLeads.length,
 
     todayFollowUps,
 
-    monthlyConversions: stageConversions,
+    monthlyConversions:
+      stageConversions,
 
     approvedOrders:
       revenue.length > 0
