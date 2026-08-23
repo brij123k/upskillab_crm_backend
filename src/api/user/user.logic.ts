@@ -567,7 +567,10 @@ export class UserLogic {
 
 
   async getUsersUnder(user: any, status: string | string[] = 'active',) {
-    if (user.roleName.toLowerCase() == "admin") {
+    if (
+  user?.roleName?.toLowerCase() === 'admin' ||
+  user?.role?.name?.toLowerCase() === 'admin'
+) {
       return this.userData.getAllUsers(status);
     }
     const userId = user._id || user.userId;

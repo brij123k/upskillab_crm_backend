@@ -434,12 +434,17 @@ export class CallLogData {
     }
 
     if (byUserId) {
-      callMatch.userId = byUserId;
-      interactionMatch.userId = byUserId;
-    } else {
-      callMatch.userId = { $in: accessibleUserIds };
-      interactionMatch.userId = { $in: accessibleUserIds };
-    }
+  callMatch.userId = byUserId;
+  interactionMatch.userId = byUserId;
+} else {
+  callMatch.userId = {
+    $in: accessibleUserIds,
+  };
+
+  interactionMatch.userId = {
+    $in: accessibleUserIds,
+  };
+}
 
     // ==================================
     // SEARCH

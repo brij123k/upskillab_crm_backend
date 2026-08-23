@@ -298,32 +298,127 @@ async getByLead(leadId: number, user: any) {
   };
 }
 
-  async getByUsers(filter: any, user: any){
+async getByUsers(filter: any, user: any) {
   const normalizedFilter = this.getUsersCallLogWindow(filter);
-  const userId = user._id || user.userId;
-  if(normalizedFilter.group=='true'){
-    let users: any[] = [];
-    users = await this.userLogic.getUsersUnder(user);
-    const accessibleUserIds = users.map((u) => u._id.toString());
-    accessibleUserIds.push(userId)
-    if (!accessibleUserIds || !accessibleUserIds.length) {
+  console.log(normalizedFilter)
+  const loggedInUserId = (
+    user._id || user.userId
+  ).toString();
+
+  const group =
+    String(normalizedFilter.group).toLowerCase() === 'true';
+
+  const team =
+    String(normalizedFilter.team).toLowerCase() === 'true';
+
+  // =========================================================
+  // 1. GROUP = TRUE + TEAM = TRUE
+  //
+  // filter.userId is the ROOT USER
+  //
+  // Example:
+  //
+  // userId = Manager A
+  // team   = true
+  // group  = true
+  //
+  // Result:
+  // Manager A
+  //   ├── User 1
+  //   ├── User 2
+  //   └── User 3
+  // =========================================================
+
+  if (group && team) {
+    const teamUserId = normalizedFilter.byUserId;
+
+    if (!teamUserId) {
       return this.callLogData.findAllWithUserIds(
         normalizedFilter,
-        [userId],
+        [loggedInUserId],
       );
     }
-    // 🔥 Apply hierarchy filter
+    const user = await this.userLogic.findById(teamUserId)
+    if(!user){
+      throw new NotFoundException("User Not Found")
+    }
+    console.log(user)
+    const users = await this.userLogic.getUsersUnder(
+      user,
+    );
+    const accessibleUserIds = users.map(
+      (u: any) => u._id.toString(),
+    );
+
+    // Include the selected/root user itself
+    accessibleUserIds.push(
+      teamUserId.toString(),
+    );
+
+    const uniqueUserIds = [
+      ...new Set(accessibleUserIds),
+    ];
+
+    // IMPORTANT:
+    // Do NOT let byUserId override the hierarchy.
+    const hierarchyFilter = {
+      ...normalizedFilter,
+      byUserId: undefined,
+    };
+
+    return this.callLogData.findAllWithUserIds(
+      hierarchyFilter,
+      uniqueUserIds,
+    );
+  }
+
+  // =========================================================
+  // 2. GROUP = TRUE + TEAM = FALSE
+  //
+  // Current logged-in user is the ROOT USER
+  //
+  // Result:
+  //
+  // Current User
+  //   ├── User 1
+  //   ├── User 2
+  //   └── User 3
+  // =========================================================
+
+  if (group) {
+    const users = await this.userLogic.getUsersUnder(
+      user,
+    );
+
+    const accessibleUserIds = users.map(
+      (u: any) => u._id.toString(),
+    );
+
+    // Include current logged-in user
+    accessibleUserIds.push(
+      loggedInUserId,
+    );
+
+    const uniqueUserIds = [
+      ...new Set(accessibleUserIds),
+    ];
+
     return this.callLogData.findAllWithUserIds(
       normalizedFilter,
-      accessibleUserIds,
+      uniqueUserIds,
     );
-  }else{
-  const result = await this.callLogData.findAllWithUserIds(
-    normalizedFilter,
-    [userId],
-  );
-  return result
   }
+
+  // =========================================================
+  // 3. GROUP = FALSE
+  //
+  // Always return ONLY current logged-in user's data
+  // =========================================================
+
+  return this.callLogData.findAllWithUserIds(
+    normalizedFilter,
+    [loggedInUserId],
+  );
 }
 
 async getreviewbycallId(callId: string, user: any): Promise<any> {

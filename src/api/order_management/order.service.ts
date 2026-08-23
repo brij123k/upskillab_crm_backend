@@ -2032,68 +2032,210 @@ if (type === 'orders') {
 
 
 
-  async employeePoolUtilizationReport(query: any) {
-    const now = new Date();
-    let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-    let endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+async employeePoolUtilizationReport(query: any) {
+  const now = new Date();
 
-    if (query.dateFilter) {
-      const filter = query.dateFilter.toString().toLowerCase();
-      if (filter === 'today') {
-        startDate = new Date(now);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'week') {
-        startDate = new Date(now);
-        startDate.setDate(now.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (filter === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      } else if (filter === 'year') {
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-      }
+  let startDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    1,
+    0,
+    0,
+    0,
+    0,
+  );
+
+  let endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+
+  // =========================================================
+  // DATE FILTER
+  // =========================================================
+
+  if (query.dateFilter) {
+    const filter =
+      String(query.dateFilter).toLowerCase();
+
+    // -------------------------------------------------------
+    // TODAY
+    // -------------------------------------------------------
+
+    if (filter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
     }
 
-    if (query.startDate) {
-      const from = new Date(query.startDate);
-      if (!Number.isNaN(from.getTime())) {
-        startDate = new Date(from);
-        startDate.setHours(0, 0, 0, 0);
-      }
-    }
-    if (query.endDate) {
-      const to = new Date(query.endDate);
-      if (!Number.isNaN(to.getTime())) {
-        endDate = new Date(to);
-        endDate.setHours(23, 59, 59, 999);
-      }
+    // -------------------------------------------------------
+    // WEEK
+    // Last 7 days
+    // -------------------------------------------------------
+
+    else if (filter === 'week') {
+      startDate = new Date(now);
+
+      startDate.setDate(
+        startDate.getDate() - 7,
+      );
+
+      endDate = new Date(now);
     }
 
-    const levelNumber = this.resolveLevel(query.level);
-    if (levelNumber === null) {
-      return {
-        startDate,
-        endDate,
-        employees: [],
-      };
+    // -------------------------------------------------------
+    // MONTH
+    // Current calendar month
+    // -------------------------------------------------------
+
+    else if (filter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
     }
 
-    const levelUserIds = await this.getUserIdsByRoleLevel(levelNumber);
-    if (!levelUserIds.length) {
-      return {
-        startDate,
-        endDate,
-        employees: [],
-      };
-    }
+    // -------------------------------------------------------
+    // YEAR
+    // Current calendar year
+    // -------------------------------------------------------
 
-    const levelUserIdStrings = levelUserIds.map((id) => id.toString());
-    const buildLevelMatch = (fieldPath: string) => ({
+    else if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+  const customStart =
+    query.startDate || query.fromDate;
+
+  const customEnd =
+    query.endDate || query.toDate;
+
+  if (customStart) {
+    const from =
+      new Date(customStart);
+
+    if (!Number.isNaN(from.getTime())) {
+      startDate = new Date(from);
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+    }
+  }
+
+  if (customEnd) {
+    const to =
+      new Date(customEnd);
+
+    if (!Number.isNaN(to.getTime())) {
+      endDate = new Date(to);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+
+  // =========================================================
+  // SAFETY CHECK
+  // If dates are reversed, return empty result
+  // =========================================================
+
+  if (startDate > endDate) {
+    return {
+      startDate,
+      endDate,
+      employees: [],
+    };
+  }
+
+  // =========================================================
+  // LEVEL
+  // =========================================================
+
+  const levelNumber =
+    this.resolveLevel(
+      query.level,
+    );
+
+  if (levelNumber === null) {
+    return {
+      startDate,
+      endDate,
+      employees: [],
+    };
+  }
+
+  const levelUserIds =
+    await this.getUserIdsByRoleLevel(
+      levelNumber,
+    );
+
+  if (!levelUserIds.length) {
+    return {
+      startDate,
+      endDate,
+      employees: [],
+    };
+  }
+
+  const levelUserIdStrings =
+    levelUserIds.map(
+      (id) => id.toString(),
+    );
+
+  // =========================================================
+  // LEVEL MATCH
+  // =========================================================
+
+  const buildLevelMatch =
+    (fieldPath: string) => ({
       $expr: {
         $in: [
           {
@@ -2104,18 +2246,31 @@ if (type === 'orders') {
               onNull: null,
             },
           },
+
           levelUserIdStrings,
         ],
       },
     });
 
-    const leadAssignments = await this.leadModel.aggregate([
+  // =========================================================
+  // LEAD ASSIGNMENTS
+  // =========================================================
+
+  const leadAssignments =
+    await this.leadModel.aggregate([
       {
         $match: {
-          assignedDate: { $gte: startDate, $lte: endDate },
-          ...buildLevelMatch('$assignedTo'),
+          assignedDate: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+
+          ...buildLevelMatch(
+            '$assignedTo',
+          ),
         },
       },
+
       {
         $addFields: {
           normalizedAssignedTo: {
@@ -2128,20 +2283,38 @@ if (type === 'orders') {
           },
         },
       },
+
       {
         $group: {
-          _id: '$normalizedAssignedTo',
-          totalAssigned: { $sum: 1 },
+          _id:
+            '$normalizedAssignedTo',
+
+          totalAssigned: {
+            $sum: 1,
+          },
         },
       },
     ]);
-    const newLeads = await this.leadModel.aggregate([
+
+  // =========================================================
+  // NEW LEADS
+  // =========================================================
+
+  const newLeads =
+    await this.leadModel.aggregate([
       {
         $match: {
-          createdAt: { $gte: startDate, $lte: endDate },
-          ...buildLevelMatch('$assignedTo'),
+          createdAt: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+
+          ...buildLevelMatch(
+            '$assignedTo',
+          ),
         },
       },
+
       {
         $group: {
           _id: {
@@ -2152,17 +2325,33 @@ if (type === 'orders') {
               onNull: null,
             },
           },
-          count: { $sum: 1 },
+
+          count: {
+            $sum: 1,
+          },
         },
       },
     ]);
-    const callStats = await this.callLogModel.aggregate([
+
+  // =========================================================
+  // CALL STATS
+  // =========================================================
+
+  const callStats =
+    await this.callLogModel.aggregate([
       {
         $match: {
-          createdAt: { $gte: startDate, $lte: endDate },
-          ...buildLevelMatch('$userId'),
+          createdAt: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+
+          ...buildLevelMatch(
+            '$userId',
+          ),
         },
       },
+
       {
         $group: {
           _id: {
@@ -2174,116 +2363,258 @@ if (type === 'orders') {
                 onNull: null,
               },
             },
-            customerNumber: '$customerNumber',
+
+            customerNumber:
+              '$customerNumber',
           },
-          dialCount: { $sum: 1 },
+
+          dialCount: {
+            $sum: 1,
+          },
+
           answeredCount: {
             $sum: {
-              $cond: [{ $gt: ['$duration', 0] }, 1, 0],
+              $cond: [
+                {
+                  $gt: [
+                    '$duration',
+                    0,
+                  ],
+                },
+                1,
+                0,
+              ],
             },
           },
+
           talkTime: {
             $sum: {
-              $cond: [{ $gt: ['$duration', 0] }, '$duration', 0],
+              $cond: [
+                {
+                  $gt: [
+                    '$duration',
+                    0,
+                  ],
+                },
+                '$duration',
+                0,
+              ],
             },
           },
         },
       },
+
       {
         $group: {
-          _id: '$_id.userId',
-          totalDial: { $sum: '$dialCount' },
-          uniqDial: { $sum: 1 },
-          answeredCall: { $sum: '$answeredCount' },
-          answeredTalkTime: { $sum: '$talkTime' },
+          _id:
+            '$_id.userId',
+
+          totalDial: {
+            $sum: '$dialCount',
+          },
+
+          uniqDial: {
+            $sum: 1,
+          },
+
+          answeredCall: {
+            $sum: '$answeredCount',
+          },
+
+          answeredTalkTime: {
+            $sum: '$talkTime',
+          },
         },
       },
     ]);
 
-    const stageUpdates = await this.leadModel.aggregate([
+  // =========================================================
+  // STAGE UPDATES
+  // =========================================================
+
+  const stageUpdates =
+    await this.leadModel.aggregate([
       {
         $match: {
-          ...buildLevelMatch('$assignedTo'),
+          ...buildLevelMatch(
+            '$assignedTo',
+          ),
+
           $expr: {
             $and: [
               {
                 $gte: [
-                  { $ifNull: ['$modifiedAt', '$updatedAt'] },
+                  {
+                    $ifNull: [
+                      '$modifiedAt',
+                      '$updatedAt',
+                    ],
+                  },
+
                   startDate,
                 ],
               },
+
               {
                 $lte: [
-                  { $ifNull: ['$modifiedAt', '$updatedAt'] },
+                  {
+                    $ifNull: [
+                      '$modifiedAt',
+                      '$updatedAt',
+                    ],
+                  },
+
                   endDate,
                 ],
               },
             ],
           },
-          stageId: { $exists: true, $ne: null },
+
+          stageId: {
+            $exists: true,
+            $ne: null,
+          },
         },
       },
+
       {
         $lookup: {
           from: 'leadstages',
-          localField: 'stageId',
-          foreignField: '_id',
+
+          localField:
+            'stageId',
+
+          foreignField:
+            '_id',
+
           as: 'stage',
         },
       },
-      { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+
+      {
+        $unwind: {
+          path: '$stage',
+
+          preserveNullAndEmptyArrays:
+            true,
+        },
+      },
+
       {
         $group: {
           _id: {
             employeeId: {
               $convert: {
-                input: '$assignedTo',
+                input:
+                  '$assignedTo',
+
                 to: 'string',
+
                 onError: null,
+
                 onNull: null,
               },
             },
-            stageId: '$stage._id',
-            stageName: { $ifNull: ['$stage.name', 'Unknown'] },
+
+            stageId:
+              '$stage._id',
+
+            stageName: {
+              $ifNull: [
+                '$stage.name',
+                'Unknown',
+              ],
+            },
           },
-          count: { $sum: 1 },
+
+          count: {
+            $sum: 1,
+          },
         },
       },
-      { $sort: { '_id.stageName': 1 } },
+
+      {
+        $sort: {
+          '_id.stageName': 1,
+        },
+      },
     ]);
 
-    const leadAssignmentByEmployee = new Map<string, number>();
-    leadAssignments.forEach((item) => {
-      const employeeId = item._id?.toString();
+  // =========================================================
+  // MAP LEAD ASSIGNMENTS
+  // =========================================================
+
+  const leadAssignmentByEmployee =
+    new Map<string, number>();
+
+  leadAssignments.forEach(
+    (item) => {
+      const employeeId =
+        item._id?.toString();
+
       if (!employeeId) return;
-      leadAssignmentByEmployee.set(employeeId, item.totalAssigned || 0);
-    });
 
-    const newLeadsByEmployee = new Map<string, number>();
+      leadAssignmentByEmployee.set(
+        employeeId,
+        item.totalAssigned || 0,
+      );
+    },
+  );
 
-    newLeads.forEach((item) => {
+  // =========================================================
+  // MAP NEW LEADS
+  // =========================================================
+
+  const newLeadsByEmployee =
+    new Map<string, number>();
+
+  newLeads.forEach(
+    (item) => {
       if (!item._id) return;
+
       newLeadsByEmployee.set(
         item._id.toString(),
         item.count || 0,
       );
-    });
+    },
+  );
 
-    const callStatsByEmployee = new Map<string, any>();
+  // =========================================================
+  // MAP CALL STATS
+  // =========================================================
 
-    callStats.forEach((item) => {
+  const callStatsByEmployee =
+    new Map<string, any>();
+
+  callStats.forEach(
+    (item) => {
       if (!item._id) return;
 
-      callStatsByEmployee.set(item._id.toString(), {
-        totalDial: item.totalDial || 0,
-        uniqDial: item.uniqDial || 0,
-        answeredCall: item.answeredCall || 0,
-        answeredTalkTime: item.answeredTalkTime || 0,
-      });
-    });
+      callStatsByEmployee.set(
+        item._id.toString(),
+        {
+          totalDial:
+            item.totalDial || 0,
 
+          uniqDial:
+            item.uniqDial || 0,
 
-    const stageCountsByEmployee = new Map<
+          answeredCall:
+            item.answeredCall || 0,
+
+          answeredTalkTime:
+            item.answeredTalkTime || 0,
+        },
+      );
+    },
+  );
+
+  // =========================================================
+  // MAP STAGE COUNTS
+  // =========================================================
+
+  const stageCountsByEmployee =
+    new Map<
       string,
       Array<{
         stageId: string;
@@ -2291,189 +2622,429 @@ if (type === 'orders') {
         count: number;
       }>
     >();
-    stageUpdates.forEach((item) => {
+
+  stageUpdates.forEach(
+    (item) => {
       const employeeId =
         item._id.employeeId?.toString();
 
       if (!employeeId) return;
 
-      if (!stageCountsByEmployee.has(employeeId)) {
-        stageCountsByEmployee.set(employeeId, []);
+      if (
+        !stageCountsByEmployee.has(
+          employeeId,
+        )
+      ) {
+        stageCountsByEmployee.set(
+          employeeId,
+          [],
+        );
       }
 
-      stageCountsByEmployee.get(employeeId)?.push({
-        stageId: item._id.stageId?.toString(),
-        stageName: item._id.stageName,
-        count: item.count,
-      });
-    });
+      stageCountsByEmployee
+        .get(employeeId)
+        ?.push({
+          stageId:
+            item._id.stageId?.toString(),
 
-    const getStageCount = (
-      employeeId: string,
-      stageName: string,
-    ) => {
-      const stages =
-        stageCountsByEmployee.get(employeeId) || [];
+          stageName:
+            item._id.stageName,
 
-      const stage = stages.find(
+          count:
+            item.count,
+        });
+    },
+  );
+
+  // =========================================================
+  // STAGE HELPERS
+  // =========================================================
+
+  const getStageCount = (
+    employeeId: string,
+    stageName: string,
+  ) => {
+    const stages =
+      stageCountsByEmployee.get(
+        employeeId,
+      ) || [];
+
+    const stage =
+      stages.find(
         (s) =>
-          s.stageName.toLowerCase() ===
+          s.stageName
+            .toLowerCase() ===
           stageName.toLowerCase(),
       );
 
-      return stage?.count || 0;
-    };
+    return stage?.count || 0;
+  };
 
-    const sumMatchingStageCounts = (
-      employeeId: string,
-      patterns: RegExp[],
-    ) => {
-      const stages =
-        stageCountsByEmployee.get(employeeId) || [];
+  const sumMatchingStageCounts = (
+    employeeId: string,
+    patterns: RegExp[],
+  ) => {
+    const stages =
+      stageCountsByEmployee.get(
+        employeeId,
+      ) || [];
 
-      return stages.reduce((total, stage) => {
-        return patterns.some((pattern) =>
-          pattern.test(stage.stageName),
+    return stages.reduce(
+      (total, stage) => {
+        return patterns.some(
+          (pattern) =>
+            pattern.test(
+              stage.stageName,
+            ),
         )
           ? total + stage.count
           : total;
-      }, 0);
-    };
+      },
+      0,
+    );
+  };
 
-    const users = await this.userModel
-      .find({ _id: { $in: levelUserIds } })
-      .select('name email number employeeId role createdAt')
+  // =========================================================
+  // USERS
+  // =========================================================
+
+  const users =
+    await this.userModel
+      .find({
+        _id: {
+          $in: levelUserIds,
+        },
+      })
+      .select(
+        'name email number employeeId role createdAt',
+      )
       .lean();
 
-    const roleIds = Array.from(new Set(users.map((user) => user.role?.toString()).filter(Boolean)));
-    const roles = roleIds.length
-      ? await this.roleModel.find({ _id: { $in: roleIds.map((id) => new Types.ObjectId(id)) } }).select('name').lean()
+  const roleIds =
+    Array.from(
+      new Set(
+        users
+          .map(
+            (user) =>
+              user.role?.toString(),
+          )
+          .filter(Boolean),
+      ),
+    );
+
+  const roles =
+    roleIds.length
+      ? await this.roleModel
+          .find({
+            _id: {
+              $in: roleIds.map(
+                (id) =>
+                  new Types.ObjectId(
+                    id,
+                  ),
+              ),
+            },
+          })
+          .select('name')
+          .lean()
       : [];
 
-    const rolesById = new Map(roles.map((role) => [role._id.toString(), role.name]));
-    const usersById = new Map(users.map((user) => [user._id.toString(), user]));
+  const rolesById =
+    new Map(
+      roles.map(
+        (role) => [
+          role._id.toString(),
+          role.name,
+        ],
+      ),
+    );
 
-    const calculateVintage = (createdAt?: Date) => {
+  // =========================================================
+  // VINTAGE
+  // =========================================================
+
+  const calculateVintage =
+    (createdAt?: Date) => {
       if (!createdAt) return null;
-      const start = new Date(createdAt);
-      const diff = now.getTime() - start.getTime();
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+
+      const start =
+        new Date(createdAt);
+
+      const diff =
+        now.getTime() -
+        start.getTime();
+
+      const days =
+        Math.floor(
+          diff /
+            (1000 *
+              60 *
+              60 *
+              24),
+        );
+
       return `${days}d`;
     };
 
-    const employees = users.map((user) => {
-      const employeeId = user._id.toString();
-      const roleName = user?.role ? rolesById.get(user.role.toString()) : null;
-      const callStats =
-        callStatsByEmployee.get(employeeId) || {
-          totalDial: 0,
-          uniqDial: 0,
-          answeredCall: 0,
-          answeredTalkTime: 0,
+  // =========================================================
+  // EMPLOYEE RESPONSE
+  // =========================================================
+
+  const employees =
+    users
+      .map((user) => {
+        const employeeId =
+          user._id.toString();
+
+        const roleName =
+          user?.role
+            ? rolesById.get(
+                user.role.toString(),
+              )
+            : null;
+
+        const callStats =
+          callStatsByEmployee.get(
+            employeeId,
+          ) || {
+            totalDial: 0,
+            uniqDial: 0,
+            answeredCall: 0,
+            answeredTalkTime: 0,
+          };
+
+        const totalLeadAssigned =
+          leadAssignmentByEmployee.get(
+            employeeId,
+          ) || 0;
+
+        const totalNewLead =
+          newLeadsByEmployee.get(
+            employeeId,
+          ) || 0;
+
+        return {
+          employeeId,
+
+          employeeName:
+            user?.name ||
+            'Unknown',
+
+          designation:
+            roleName || null,
+
+          vintage:
+            calculateVintage(
+              user?.createdAt,
+            ),
+
+          leadAssigned:
+            totalLeadAssigned,
+
+          newLead:
+            totalNewLead,
+
+          totalDial:
+            callStats.totalDial,
+
+          uniqDial:
+            callStats.uniqDial,
+
+          answeredCall:
+            callStats.answeredCall,
+
+          answeredTalkTime:
+            callStats.answeredTalkTime,
+
+          pcatScheduled:
+            sumMatchingStageCounts(
+              employeeId,
+              [/pcat.*schedul/i],
+            ),
+
+          pcatDone:
+            sumMatchingStageCounts(
+              employeeId,
+              [
+                /pcat.*done/i,
+                /pcat.*complete/i,
+              ],
+            ),
+
+          registrationDone:
+            getStageCount(
+              employeeId,
+              'Registration Done',
+            ),
+
+          admissionDone:
+            getStageCount(
+              employeeId,
+              'Admission Done',
+            ),
+
+          allStages:
+            stageCountsByEmployee.get(
+              employeeId,
+            ) || [],
+
+          employeeEmail:
+            user?.email || null,
+
+          employeeNumber:
+            user?.number || null,
+
+          employeeEmployeeId:
+            user?.employeeId ||
+            null,
         };
-      const totalLeadAssigned = leadAssignmentByEmployee.get(employeeId) || 0;
-      const totalNewLead =
-        newLeadsByEmployee.get(employeeId) || 0;
-      return {
-        employeeId,
-        employeeName: user?.name || 'Unknown',
-        designation: roleName || null,
-        vintage: calculateVintage(user?.createdAt),
+      })
+      .sort(
+        (a, b) =>
+          a.employeeName.localeCompare(
+            b.employeeName,
+          ),
+      );
 
-        leadAssigned: totalLeadAssigned,
-        newLead: totalNewLead,
+  // =========================================================
+  // RESPONSE
+  // =========================================================
 
-        totalDial: callStats.totalDial,
-        uniqDial: callStats.uniqDial,
-        answeredCall: callStats.answeredCall,
-        answeredTalkTime: callStats.answeredTalkTime,
+  return {
+    startDate,
+    endDate,
+    employees,
+  };
+}
 
-        pcatScheduled: sumMatchingStageCounts(
-          employeeId,
-          [/pcat.*schedul/i],
-        ),
+async employeeStageLeads(query: any) {
+  const {
+    employeeId,
+    stageId,
+    startDate,
+    endDate,
+    page = 1,
+    limit = 20,
+  } = query;
 
-        pcatDone: sumMatchingStageCounts(
-          employeeId,
-          [/pcat.*done/i, /pcat.*complete/i],
-        ),
-
-        registrationDone: getStageCount(
-          employeeId,
-          'Registration Done',
-        ),
-
-        admissionDone: getStageCount(
-          employeeId,
-          'Admission Done',
-        ),
-
-        allStages:
-          stageCountsByEmployee.get(employeeId) || [],
-
-        employeeEmail: user?.email || null,
-        employeeNumber: user?.number || null,
-        employeeEmployeeId: user?.employeeId || null,
-      };
-    }).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-
-    return {
-      startDate,
-      endDate,
-      employees,
-    };
+  if (!employeeId) {
+    throw new BadRequestException(
+      'employeeId is required',
+    );
   }
 
-  async employeeStageLeads(query: any) {
-    const {
-      employeeId,
-      stageId,
-      startDate,
-      endDate,
-      page = 1,
-      limit = 20,
-    } = query;
+  if (!stageId) {
+    throw new BadRequestException(
+      'stageId is required',
+    );
+  }
 
-    if (!employeeId) {
-      throw new BadRequestException('employeeId is required');
-    }
+  const match: any = {
+    assignedTo: employeeId,
+    stageId: new Types.ObjectId(stageId),
+  };
 
-    if (!stageId) {
-      throw new BadRequestException('stageId is required');
-    }
+  // =========================================================
+  // DATE FILTER
+  // =========================================================
 
-    const match: any = {
-      assignedTo: employeeId,
-      stageId: new Types.ObjectId(stageId),
-    };
+  if (startDate || endDate) {
+    match.assignedDate = {};
 
-    if (startDate || endDate) {
-      match.assignedDate = {};
+    // -------------------------------------------------------
+    // START DATE
+    // Always start from 00:00:00.000
+    // -------------------------------------------------------
 
-      if (startDate) {
-        match.assignedDate.$gte = new Date(startDate);
+    if (startDate) {
+      const start = new Date(startDate);
+
+      if (Number.isNaN(start.getTime())) {
+        throw new BadRequestException(
+          'Invalid startDate',
+        );
       }
 
-      if (endDate) {
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
-        match.assignedDate.$lte = end;
-      }
+      start.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      match.assignedDate.$gte = start;
     }
 
-    const skip = (Number(page) - 1) * Number(limit);
+    // -------------------------------------------------------
+    // END DATE
+    // Always end at 23:59:59.999
+    // -------------------------------------------------------
 
-    const [data, total] = await Promise.all([
+    if (endDate) {
+      const end = new Date(endDate);
+
+      if (Number.isNaN(end.getTime())) {
+        throw new BadRequestException(
+          'Invalid endDate',
+        );
+      }
+
+      end.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+
+      match.assignedDate.$lte = end;
+    }
+  }
+
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const pageNumber =
+    Math.max(
+      1,
+      Number(page) || 1,
+    );
+
+  const limitNumber =
+    Math.max(
+      1,
+      Number(limit) || 20,
+    );
+
+  const skip =
+    (pageNumber - 1) *
+    limitNumber;
+
+  // =========================================================
+  // DATA + TOTAL
+  // =========================================================
+
+  const [data, total] =
+    await Promise.all([
       this.leadModel.aggregate([
         {
           $match: match,
         },
 
+        // ---------------------------------------------------
+        // STAGE
+        // ---------------------------------------------------
+
         {
           $lookup: {
             from: 'leadstages',
-            localField: 'stageId',
-            foreignField: '_id',
+
+            localField:
+              'stageId',
+
+            foreignField:
+              '_id',
+
             as: 'stage',
           },
         },
@@ -2481,25 +3052,47 @@ if (type === 'orders') {
         {
           $unwind: {
             path: '$stage',
-            preserveNullAndEmptyArrays: true,
+
+            preserveNullAndEmptyArrays:
+              true,
           },
         },
+
+        // ---------------------------------------------------
+        // EMPLOYEE
+        // ---------------------------------------------------
+
         {
           $lookup: {
             from: 'users',
+
             let: {
               assignedToId: {
-                $toObjectId: '$assignedTo',
+                $convert: {
+                  input:
+                    '$assignedTo',
+
+                  to: 'objectId',
+
+                  onError: null,
+
+                  onNull: null,
+                },
               },
             },
+
             pipeline: [
               {
                 $match: {
                   $expr: {
-                    $eq: ['$_id', '$$assignedToId'],
+                    $eq: [
+                      '$_id',
+                      '$$assignedToId',
+                    ],
                   },
                 },
               },
+
               {
                 $project: {
                   _id: 1,
@@ -2510,15 +3103,23 @@ if (type === 'orders') {
                 },
               },
             ],
+
             as: 'employee',
           },
         },
+
         {
           $unwind: {
             path: '$employee',
-            preserveNullAndEmptyArrays: true,
+
+            preserveNullAndEmptyArrays:
+              true,
           },
         },
+
+        // ---------------------------------------------------
+        // RESPONSE FIELDS
+        // ---------------------------------------------------
 
         {
           $project: {
@@ -2529,42 +3130,77 @@ if (type === 'orders') {
             email: 1,
             source: 1,
             assignedTo: 1,
-            stageName: '$stage.name',
-            employeeName: '$employee.name',
+
+            stageName:
+              '$stage.name',
+
+            employeeName:
+              '$employee.name',
+
             assignedDate: 1,
           },
         },
 
+        // ---------------------------------------------------
+        // SORT
+        // ---------------------------------------------------
+
         {
           $sort: {
+            assignedDate: -1,
             createdAt: -1,
           },
         },
+
+        // ---------------------------------------------------
+        // PAGINATION
+        // ---------------------------------------------------
 
         {
           $skip: skip,
         },
 
         {
-          $limit: Number(limit),
+          $limit:
+            limitNumber,
         },
       ]),
 
-      this.leadModel.countDocuments(match),
+      this.leadModel.countDocuments(
+        match,
+      ),
     ]);
 
-    return {
-      total,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit)),
-      data,
-    };
-  }
+  // =========================================================
+  // RESPONSE
+  // =========================================================
+
+  return {
+    total,
+
+    page: pageNumber,
+
+    limit: limitNumber,
+
+    totalPages:
+      Math.ceil(
+        total /
+          limitNumber,
+      ),
+
+    data,
+  };
+}
 
 async sourceCampaignWiseLeadRevenueReport(query: any) {
   const now = new Date();
-  let startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  let startDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    1,
+  );
+
   let endDate = new Date(
     now.getFullYear(),
     now.getMonth() + 1,
@@ -2575,25 +3211,65 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
     999,
   );
 
-  // Date filter
+  // =========================================================
+  // DATE FILTER
+  // =========================================================
+
   if (query.dateFilter) {
-    const filter = query.dateFilter.toString().toLowerCase();
+    const filter =
+      query.dateFilter
+        .toString()
+        .toLowerCase();
 
     if (filter === 'today') {
       startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
 
       endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    } else if (filter === 'week') {
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    else if (filter === 'week') {
       startDate = new Date(now);
-      startDate.setDate(now.getDate() - 6);
-      startDate.setHours(0, 0, 0, 0);
+
+      startDate.setDate(
+        startDate.getDate() - 6,
+      );
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
 
       endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    } else if (filter === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    else if (filter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
+
       endDate = new Date(
         now.getFullYear(),
         now.getMonth() + 1,
@@ -2603,68 +3279,237 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         59,
         999,
       );
-    } else if (filter === 'year') {
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+    }
+
+    else if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
     }
   }
 
-  // Specific month
+  // =========================================================
+  // SPECIFIC MONTH
+  // =========================================================
+
   if (query.month) {
-    const [year, month] = query.month.split('-').map(Number);
+    const [year, month] =
+      query.month
+        .split('-')
+        .map(Number);
 
-    startDate = new Date(year, month - 1, 1);
-    endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    startDate = new Date(
+      year,
+      month - 1,
+      1,
+    );
+
+    endDate = new Date(
+      year,
+      month,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
   }
 
-  // From Date
+  // =========================================================
+  // FROM DATE
+  // =========================================================
+
   if (query.fromDate) {
-    const from = new Date(query.fromDate);
+    const from =
+      new Date(
+        query.fromDate,
+      );
 
-    if (!Number.isNaN(from.getTime())) {
-      startDate = new Date(from);
-      startDate.setHours(0, 0, 0, 0);
+    if (
+      !Number.isNaN(
+        from.getTime(),
+      )
+    ) {
+      startDate =
+        new Date(from);
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
     }
   }
 
-  // To Date
+  // =========================================================
+  // TO DATE
+  // =========================================================
+
   if (query.toDate) {
-    const to = new Date(query.toDate);
+    const to =
+      new Date(
+        query.toDate,
+      );
 
-    if (!Number.isNaN(to.getTime())) {
-      endDate = new Date(to);
-      endDate.setHours(23, 59, 59, 999);
+    if (
+      !Number.isNaN(
+        to.getTime(),
+      )
+    ) {
+      endDate =
+        new Date(to);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
     }
   }
 
-  // -----------------------------
+  // =========================================================
   // STEP 1 : FETCH ORDERS FIRST
-  // -----------------------------
+  // =========================================================
+
   const orderMatch: any = {
     orderDate: {
       $gte: startDate,
       $lte: endDate,
     },
+
+    Approved: true,
+
+    // -------------------------------------------------------
+    // Only orders having actual revenue
+    // -------------------------------------------------------
+
+    $or: [
+      {
+        paymentMode: 'Lumpsum',
+
+        'lumpsumDetails.totalReceived': {
+          $gt: 0,
+        },
+      },
+
+      {
+        paymentMode: 'Loan',
+
+        'loanDetails.disbursementAmount': {
+          $gt: 0,
+        },
+      },
+
+      // Subscription intentionally excluded
+      // until subscription revenue logic is added.
+    ],
   };
 
-  // Optional
-  orderMatch.Approved = true;
+  const orders =
+    await this.orderModel
+      .find(orderMatch)
+      .lean();
 
-  const orders = await this.orderModel.find(orderMatch).lean();
-  
-  if (!orders.length) {
+  // =========================================================
+  // CALCULATE REVENUE FOR EACH ORDER
+  // =========================================================
+
+  const formattedOrders =
+    orders
+      .map((order: any) => {
+        let revenue = 0;
+
+        // ---------------------------------------------------
+        // LUMPSUM
+        // ---------------------------------------------------
+
+        if (
+          order.paymentMode ===
+          'Lumpsum'
+        ) {
+          revenue =
+            Number(
+              order
+                .lumpsumDetails
+                ?.totalReceived,
+            ) || 0;
+        }
+
+        // ---------------------------------------------------
+        // LOAN
+        // ---------------------------------------------------
+
+        else if (
+          order.paymentMode ===
+          'Loan'
+        ) {
+          revenue =
+            Number(
+              order
+                .loanDetails
+                ?.disbursementAmount,
+            ) || 0;
+        }
+
+        // ---------------------------------------------------
+        // SUBSCRIPTION
+        // ---------------------------------------------------
+
+        // TODO:
+        // Subscription revenue will be
+        // implemented later.
+
+        return {
+          ...order,
+
+          calculatedRevenue:
+            revenue,
+        };
+      })
+      .filter(
+        (order: any) =>
+          Number(
+            order.calculatedRevenue ||
+              0,
+          ) > 0,
+      );
+
+  // =========================================================
+  // NO ORDERS
+  // =========================================================
+
+  if (!formattedOrders.length) {
     return {
       startDate,
       endDate,
+
       campaigns: [],
+
       data: [],
+
       totals: {
         total: {
           totalLead: 0,
           revenue: 0,
         },
+
         byCampaign: {},
       },
+
       stats: {
         totalLead: 0,
         totalRevenue: 0,
@@ -2673,10 +3518,20 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
     };
   }
 
-  // -----------------------------
+  // =========================================================
   // STEP 2 : FETCH LEADS
-  // -----------------------------
-  const mobiles = [...new Set(orders.map((o: any) => o.mobile))];
+  // =========================================================
+
+  const mobiles = [
+    ...new Set(
+      formattedOrders
+        .map(
+          (o: any) =>
+            o.mobile,
+        )
+        .filter(Boolean),
+    ),
+  ];
 
   const leadMatch: any = {
     phone: {
@@ -2685,181 +3540,396 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
   };
 
   if (query.source) {
-    leadMatch.source = query.source.toLowerCase();
+    leadMatch.source =
+      query.source.toLowerCase();
   }
 
   if (query.state) {
-    leadMatch.state = query.state;
+    leadMatch.state =
+      query.state;
   }
 
   if (query.stageId) {
-    leadMatch.stageId = new Types.ObjectId(query.stageId);
+    leadMatch.stageId =
+      new Types.ObjectId(
+        query.stageId,
+      );
   }
 
-  const leads = await this.leadModel
-    .find(leadMatch)
-    .populate('stageId', 'name order')
-    .lean();
-
-  const filteredLeads = query.stage
-    ? leads.filter((lead: any) =>
-        String(lead?.stageId?.name || '')
-          .toLowerCase()
-          .includes(String(query.stage).toLowerCase()),
+  const leads =
+    await this.leadModel
+      .find(leadMatch)
+      .populate(
+        'stageId',
+        'name order',
       )
-    : leads;
+      .lean();
+
+  const filteredLeads =
+    query.stage
+      ? leads.filter(
+          (lead: any) =>
+            String(
+              lead?.stageId
+                ?.name || '',
+            )
+              .toLowerCase()
+              .includes(
+                String(
+                  query.stage,
+                ).toLowerCase(),
+              ),
+        )
+      : leads;
 
   if (!filteredLeads.length) {
     return {
       startDate,
       endDate,
+
       campaigns: [],
+
       data: [],
+
       totals: {
         total: {
           totalLead: 0,
           revenue: 0,
         },
+
         byCampaign: {},
       },
+
       stats: {
         totalLead: 0,
         totalRevenue: 0,
-        totalOrders: orders.length,
+        totalOrders:
+          formattedOrders.length,
       },
     };
   }
 
-  // -----------------------------
+  // =========================================================
   // STEP 3 : MAP LEADS
-  // -----------------------------
-  const leadByPhone = new Map<string, any>();
+  // =========================================================
 
-  filteredLeads.forEach((lead: any) => {
-    leadByPhone.set(lead.phone, lead);
-  });
+  const leadByPhone =
+    new Map<string, any>();
 
-  // -----------------------------
+  filteredLeads.forEach(
+    (lead: any) => {
+      leadByPhone.set(
+        lead.phone,
+        lead,
+      );
+    },
+  );
+
+  // =========================================================
   // STEP 4 : GROUP DATA
-  // -----------------------------
-  const groupedData = new Map<string, any>();
+  // =========================================================
 
-  orders.forEach((order: any) => {
-    const lead = leadByPhone.get(order.mobile);
+  const groupedData =
+    new Map<string, any>();
 
-    if (!lead) return;
+  formattedOrders.forEach(
+    (order: any) => {
+      const lead =
+        leadByPhone.get(
+          order.mobile,
+        );
 
-    const source = lead.source || 'Unknown';
-    const campaignName = lead.source_campaign || 'Unknown';
+      if (!lead) return;
 
-    if (!groupedData.has(source)) {
-      groupedData.set(source, {
-        source,
-        campaigns: new Map(),
-      });
-    }
+      const source =
+        lead.source ||
+        'Unknown';
 
-    const sourceGroup = groupedData.get(source);
+      const campaignName =
+        lead.source_campaign ||
+        'Unknown';
 
-    if (!sourceGroup.campaigns.has(campaignName)) {
-      sourceGroup.campaigns.set(campaignName, {
-        campaignName,
-        revenue: 0,
-        leadIds: new Set<string>(),
-      });
-    }
+      if (
+        !groupedData.has(
+          source,
+        )
+      ) {
+        groupedData.set(
+          source,
+          {
+            source,
 
-    const campaign = sourceGroup.campaigns.get(campaignName);
+            campaigns:
+              new Map(),
+          },
+        );
+      }
 
-    campaign.revenue +=
-      Number(order.countedRevenue || 0);
+      const sourceGroup =
+        groupedData.get(
+          source,
+        );
 
-    campaign.leadIds.add(String(lead._id));
-  });
+      if (
+        !sourceGroup.campaigns.has(
+          campaignName,
+        )
+      ) {
+        sourceGroup.campaigns.set(
+  campaignName,
+  {
+    campaignName,
+    revenue: 0,
+    leadIds: new Set<string>(),
+    orders: [],
+  },
+);
+      }
 
-  // -----------------------------
+      const campaign =
+        sourceGroup.campaigns.get(
+          campaignName,
+        );
+
+      // =====================================================
+      // USE CALCULATED REVENUE
+      // =====================================================
+
+      campaign.revenue +=
+  Number(
+    order.calculatedRevenue ||
+      0,
+  );
+
+campaign.leadIds.add(
+  String(
+    lead._id,
+  ),
+);
+
+// Return the actual order
+// which generated this revenue.
+campaign.orders.push({
+  ...order,
+
+  lead: {
+    _id: lead._id,
+    leadId: lead.leadId,
+    name: lead.name,
+    phone: lead.phone,
+    email: lead.email,
+    source: lead.source,
+    source_campaign:
+      lead.source_campaign,
+    stageId: lead.stageId,
+  },
+
+  calculatedRevenue:
+    Number(
+      order.calculatedRevenue ||
+        0,
+    ),
+});
+    },
+  );
+
+  // =========================================================
   // RESPONSE
-  // -----------------------------
-  const allCampaigns = new Set<string>();
-  const sourceNames: string[] = [];
+  // =========================================================
 
-  groupedData.forEach((data) => {
-    sourceNames.push(data.source);
+  const allCampaigns =
+    new Set<string>();
 
-    data.campaigns.forEach((campaign: any) => {
-      allCampaigns.add(campaign.campaignName);
-    });
-  });
+  const sourceNames:
+    string[] = [];
 
-  const campaigns = Array.from(allCampaigns).sort();
+  groupedData.forEach(
+    (data) => {
+      sourceNames.push(
+        data.source,
+      );
+
+      data.campaigns.forEach(
+        (campaign: any) => {
+          allCampaigns.add(
+            campaign.campaignName,
+          );
+        },
+      );
+    },
+  );
+
+  const campaigns =
+    Array.from(
+      allCampaigns,
+    ).sort();
 
   const response: any = {
     startDate,
+
     endDate,
+
     campaigns,
+
     data: [],
+
     totals: {
       total: {
         totalLead: 0,
+
         revenue: 0,
       },
+
       byCampaign: {},
     },
+
     stats: {
       totalLead: 0,
+
       totalRevenue: 0,
-      totalOrders: orders.length,
+
+      totalOrders:
+        formattedOrders.length,
     },
   };
 
-  sourceNames.sort().forEach((source) => {
-    const sourceData = groupedData.get(source);
+  sourceNames
+    .sort()
+    .forEach(
+      (source) => {
+        const sourceData =
+          groupedData.get(
+            source,
+          );
 
-    const row: any = {
-      source,
-    };
+        const row: any = {
+          source,
+        };
 
-    campaigns.forEach((campaignName) => {
-      const campaign = sourceData.campaigns.get(campaignName);
+        campaigns.forEach(
+          (campaignName) => {
+            const campaign =
+              sourceData.campaigns.get(
+                campaignName,
+              );
 
-      if (campaign) {
-        const leadCount = campaign.leadIds.size;
+            if (campaign) {
+              const leadCount =
+                campaign.leadIds.size;
 
-        row[`${campaignName}_lead`] = leadCount;
-        row[`${campaignName}_revenue`] = campaign.revenue;
+              row[
+                `${campaignName}_lead`
+              ] =
+                leadCount;
 
-        if (!response.totals.byCampaign[campaignName]) {
-          response.totals.byCampaign[campaignName] = {
-            totalLead: 0,
-            revenue: 0,
-          };
-        }
+              row[
+                `${campaignName}_revenue`
+              ] =
+                campaign.revenue;
+              row[
+                `${campaignName}_orders`
+              ] =
+                campaign.orders;
 
-        response.totals.byCampaign[campaignName].totalLead += leadCount;
-        response.totals.byCampaign[campaignName].revenue += campaign.revenue;
+              if (
+                !response
+                  .totals
+                  .byCampaign[
+                    campaignName
+                  ]
+              ) {
+                response
+                  .totals
+                  .byCampaign[
+                    campaignName
+                  ] = {
+                    totalLead: 0,
 
-        response.totals.total.totalLead += leadCount;
-        response.totals.total.revenue += campaign.revenue;
-        response.stats.totalRevenue += campaign.revenue;
-        response.stats.totalLead += leadCount;
-      } else {
-        row[`${campaignName}_lead`] = 0;
-        row[`${campaignName}_revenue`] = 0;
-      }
-    });
+                    revenue: 0,
+                  };
+              }
 
-    row.totalLead = campaigns.reduce(
-      (sum, c) => sum + (row[`${c}_lead`] || 0),
-      0,
+              response
+                .totals
+                .byCampaign[
+                  campaignName
+                ]
+                .totalLead +=
+                leadCount;
+
+              response
+                .totals
+                .byCampaign[
+                  campaignName
+                ]
+                .revenue +=
+                campaign.revenue;
+
+              response
+                .totals
+                .total
+                .totalLead +=
+                leadCount;
+
+              response
+                .totals
+                .total
+                .revenue +=
+                campaign.revenue;
+
+              response
+                .stats
+                .totalRevenue +=
+                campaign.revenue;
+
+              response
+                .stats
+                .totalLead +=
+                leadCount;
+            } else {
+              row[
+                `${campaignName}_lead`
+              ] = 0;
+
+              row[
+                `${campaignName}_revenue`
+              ] = 0;
+              row[
+                `${campaignName}_orders`
+              ] = [];
+            }
+          },
+        );
+
+        row.totalLead =
+          campaigns.reduce(
+            (sum, c) =>
+              sum +
+              (
+                row[
+                  `${c}_lead`
+                ] || 0
+              ),
+            0,
+          );
+
+        row.totalRevenue =
+          campaigns.reduce(
+            (sum, c) =>
+              sum +
+              (
+                row[
+                  `${c}_revenue`
+                ] || 0
+              ),
+            0,
+          );
+
+        response.data.push(
+          row,
+        );
+      },
     );
-
-    row.totalRevenue = campaigns.reduce(
-      (sum, c) => sum + (row[`${c}_revenue`] || 0),
-      0,
-    );
-
-    response.data.push(row);
-  });
 
   return response;
 }
