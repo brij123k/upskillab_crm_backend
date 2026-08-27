@@ -529,240 +529,194 @@ if (fromDate && toDate) {
 async consultantPerformanceReport(query: any) {
   const now = new Date();
 
-  // =========================================================
-  // DATE FILTER
-  // =========================================================
-
-  const filter =
-    String(
-      query.dateFilter || 'month',
+  const getFilterRange = (filter: any) => {
+    const value = String(
+      filter || '',
     ).toLowerCase();
 
-  let startDate: Date;
-  let endDate: Date;
+    let startDate: Date;
+    let endDate: Date;
 
-  if (filter === 'today') {
-    startDate = new Date(now);
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
+    if (value === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
 
-    endDate = new Date(now);
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (value === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(
+        startDate.getDate() - 6,
+      );
+      startDate.setHours(0, 0, 0, 0);
 
-  else if (filter === 'week') {
-    // Last 7 days including today
-    startDate = new Date(now);
-    startDate.setDate(
-      startDate.getDate() - 6,
-    );
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
+      endDate = new Date(now);
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
 
-    endDate = new Date(now);
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
 
-  else if (filter === 'month') {
-    // Current month:
-    // 1st of current month -> today
-    startDate = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    endDate = new Date(now);
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (filter === 'year') {
-    // Current year:
-    // 1 January -> today
-    startDate = new Date(
-      now.getFullYear(),
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    endDate = new Date(now);
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (filter === 'custom') {
-    if (
-      !query.fromDate ||
-      !query.toDate
-    ) {
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else {
       throw new BadRequestException(
-        'fromDate and toDate are required for custom date filter',
+        `Invalid date filter: ${filter}`,
       );
     }
 
-    startDate =
-      new Date(query.fromDate);
+    return {
+      $gte: startDate,
+      $lte: endDate,
+    };
+  };
 
-    endDate =
-      new Date(query.toDate);
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+    name: string,
+  ) => {
+    if (!fromValue || !toValue) {
+      throw new BadRequestException(
+        `${name}From and ${name}To are both required`,
+      );
+    }
+
+    const from = new Date(fromValue);
+    const to = new Date(toValue);
 
     if (
-      Number.isNaN(
-        startDate.getTime(),
-      )
+      Number.isNaN(from.getTime()) ||
+      Number.isNaN(to.getTime())
     ) {
       throw new BadRequestException(
-        'Invalid fromDate',
+        `Invalid ${name} date`,
       );
     }
 
-    if (
-      Number.isNaN(
-        endDate.getTime(),
-      )
-    ) {
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+
+    if (from > to) {
       throw new BadRequestException(
-        'Invalid toDate',
+        `${name}From cannot be greater than ${name}To`,
       );
     }
 
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
+    const diffDays =
+      Math.floor(
+        (to.getTime() -
+          from.getTime()) /
+          (1000 * 60 * 60 * 24),
+      ) + 1;
 
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-
-    if (startDate > endDate) {
+    if (diffDays > 31) {
       throw new BadRequestException(
-        'fromDate cannot be greater than toDate',
-      );
-    }
-  }
-
-  else {
-    throw new BadRequestException(
-      'Invalid dateFilter. Allowed values: today, week, month, year, custom',
-    );
-  }
-
-  // =========================================================
-  // OPTIONAL CUSTOM DATE OVERRIDE
-  //
-  // Allows:
-  // ?fromDate=...
-  // ?toDate=...
-  //
-  // even without dateFilter=custom
-  // =========================================================
-
-  if (
-    query.fromDate &&
-    filter !== 'custom'
-  ) {
-    const fromDate =
-      new Date(query.fromDate);
-
-    if (
-      Number.isNaN(
-        fromDate.getTime(),
-      )
-    ) {
-      throw new BadRequestException(
-        'Invalid fromDate',
+        `${name} date range cannot be more than 31 days`,
       );
     }
 
-    startDate =
-      new Date(fromDate);
+    return {
+      $gte: from,
+      $lte: to,
+    };
+  };
 
-    startDate.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
-  }
-
-  if (
-    query.toDate &&
-    filter !== 'custom'
-  ) {
-    const toDate =
-      new Date(query.toDate);
-
-    if (
-      Number.isNaN(
-        toDate.getTime(),
-      )
-    ) {
-      throw new BadRequestException(
-        'Invalid toDate',
+  const getDateRange = (
+    filter: any,
+    from: any,
+    to: any,
+    name: string,
+  ) => {
+    if (from || to) {
+      return getCustomRange(
+        from,
+        to,
+        name,
       );
     }
 
-    endDate =
-      new Date(toDate);
+    if (filter) {
+      return getFilterRange(filter);
+    }
 
-    endDate.setHours(
-      23,
-      59,
-      59,
-      999,
+    return null;
+  };
+
+  const leadCreatedRange =
+    getDateRange(
+      query.leadCreatedDateFilter,
+      query.leadCreatedDateFrom,
+      query.leadCreatedDateTo,
+      'leadCreatedDate',
     );
-  }
 
-  if (startDate > endDate) {
-    throw new BadRequestException(
-      'fromDate cannot be greater than toDate',
+  const leadAssignedRange =
+    getDateRange(
+      query.leadAssignedDateFilter,
+      query.leadAssignedDateFrom,
+      query.leadAssignedDateTo,
+      'leadAssignedDate',
     );
-  }
 
-  // =========================================================
-  // LEVEL
-  // =========================================================
+  const orderCreatedRange =
+    getDateRange(
+      query.orderCreatedDateFilter,
+      query.orderCreatedDateFrom,
+      query.orderCreatedDateTo,
+      'orderCreatedDate',
+    );
+
+  const hasCreatedFilter =
+    !!leadCreatedRange;
+
+  const hasAssignedFilter =
+    !!leadAssignedRange;
+
+  const hasOrderFilter =
+    !!orderCreatedRange;
+
+  const hasLeadFilter =
+    hasCreatedFilter ||
+    hasAssignedFilter;
 
   const levelNumber =
     this.resolveLevel(
@@ -782,32 +736,10 @@ async consultantPerformanceReport(query: any) {
     return [];
   }
 
-  // =========================================================
-  // TEAM FILTER
-  // =========================================================
-
-  const teamFilter =
-    query.team === true ||
-    String(
-      query.team,
-    ).toLowerCase() === 'true';
-
-  // =========================================================
-  // COUNSELLOR FILTER
-  // =========================================================
-
   const selectedCounsellorId =
     query.counsellorId
-      ? String(
-          query.counsellorId,
-        )
+      ? String(query.counsellorId)
       : null;
-
-  // =========================================================
-  // ROOT USERS
-  //
-  // These users are shown as rows in the report.
-  // =========================================================
 
   let rootUsers =
     await this.userModel
@@ -815,7 +747,6 @@ async consultantPerformanceReport(query: any) {
         _id: {
           $in: levelUserIds,
         },
-
         status: 'active',
       })
       .select(
@@ -823,23 +754,11 @@ async consultantPerformanceReport(query: any) {
       )
       .lean();
 
-  if (!rootUsers.length) {
-    return [];
-  }
-
-  // =========================================================
-  // SELECTED COUNSELLOR
-  // =========================================================
-
-  if (
-    selectedCounsellorId
-  ) {
+  if (selectedCounsellorId) {
     const selectedCounsellor =
       await this.userModel
         .findOne({
-          _id:
-            selectedCounsellorId,
-
+          _id: selectedCounsellorId,
           status: 'active',
         })
         .populate(
@@ -854,9 +773,8 @@ async consultantPerformanceReport(query: any) {
     if (
       !selectedCounsellor ||
       Number(
-        (
-          selectedCounsellor as any
-        )?.role?.level,
+        (selectedCounsellor as any)
+          ?.role?.level,
       ) !== levelNumber
     ) {
       return [];
@@ -867,31 +785,16 @@ async consultantPerformanceReport(query: any) {
     ];
   }
 
-  // =========================================================
-  // TEAM MAP
-  //
-  // team=false:
-  // root user gets only own data
-  //
-  // team=true:
-  // root user gets own + subordinate data
-  // =========================================================
+  const teamFilter =
+    query.team === true ||
+    query.team === 'true';
 
   const teamMap =
-    new Map<
-      string,
-      string[]
-    >();
+    new Map<string, string[]>();
 
-  for (
-    const rootUser of rootUsers
-  ) {
+  for (const user of rootUsers) {
     const rootId =
-      rootUser._id.toString();
-
-    // -------------------------------------------------------
-    // NORMAL MODE
-    // -------------------------------------------------------
+      user._id.toString();
 
     if (!teamFilter) {
       teamMap.set(
@@ -902,83 +805,53 @@ async consultantPerformanceReport(query: any) {
       continue;
     }
 
-    // -------------------------------------------------------
-    // TEAM MODE
-    // -------------------------------------------------------
-
     const subordinateIds =
       await this.getUserAndSubordinateIds(
         rootId,
       );
 
-    const memberIds = [
+    const allIds = [
       rootId,
-
       ...subordinateIds.map(
         (id: any) =>
           id.toString(),
       ),
     ];
 
-    const uniqueMemberIds = [
-      ...new Set(
-        memberIds,
-      ),
+    const uniqueIds = [
+      ...new Set(allIds),
     ];
 
-    // -------------------------------------------------------
-    // GET ACTIVE TEAM MEMBERS
-    // -------------------------------------------------------
-
-    const activeMembers =
+    const activeUsers =
       await this.userModel
         .find({
           _id: {
-            $in:
-              uniqueMemberIds,
+            $in: uniqueIds,
           },
-
           status: 'active',
         })
-        .select(
-          '_id',
-        )
+        .select('_id')
         .lean();
 
-    const activeMemberIds =
-      activeMembers.map(
-        (member) =>
-          member._id.toString(),
+    const activeIds =
+      activeUsers.map(
+        (user) =>
+          user._id.toString(),
       );
 
-    // Always keep root user
     if (
-      !activeMemberIds.includes(
-        rootId,
-      )
+      !activeIds.includes(rootId)
     ) {
-      activeMemberIds.push(
-        rootId,
-      );
+      activeIds.push(rootId);
     }
 
     teamMap.set(
       rootId,
-      [
-        ...new Set(
-          activeMemberIds,
-        ),
-      ],
+      [...new Set(activeIds)],
     );
   }
 
-  // =========================================================
-  // ALL USERS INCLUDED IN THE REPORT
-  //
-  // Used by lead/order aggregation.
-  // =========================================================
-
-  const allowedUserIdStrings = [
+  const allAllowedUserIds = [
     ...new Set(
       Array.from(
         teamMap.values(),
@@ -986,337 +859,446 @@ async consultantPerformanceReport(query: any) {
     ),
   ];
 
-  if (
-    !allowedUserIdStrings.length
-  ) {
+  if (!allAllowedUserIds.length) {
     return [];
+  }
+
+  // =========================================================
+  // ADMISSION DONE STAGE
+  // =========================================================
+
+  const admissionStage =
+    await this.leadStageModel
+      .findOne({
+        name: {
+          $regex: /^admission done$/i,
+        },
+      })
+      .select('_id')
+      .lean();
+
+  const admissionStageId =
+    admissionStage?._id
+      ? admissionStage._id.toString()
+      : null;
+
+  // =========================================================
+  // GET SELECTED LEADS
+  //
+  // created filter   -> created leads
+  // assigned filter  -> assigned leads
+  // both             -> leads satisfying BOTH
+  // order-only       -> leads assigned in same order range
+  // =========================================================
+
+  let selectedLeads: any[] = [];
+
+  const leadMatch: any = {
+    normalizedAssignedTo: {
+      $in: allAllowedUserIds,
+    },
+  };
+
+  if (hasCreatedFilter) {
+    leadMatch.createdAt =
+      leadCreatedRange;
+  }
+
+  if (hasAssignedFilter) {
+    leadMatch.assignedDate =
+      leadAssignedRange;
+  }
+
+  if (hasLeadFilter) {
+    selectedLeads =
+      await this.leadModel.aggregate([
+        {
+          $addFields: {
+            normalizedAssignedTo: {
+              $convert: {
+                input: '$assignedTo',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: leadMatch,
+        },
+
+        {
+          $project: {
+            _id: 1,
+            leadId: 1,
+            name: 1,
+            phone: 1,
+            mobile: 1,
+            email: 1,
+            assignedTo: 1,
+            assignedDate: 1,
+            createdAt: 1,
+            stageId: 1,
+          },
+        },
+      ]);
+  } else if (hasOrderFilter) {
+    selectedLeads =
+      await this.leadModel.aggregate([
+        {
+          $addFields: {
+            normalizedAssignedTo: {
+              $convert: {
+                input: '$assignedTo',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            normalizedAssignedTo: {
+              $in: allAllowedUserIds,
+            },
+
+            assignedDate:
+              orderCreatedRange,
+          },
+        },
+
+        {
+          $project: {
+            _id: 1,
+            leadId: 1,
+            name: 1,
+            phone: 1,
+            mobile: 1,
+            email: 1,
+            assignedTo: 1,
+            assignedDate: 1,
+            createdAt: 1,
+            stageId: 1,
+          },
+        },
+      ]);
   }
 
   // =========================================================
   // LEAD STATS
   //
-  // Uses assignedDate
+  // IMPORTANT:
+  // Admission Done is calculated directly from LEAD stageId.
+  // It does NOT depend on orders.
   // =========================================================
 
   const leadStats =
-    await this.leadModel.aggregate([
-      {
-        $addFields: {
-          normalizedAssignedTo: {
-            $convert: {
-              input:
-                '$assignedTo',
+    new Map<string, any>();
 
-              to: 'string',
-
-              onError: null,
-
-              onNull: null,
-            },
+  const ensureLeadStats =
+    (userId: string) => {
+      if (
+        !leadStats.has(userId)
+      ) {
+        leadStats.set(
+          userId,
+          {
+            totalLeadAssigned: 0,
+            admDone: 0,
           },
-        },
-      },
+        );
+      }
 
-      {
-        $match: {
-          assignedDate: {
-            $gte:
-              startDate,
+      return leadStats.get(userId);
+    };
 
-            $lte:
-              endDate,
-          },
+  selectedLeads.forEach(
+    (lead: any) => {
+      const assignedTo =
+        lead.assignedTo
+          ? String(
+              lead.assignedTo,
+            )
+          : null;
 
-          normalizedAssignedTo: {
-            $in:
-              allowedUserIdStrings,
-          },
-        },
-      },
+      if (!assignedTo) {
+        return;
+      }
 
-      {
-        $group: {
-          _id:
-            '$normalizedAssignedTo',
+      const stats =
+        ensureLeadStats(
+          assignedTo,
+        );
 
-          totalLeadAssigned: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
+      stats.totalLeadAssigned += 1;
+
+      if (
+        admissionStageId &&
+        lead.stageId &&
+        String(lead.stageId) ===
+          admissionStageId
+      ) {
+        stats.admDone += 1;
+      }
+    },
+  );
 
   // =========================================================
-  // ORDER STATS
+  // LEAD CONTACTS FOR ORDER MATCH
   // =========================================================
 
-  const orderStats =
-    await this.orderModel.aggregate([
-      {
-        $addFields: {
-          normalizedCounsellorId: {
-            $convert: {
-              input:
-                '$counsellorId',
+  const leadMobiles = [
+    ...new Set(
+      selectedLeads
+        .flatMap(
+          (lead: any) => [
+            lead.phone,
+            lead.mobile,
+          ],
+        )
+        .filter(Boolean)
+        .map(
+          (value: any) =>
+            String(value),
+        ),
+    ),
+  ];
 
-              to: 'string',
+  const leadEmails = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.email,
+        )
+        .filter(Boolean)
+        .map(
+          (value: any) =>
+            String(value)
+              .toLowerCase(),
+        ),
+    ),
+  ];
 
-              onError: null,
+  // =========================================================
+  // ORDERS
+  // =========================================================
 
-              onNull: null,
+  let orderMatch: any = {
+    Approved: true,
+  };
+
+  if (hasLeadFilter) {
+    if (
+      !leadMobiles.length &&
+      !leadEmails.length
+    ) {
+      orderMatch._id = {
+        $in: [],
+      };
+    } else {
+      orderMatch.$or = [
+        ...(leadMobiles.length
+          ? [
+              {
+                mobile: {
+                  $in: leadMobiles,
+                },
+              },
+            ]
+          : []),
+
+        ...(leadEmails.length
+          ? [
+              {
+                email: {
+                  $in: leadEmails,
+                },
+              },
+            ]
+          : []),
+      ];
+    }
+  } else if (hasOrderFilter) {
+    orderMatch.orderDate =
+      orderCreatedRange;
+
+    orderMatch.normalizedCounsellorId = {
+      $in: allAllowedUserIds,
+    };
+  }
+
+  if (
+    hasLeadFilter &&
+    hasOrderFilter
+  ) {
+    orderMatch.orderDate =
+      orderCreatedRange;
+  }
+
+  let orderStats: any[] = [];
+
+  if (
+    hasLeadFilter ||
+    hasOrderFilter
+  ) {
+    orderStats =
+      await this.orderModel.aggregate([
+        {
+          $addFields: {
+            normalizedCounsellorId: {
+              $convert: {
+                input: '$counsellorId',
+                to: 'string',
+                onError: null,
+                onNull: null,
+              },
             },
-          },
 
-          // =================================================
-          // ACTUAL REVENUE
-          // =================================================
+            calculatedRevenue: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LOAN,
+                      ],
+                    },
 
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
+                    then: {
+                      $ifNull: [
+                        '$loanDetails.disbursementAmount',
+                        0,
+                      ],
+                    },
                   },
 
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LUMPSUM,
+                      ],
+                    },
+
+                    then: {
+                      $ifNull: [
+                        '$lumpsumDetails.totalReceived',
+                        0,
+                      ],
+                    },
+                  },
+                ],
+
+                default: 0,
+              },
+            },
+
+            calculatedUnrealisedRevenue: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LOAN,
+                      ],
+                    },
+
+                    then: 0,
+                  },
+
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LUMPSUM,
+                      ],
+                    },
+
+                    then: {
+                      $ifNull: [
+                        '$lumpsumDetails.pendingAmount',
+                        0,
+                      ],
+                    },
+                  },
+                ],
+
+                default: 0,
+              },
+            },
+          },
+        },
+
+        {
+          $match: orderMatch,
+        },
+
+        {
+          $sort: {
+            feeDepositDate: -1,
+            orderDate: -1,
+            createdAt: -1,
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedCounsellorId',
+
+            registrationDone: {
+              $sum: {
+                $cond: [
+                  {
+                    $gt: [
+                      '$registrationAmount',
                       0,
                     ],
                   },
-                },
-
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription revenue calculation later.
-              ],
-
-              default: 0,
+                  1,
+                  0,
+                ],
+              },
             },
-          },
 
-          // =================================================
-          // UNREALISED REVENUE
-          // =================================================
+            bookedRevenue: {
+              $sum:
+                '$calculatedRevenue',
+            },
 
-          calculatedUnrealisedRevenue: {
-            $switch: {
-              branches: [
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
+            realisedRevenue: {
+              $sum:
+                '$calculatedRevenue',
+            },
 
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
+            unrealisedRevenue: {
+              $sum:
+                '$calculatedUnrealisedRevenue',
+            },
 
-                  then: 0,
-                },
+            lastSalePunchDate: {
+              $first:
+                '$feeDepositDate',
+            },
 
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.pendingAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription unrealised revenue later.
-              ],
-
-              default: 0,
+            lastRevenuePunched: {
+              $first:
+                '$calculatedRevenue',
             },
           },
         },
-      },
-
-      // =====================================================
-      // ORDER DATE FILTER
-      // =====================================================
-
-      {
-        $match: {
-          orderDate: {
-            $gte:
-              startDate,
-
-            $lte:
-              endDate,
-          },
-
-          normalizedCounsellorId: {
-            $in:
-              allowedUserIdStrings,
-          },
-        },
-      },
-
-      // Latest order first
-
-      {
-        $sort: {
-          feeDepositDate: -1,
-
-          updatedAt: -1,
-
-          createdAt: -1,
-        },
-      },
-
-      {
-        $group: {
-          _id:
-            '$normalizedCounsellorId',
-
-          // -----------------------------------------------
-          // REGISTRATION
-          // -----------------------------------------------
-
-          registrationDone: {
-            $sum: {
-              $cond: [
-                {
-                  $gt: [
-                    '$registrationAmount',
-                    0,
-                  ],
-                },
-
-                1,
-
-                0,
-              ],
-            },
-          },
-
-          // -----------------------------------------------
-          // ADM
-          // -----------------------------------------------
-
-          admDone: {
-            $sum: {
-              $cond: [
-                '$Approved',
-
-                1,
-
-                0,
-              ],
-            },
-          },
-
-          // -----------------------------------------------
-          // BOOKED REVENUE
-          // -----------------------------------------------
-
-          bookedRevenue: {
-            $sum:
-              '$calculatedRevenue',
-          },
-
-          // -----------------------------------------------
-          // REALISED REVENUE
-          // -----------------------------------------------
-
-          realisedRevenue: {
-            $sum:
-              '$calculatedRevenue',
-          },
-
-          // -----------------------------------------------
-          // UNREALISED REVENUE
-          // -----------------------------------------------
-
-          unrealisedRevenue: {
-            $sum:
-              '$calculatedUnrealisedRevenue',
-          },
-
-          // -----------------------------------------------
-          // LAST SALE
-          // -----------------------------------------------
-
-          lastSalePunchDate: {
-            $first:
-              '$feeDepositDate',
-          },
-
-          // -----------------------------------------------
-          // LAST REVENUE PUNCHED
-          // -----------------------------------------------
-
-          lastRevenuePunched: {
-            $first:
-              '$calculatedRevenue',
-          },
-
-          // -----------------------------------------------
-          // TOTAL ORDERS
-          // -----------------------------------------------
-
-          totalOrders: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
+      ]);
+  }
 
   // =========================================================
-  // LAST MONTH REVENUE
-  //
-  // Previous calendar month
+  // LAST MONTH
   // =========================================================
 
   const monthStart =
@@ -1347,27 +1329,16 @@ async consultantPerformanceReport(query: any) {
         $addFields: {
           normalizedCounsellorId: {
             $convert: {
-              input:
-                '$counsellorId',
-
+              input: '$counsellorId',
               to: 'string',
-
               onError: null,
-
               onNull: null,
             },
           },
 
-          // Same revenue calculation
-          // as current report.
-
           calculatedRevenue: {
             $switch: {
               branches: [
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
-
                 {
                   case: {
                     $eq: [
@@ -1384,10 +1355,6 @@ async consultantPerformanceReport(query: any) {
                   },
                 },
 
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
                 {
                   case: {
                     $eq: [
@@ -1403,13 +1370,6 @@ async consultantPerformanceReport(query: any) {
                     ],
                   },
                 },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription revenue later.
               ],
 
               default: 0,
@@ -1421,16 +1381,12 @@ async consultantPerformanceReport(query: any) {
       {
         $match: {
           orderDate: {
-            $gte:
-              monthStart,
-
-            $lte:
-              monthEnd,
+            $gte: monthStart,
+            $lte: monthEnd,
           },
 
           normalizedCounsellorId: {
-            $in:
-              allowedUserIdStrings,
+            $in: allAllowedUserIds,
           },
         },
       },
@@ -1449,88 +1405,59 @@ async consultantPerformanceReport(query: any) {
     ]);
 
   // =========================================================
-  // BUILD STATS
+  // COMBINE STATS
   // =========================================================
 
   const statsByConsultant =
-    new Map<
-      string,
-      any
-    >();
+    new Map<string, any>();
 
   const ensureStats =
     (id: string) => {
       if (
-        !statsByConsultant.has(
-          id,
-        )
+        !statsByConsultant.has(id)
       ) {
         statsByConsultant.set(
           id,
           {
-            consultantId:
-              id,
+            consultantId: id,
 
-            totalLeadAssigned:
-              0,
+            totalLeadAssigned: 0,
 
-            registrationDone:
-              0,
+            registrationDone: 0,
 
-            admDone:
-              0,
+            // Admission Done comes ONLY from selected leads
+            admDone: 0,
 
-            bookedRevenue:
-              0,
+            bookedRevenue: 0,
 
-            unrealisedRevenue:
-              0,
+            unrealisedRevenue: 0,
 
-            realisedRevenue:
-              0,
+            realisedRevenue: 0,
 
-            lastSalePunchDate:
-              null,
+            lastSalePunchDate: null,
 
-            lastRevenuePunched:
-              0,
+            lastRevenuePunched: 0,
 
-            tillDateRealisedInLastMonth:
-              0,
+            tillDateRealisedInLastMonth: 0,
           },
         );
       }
 
-      return statsByConsultant.get(
-        id,
-      );
+      return statsByConsultant.get(id);
     };
 
-  // =========================================================
-  // ADD LEAD STATS
-  // =========================================================
-
   leadStats.forEach(
-    (item) => {
-      if (!item._id) {
-        return;
-      }
-
-      const userId =
-        item._id.toString();
-
+    (leadStat, id) => {
       const current =
-        ensureStats(userId);
+        ensureStats(id);
 
       current.totalLeadAssigned +=
-        item.totalLeadAssigned ||
-        0;
+        leadStat.totalLeadAssigned || 0;
+
+      current.admDone +=
+        leadStat.admDone || 0;
     },
   );
-
-  // =========================================================
-  // ADD ORDER STATS
-  // =========================================================
 
   orderStats.forEach(
     (item) => {
@@ -1538,36 +1465,26 @@ async consultantPerformanceReport(query: any) {
         return;
       }
 
-      const userId =
-        item._id.toString();
-
       const current =
-        ensureStats(userId);
+        ensureStats(
+          item._id.toString(),
+        );
 
       current.registrationDone +=
-        item.registrationDone ||
-        0;
-
-      current.admDone +=
-        item.admDone ||
-        0;
+        item.registrationDone || 0;
 
       current.bookedRevenue +=
-        item.bookedRevenue ||
-        0;
+        item.bookedRevenue || 0;
 
       current.realisedRevenue +=
-        item.realisedRevenue ||
-        0;
+        item.realisedRevenue || 0;
 
       current.unrealisedRevenue +=
-        item.unrealisedRevenue ||
-        0;
+        item.unrealisedRevenue || 0;
 
       if (
-        item.lastSalePunchDate
-      ) {
-        if (
+        item.lastSalePunchDate &&
+        (
           !current.lastSalePunchDate ||
           new Date(
             item.lastSalePunchDate,
@@ -1575,21 +1492,16 @@ async consultantPerformanceReport(query: any) {
             new Date(
               current.lastSalePunchDate,
             )
-        ) {
-          current.lastSalePunchDate =
-            item.lastSalePunchDate;
+        )
+      ) {
+        current.lastSalePunchDate =
+          item.lastSalePunchDate;
 
-          current.lastRevenuePunched =
-            item.lastRevenuePunched ||
-            0;
-        }
+        current.lastRevenuePunched =
+          item.lastRevenuePunched || 0;
       }
     },
   );
-
-  // =========================================================
-  // ADD LAST MONTH STATS
-  // =========================================================
 
   lastMonthStats.forEach(
     (item) => {
@@ -1597,11 +1509,10 @@ async consultantPerformanceReport(query: any) {
         return;
       }
 
-      const userId =
-        item._id.toString();
-
       const current =
-        ensureStats(userId);
+        ensureStats(
+          item._id.toString(),
+        );
 
       current.tillDateRealisedInLastMonth +=
         item.tillDateRealisedInLastMonth ||
@@ -1610,135 +1521,85 @@ async consultantPerformanceReport(query: any) {
   );
 
   // =========================================================
-  // GET COMBINED STATS
-  //
-  // team=false
-  // → root user's own data
-  //
-  // team=true
-  // → root user + all subordinate data
-  // =========================================================
-
-  const getCombinedStats =
-    (rootUserId: string) => {
-      const memberIds =
-        teamMap.get(
-          rootUserId,
-        ) || [
-          rootUserId,
-        ];
-
-      return memberIds.reduce(
-        (total, memberId) => {
-          const stats =
-            ensureStats(
-              memberId,
-            );
-
-          total.totalLeadAssigned +=
-            stats.totalLeadAssigned ||
-            0;
-
-          total.registrationDone +=
-            stats.registrationDone ||
-            0;
-
-          total.admDone +=
-            stats.admDone ||
-            0;
-
-          total.bookedRevenue +=
-            stats.bookedRevenue ||
-            0;
-
-          total.unrealisedRevenue +=
-            stats.unrealisedRevenue ||
-            0;
-
-          total.realisedRevenue +=
-            stats.realisedRevenue ||
-            0;
-
-          total.tillDateRealisedInLastMonth +=
-            stats.tillDateRealisedInLastMonth ||
-            0;
-
-          // -------------------------------------------------
-          // LATEST SALE FROM COMPLETE TEAM
-          // -------------------------------------------------
-
-          if (
-            stats.lastSalePunchDate
-          ) {
-            if (
-              !total.lastSalePunchDate ||
-              new Date(
-                stats.lastSalePunchDate,
-              ) >
-                new Date(
-                  total.lastSalePunchDate,
-                )
-            ) {
-              total.lastSalePunchDate =
-                stats.lastSalePunchDate;
-
-              total.lastRevenuePunched =
-                stats.lastRevenuePunched ||
-                0;
-            }
-          }
-
-          return total;
-        },
-        {
-          totalLeadAssigned:
-            0,
-
-          registrationDone:
-            0,
-
-          admDone:
-            0,
-
-          bookedRevenue:
-            0,
-
-          unrealisedRevenue:
-            0,
-
-          realisedRevenue:
-            0,
-
-          tillDateRealisedInLastMonth:
-            0,
-
-          lastSalePunchDate:
-            null as Date | null,
-
-          lastRevenuePunched:
-            0,
-        },
-      );
-    };
-
-  // =========================================================
-  // FINAL REPORT
+  // RESPONSE
   // =========================================================
 
   const report =
     rootUsers
       .map((user) => {
-        const rootUserId =
+        const rootId =
           user._id.toString();
 
-        // ---------------------------------------------------
-        // Gets own stats when team=false
-        // Gets combined team stats when team=true
-        // ---------------------------------------------------
+        const memberIds =
+          teamMap.get(rootId) ||
+          [rootId];
 
         const item =
-          getCombinedStats(
-            rootUserId,
+          memberIds.reduce(
+            (acc, memberId) => {
+              const memberStats =
+                statsByConsultant.get(
+                  memberId,
+                );
+
+              if (!memberStats) {
+                return acc;
+              }
+
+              acc.totalLeadAssigned +=
+                memberStats.totalLeadAssigned || 0;
+
+              acc.registrationDone +=
+                memberStats.registrationDone || 0;
+
+              acc.admDone +=
+                memberStats.admDone || 0;
+
+              acc.bookedRevenue +=
+                memberStats.bookedRevenue || 0;
+
+              acc.realisedRevenue +=
+                memberStats.realisedRevenue || 0;
+
+              acc.unrealisedRevenue +=
+                memberStats.unrealisedRevenue || 0;
+
+              acc.tillDateRealisedInLastMonth +=
+                memberStats.tillDateRealisedInLastMonth ||
+                0;
+
+              if (
+                memberStats.lastSalePunchDate &&
+                (
+                  !acc.lastSalePunchDate ||
+                  new Date(
+                    memberStats.lastSalePunchDate,
+                  ) >
+                    new Date(
+                      acc.lastSalePunchDate,
+                    )
+                )
+              ) {
+                acc.lastSalePunchDate =
+                  memberStats.lastSalePunchDate;
+
+                acc.lastRevenuePunched =
+                  memberStats.lastRevenuePunched || 0;
+              }
+
+              return acc;
+            },
+            {
+              totalLeadAssigned: 0,
+              registrationDone: 0,
+              admDone: 0,
+              bookedRevenue: 0,
+              realisedRevenue: 0,
+              unrealisedRevenue: 0,
+              tillDateRealisedInLastMonth: 0,
+              lastSalePunchDate: null,
+              lastRevenuePunched: 0,
+            },
           );
 
         const lastSalePunchDate =
@@ -1757,12 +1618,7 @@ async consultantPerformanceReport(query: any) {
                     now.getTime() -
                     lastSalePunchDate.getTime()
                   ) /
-                    (
-                      1000 *
-                      60 *
-                      60 *
-                      24
-                    ),
+                    (1000 * 60 * 60 * 24),
                 ),
               )
             : null;
@@ -1783,28 +1639,17 @@ async consultantPerformanceReport(query: any) {
               )
             : null;
 
-        const memberIds =
-          teamMap.get(
-            rootUserId,
-          ) || [
-            rootUserId,
-          ];
-
         return {
-          consultantId:
-            rootUserId,
+          consultantId: rootId,
 
           consultantName:
-            user?.name ||
-            'Unknown',
+            user.name || 'Unknown',
 
           consultantEmail:
-            user?.email ||
-            null,
+            user.email || null,
 
           employeeId:
-            user?.employeeId ||
-            null,
+            user.employeeId || null,
 
           totalLeadAssigned:
             item.totalLeadAssigned,
@@ -1814,6 +1659,7 @@ async consultantPerformanceReport(query: any) {
           registrationDone:
             item.registrationDone,
 
+          // NOW COMPLETELY INDEPENDENT OF ORDERS
           admDone:
             item.admDone,
 
@@ -1829,8 +1675,7 @@ async consultantPerformanceReport(query: any) {
           achievementPercentage,
 
           tillDateRealisedInLastMonth:
-            item.tillDateRealisedInLastMonth ||
-            0,
+            item.tillDateRealisedInLastMonth,
 
           lastSalePunchDate,
 
@@ -1839,10 +1684,6 @@ async consultantPerformanceReport(query: any) {
 
           numberOfDaysOnZero,
 
-          // =================================================
-          // TEAM INFO
-          // =================================================
-
           team:
             teamFilter,
 
@@ -1850,11 +1691,10 @@ async consultantPerformanceReport(query: any) {
             memberIds.length,
         };
       })
-      .sort(
-        (a, b) =>
-          a.consultantName.localeCompare(
-            b.consultantName,
-          ),
+      .sort((a, b) =>
+        a.consultantName.localeCompare(
+          b.consultantName,
+        ),
       );
 
   return report;
@@ -1864,92 +1704,175 @@ async consultantPerformanceReport(query: any) {
 async consultantPerformanceDetails(query: any) {
   const now = new Date();
 
-  // =========================================================
-  // DATE FILTER
-  // Same rolling filter logic as Leads API
-  // =========================================================
+  const getFilterRange = (filter: any) => {
+    const value = String(filter || '').toLowerCase();
 
-  let startDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
-  );
+    let from: Date;
+    let to: Date;
 
-  let endDate = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
+    if (value === 'today') {
+      from = new Date(now);
+      from.setHours(0, 0, 0, 0);
 
-  if (query.dateFilter) {
-    const filter =
-      query.dateFilter.toString().toLowerCase();
+      to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+    } else if (value === 'week') {
+      from = new Date(now);
+      from.setDate(from.getDate() - 6);
+      from.setHours(0, 0, 0, 0);
 
-    if (filter === 'today') {
-      startDate = new Date();
-      startDate.setHours(0, 0, 0, 0);
-
-      endDate = new Date();
-    }
-
-    else if (filter === 'week') {
-      // EXACT same rolling logic as Leads API
-      startDate = new Date();
-      startDate.setDate(
-        startDate.getDate() - 7,
+      to = new Date(now);
+      to.setHours(23, 59, 59, 999);
+    } else if (value === 'month') {
+      from = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
       );
 
-      endDate = new Date();
-    }
-
-    else if (filter === 'month') {
-      startDate = new Date();
-      startDate.setMonth(
-        startDate.getMonth() - 1,
+      to = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'year') {
+      from = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
       );
 
-      endDate = new Date();
-    }
-
-    else if (filter === 'year') {
-      startDate = new Date();
-      startDate.setFullYear(
-        startDate.getFullYear() - 1,
+      to = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
       );
-
-      endDate = new Date();
+    } else {
+      throw new BadRequestException(
+        `Invalid date filter: ${filter}`,
+      );
     }
-  }
 
-  // =========================================================
-  // CUSTOM DATE
-  // =========================================================
+    return { from, to };
+  };
 
-  if (query.fromDate) {
-    const from = new Date(query.fromDate);
-
-    if (!Number.isNaN(from.getTime())) {
-      startDate = new Date(from);
-      startDate.setHours(0, 0, 0, 0);
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+    name: string,
+  ) => {
+    if (!fromValue || !toValue) {
+      throw new BadRequestException(
+        `${name}From and ${name}To are both required`,
+      );
     }
-  }
 
-  if (query.toDate) {
-    const to = new Date(query.toDate);
+    const from = new Date(fromValue);
+    const to = new Date(toValue);
 
-    if (!Number.isNaN(to.getTime())) {
-      endDate = new Date(to);
-      endDate.setHours(23, 59, 59, 999);
+    if (
+      Number.isNaN(from.getTime()) ||
+      Number.isNaN(to.getTime())
+    ) {
+      throw new BadRequestException(
+        `Invalid ${name} date`,
+      );
     }
-  }
 
-  // =========================================================
-  // VALIDATE COUNSELLOR
-  // =========================================================
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+
+    if (from > to) {
+      throw new BadRequestException(
+        `${name}From cannot be greater than ${name}To`,
+      );
+    }
+
+    const diffDays =
+      Math.floor(
+        (to.getTime() - from.getTime()) /
+          (1000 * 60 * 60 * 24),
+      ) + 1;
+
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        `${name} date range cannot be more than 31 days`,
+      );
+    }
+
+    return {
+      from,
+      to,
+    };
+  };
+
+  const getDateRange = (
+    filter: any,
+    from: any,
+    to: any,
+    name: string,
+  ) => {
+    if (from || to) {
+      return getCustomRange(
+        from,
+        to,
+        name,
+      );
+    }
+
+    if (filter) {
+      return getFilterRange(filter);
+    }
+
+    return null;
+  };
+
+  const leadCreatedRange =
+    getDateRange(
+      query.leadCreatedDateFilter,
+      query.leadCreatedDateFrom,
+      query.leadCreatedDateTo,
+      'leadCreatedDate',
+    );
+
+  const leadAssignedRange =
+    getDateRange(
+      query.leadAssignedDateFilter,
+      query.leadAssignedDateFrom,
+      query.leadAssignedDateTo,
+      'leadAssignedDate',
+    );
+
+  const orderCreatedRange =
+    getDateRange(
+      query.orderCreatedDateFilter,
+      query.orderCreatedDateFrom,
+      query.orderCreatedDateTo,
+      'orderCreatedDate',
+    );
+
+  const hasLeadFilter =
+    !!leadCreatedRange ||
+    !!leadAssignedRange;
+
+  const hasOrderFilter =
+    !!orderCreatedRange;
 
   if (!query.counsellorId) {
     throw new BadRequestException(
@@ -1960,7 +1883,11 @@ async consultantPerformanceDetails(query: any) {
   const counsellorId =
     String(query.counsellorId);
 
-  if (!Types.ObjectId.isValid(counsellorId)) {
+  if (
+    !Types.ObjectId.isValid(
+      counsellorId,
+    )
+  ) {
     throw new BadRequestException(
       'Invalid counsellorId',
     );
@@ -1980,210 +1907,323 @@ async consultantPerformanceDetails(query: any) {
     );
   }
 
-  // =========================================================
-  // TYPE
-  // =========================================================
-
   const type =
     String(
-      query.type || 'assigned-leads',
+      query.type ||
+        'assigned-leads',
     ).toLowerCase();
 
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
   // =========================================================
-  // ASSIGNED LEADS
+  // USERS
+  // =========================================================
+
+  let userIds = [
+    counsellorId,
+  ];
+
+  if (isTeam) {
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        counsellorId,
+      );
+
+    userIds = [
+      counsellorId,
+      ...subordinateIds.map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ];
+
+    userIds = [
+      ...new Set(userIds),
+    ];
+
+    const activeUsers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: userIds,
+          },
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
+
+    userIds =
+      activeUsers.map(
+        (user) =>
+          user._id.toString(),
+      );
+
+    if (
+      !userIds.includes(
+        counsellorId,
+      )
+    ) {
+      userIds.push(
+        counsellorId,
+      );
+    }
+  }
+
+  // =========================================================
+  // SELECT LEADS
+  // =========================================================
+
+  let selectedLeads: any[] = [];
+
+  if (hasLeadFilter) {
+    const leadMatch: any = {
+      assignedTo: {
+        $in: userIds,
+      },
+    };
+
+    if (leadCreatedRange) {
+      leadMatch.createdAt = {
+        $gte: leadCreatedRange.from,
+        $lte: leadCreatedRange.to,
+      };
+    }
+
+    if (leadAssignedRange) {
+      leadMatch.assignedDate = {
+        $gte: leadAssignedRange.from,
+        $lte: leadAssignedRange.to,
+      };
+    }
+
+    selectedLeads =
+      await this.leadModel
+        .find(leadMatch)
+        .sort({
+          assignedDate: -1,
+          createdAt: -1,
+        })
+        .lean();
+  }
+
+  // =========================================================
+  // ONLY ORDER DATE
   // =========================================================
 
   if (
-    type === 'assigned-leads' ||
-    type === 'assigned' ||
-    type === 'leads'
+    !hasLeadFilter &&
+    hasOrderFilter
   ) {
-    const leads =
+    selectedLeads =
       await this.leadModel
         .find({
-          assignedTo:counsellorId,
+          assignedTo: {
+            $in: userIds,
+          },
+
           assignedDate: {
-            $gte: startDate,
-            $lte: endDate,
+            $gte:
+              orderCreatedRange.from,
+            $lte:
+              orderCreatedRange.to,
           },
         })
         .sort({
           assignedDate: -1,
+          createdAt: -1,
         })
         .lean();
-
-    return {
-      type: 'assigned-leads',
-
-      counsellor: {
-        id: counsellor._id,
-        name: counsellor.name,
-        email: counsellor.email,
-        employeeId:
-          counsellor.employeeId,
-      },
-
-      startDate,
-      endDate,
-
-      total: leads.length,
-
-      data: leads,
-    };
   }
 
   // =========================================================
-  // ADMISSION DONE LEADS
+  // LEAD CONTACT MAP
   // =========================================================
 
+  const leadByMobile =
+    new Map<string, any>();
+
+  const leadByEmail =
+    new Map<string, any>();
+
+  selectedLeads.forEach(
+    (lead: any) => {
+      const mobile =
+        lead.mobile ||
+        lead.phone;
+
+      if (mobile) {
+        leadByMobile.set(
+          String(mobile),
+          lead,
+        );
+      }
+
+      if (lead.email) {
+        leadByEmail.set(
+          String(
+            lead.email,
+          ).toLowerCase(),
+          lead,
+        );
+      }
+    },
+  );
+
+  const leadMobiles = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.mobile ||
+            lead.phone,
+        )
+        .filter(Boolean)
+        .map(
+          (value: any) =>
+            String(value),
+        ),
+    ),
+  ];
+
+  const leadEmails = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.email,
+        )
+        .filter(Boolean)
+        .map(
+          (value: any) =>
+            String(value)
+              .toLowerCase(),
+        ),
+    ),
+  ];
+
   // =========================================================
-// ADMISSION DONE LEADS
-// =========================================================
+  // ORDER MATCH
+  // SAME CONDITIONS AS REPORT
+  // =========================================================
 
-if (
-  type === 'admission-leads' ||
-  type === 'admission' ||
-  type === 'adm'
-) {
-  // -------------------------------------------------------
-  // First get approved orders for this counsellor
-  // -------------------------------------------------------
+  const orderMatch: any = {
+    Approved: true,
+    $or: [
+      {
+        paymentMode:
+          PaymentMode.LUMPSUM,
 
-  const approvedOrders =
-    await this.orderModel
-      .find({
-        counsellorId: counsellorId,
+        'lumpsumDetails.totalReceived':
+          {
+            $gt: 0,
+          },
+      },
 
-        Approved: true,
+      {
+        paymentMode:
+          PaymentMode.LOAN,
 
-        orderDate: {
-          $gte: startDate,
-          $lte: endDate,
+        'loanDetails.disbursementAmount':
+          {
+            $gt: 0,
+          },
+      },
+    ],
+  };
+
+  // Lead filters mean orders MUST belong
+  // to the selected leads.
+  if (hasLeadFilter) {
+    if (
+      !leadMobiles.length &&
+      !leadEmails.length
+    ) {
+      orderMatch._id = {
+        $in: [],
+      };
+    } else {
+      orderMatch.$and = [
+        {
+          $or: [
+            ...(leadMobiles.length
+              ? [
+                  {
+                    mobile: {
+                      $in:
+                        leadMobiles,
+                    },
+                  },
+                ]
+              : []),
+
+            ...(leadEmails.length
+              ? [
+                  {
+                    email: {
+                      $in:
+                        leadEmails,
+                    },
+                  },
+                ]
+              : []),
+          ],
         },
-      })
-      .select(
-        '_id mobile email studentName paymentMode loanDetails lumpsumDetails orderDate finalFee',
-      )
-      .sort({
-        orderDate: -1,
-      })
-      .lean();
+      ];
+    }
+  }
 
-  // -------------------------------------------------------
-  // If no approved orders
-  // -------------------------------------------------------
-
-  if (!approvedOrders.length) {
-    return {
-      type: 'admission-leads',
-
-      counsellor: {
-        id: counsellor._id,
-        name: counsellor.name,
-        email: counsellor.email,
-        employeeId: counsellor.employeeId,
-      },
-
-      startDate,
-      endDate,
-
-      total: 0,
-
-      data: [],
+  // Order date is applied AFTER
+  // lead selection.
+  if (hasOrderFilter) {
+    orderMatch.orderDate = {
+      $gte:
+        orderCreatedRange.from,
+      $lte:
+        orderCreatedRange.to,
     };
   }
 
-  // -------------------------------------------------------
-  // Build mobile/email lists
-  // -------------------------------------------------------
+  // Only order filter:
+  // orders belong to selected employee/team.
+  if (
+    !hasLeadFilter &&
+    hasOrderFilter
+  ) {
+    orderMatch.counsellorId = {
+      $in: userIds,
+    };
+  }
 
-  const mobiles = approvedOrders
-    .map((order: any) => order.mobile)
-    .filter(Boolean);
+  // =========================================================
+  // GET ORDERS
+  // =========================================================
 
-  const emails = approvedOrders
-    .map((order: any) => order.email)
-    .filter(Boolean);
+  let orders: any[] = [];
 
-  // -------------------------------------------------------
-  // Find corresponding leads
-  //
-  // Assuming Lead has mobile/email fields.
-  // -------------------------------------------------------
+  if (
+    hasLeadFilter ||
+    hasOrderFilter
+  ) {
+    orders =
+      await this.orderModel
+        .find(orderMatch)
+        .sort({
+          createdAt: -1,
+          orderDate: -1,
+        })
+        .lean();
+  }
 
-  const leads =
-    await this.leadModel
-      .find({
-        $or: [
-          ...(mobiles.length
-            ? [{ mobile: { $in: mobiles } }]
-            : []),
-
-          ...(emails.length
-            ? [{ email: { $in: emails } }]
-            : []),
-        ],
-      })
-      .lean();
-
-  // -------------------------------------------------------
-  // Create lookup maps
-  // -------------------------------------------------------
-
-  const leadByMobile = new Map<string, any>();
-  const leadByEmail = new Map<string, any>();
-
-  leads.forEach((lead: any) => {
-    if (lead.mobile) {
-      leadByMobile.set(
-        String(lead.mobile),
-        lead,
-      );
-    }
-
-    if (lead.email) {
-      leadByEmail.set(
-        String(lead.email).toLowerCase(),
-        lead,
-      );
-    }
-  });
-
-  // -------------------------------------------------------
-  // Attach order + revenue information to Lead
-  // -------------------------------------------------------
-
-  const admissionLeads =
-    approvedOrders
-      .map((order: any) => {
-        let lead: any = null;
-
-        // First try mobile
-        if (order.mobile) {
-          lead =
-            leadByMobile.get(
-              String(order.mobile),
-            ) || null;
-        }
-
-        // Then email
-        if (!lead && order.email) {
-          lead =
-            leadByEmail.get(
-              String(order.email).toLowerCase(),
-            ) || null;
-        }
-
-        // If corresponding lead doesn't exist,
-        // don't return the order as a lead.
-        if (!lead) {
-          return null;
-        }
-
-        // ---------------------------------------------------
-        // Calculate actual revenue
-        // ---------------------------------------------------
-
+  // =========================================================
+  // FORMAT ORDER
+  // SAME REVENUE LOGIC AS REPORT
+  // =========================================================
+  console.log(orders,"2")
+  const formattedOrders =
+    orders.map(
+      (order: any) => {
         let revenue = 0;
 
         if (
@@ -2197,7 +2237,7 @@ if (
             ) || 0;
         }
 
-        else if (
+        if (
           order.paymentMode ===
           PaymentMode.LUMPSUM
         ) {
@@ -2208,43 +2248,143 @@ if (
             ) || 0;
         }
 
-        // Subscription = 0 for now
+        let lead: any = null;
+
+        if (order.mobile) {
+          lead =
+            leadByMobile.get(
+              String(
+                order.mobile,
+              ),
+            ) || null;
+        }
+
+        if (
+          !lead &&
+          order.email
+        ) {
+          lead =
+            leadByEmail.get(
+              String(
+                order.email,
+              ).toLowerCase(),
+            ) || null;
+        }
 
         return {
-          ...lead,
-
-          admission: true,
-
-          admissionDate:
-            order.orderDate,
-
-          paymentMode:
-            order.paymentMode,
+          ...order,
 
           revenue,
 
-          orderId:
-            order._id,
+          lead:
+            lead || null,
 
-          order: {
-            orderId: order._id,
+          leadId:
+            lead?._id ||
+            null,
 
-            orderDate:
-              order.orderDate,
+          leadCreatedAt:
+            lead?.createdAt ||
+            null,
 
-            paymentMode:
-              order.paymentMode,
-
-            revenue,
-
-            // Keeping finalFee only as
-            // reference, NOT as revenue.
-            finalFee:
-              order.finalFee || 0,
-          },
+          leadAssignedDate:
+            lead?.assignedDate ||
+            null,
         };
+      },
+    );
+
+  // =========================================================
+  // ASSIGNED LEADS
+  // =========================================================
+
+  if (
+    type === 'assigned-leads' ||
+    type === 'assigned' ||
+    type === 'leads'
+  ) {
+    return {
+      type: 'assigned-leads',
+
+      counsellor: {
+        id: counsellor._id,
+        name: counsellor.name,
+        email: counsellor.email,
+        employeeId:
+          counsellor.employeeId,
+      },
+
+      team: isTeam,
+
+      teamUserIds:
+        userIds,
+
+      leadCreatedDateRange:
+        leadCreatedRange,
+
+      leadAssignedDateRange:
+        leadAssignedRange,
+
+      orderCreatedDateRange:
+        orderCreatedRange,
+
+      total:
+        selectedLeads.length,
+
+      data:
+        selectedLeads,
+    };
+  }
+
+  // =========================================================
+  // ADMISSION LEADS
+  // EXACT SAME ORDERS AS admDone
+  // =========================================================
+
+if (
+  type === 'admission-leads' ||
+  type === 'admission' ||
+  type === 'adm'
+) {
+  const admiStage =
+    await this.leadStageModel
+      .findOne({
+        name: 'Admission Done',
       })
-      .filter(Boolean);
+      .select('_id')
+      .lean();
+
+  if (!admiStage) {
+    return {
+      message: 'Admission Done stage is missing',
+    };
+  }
+
+  const admissionStageId =
+    admiStage._id.toString();
+
+  const admissionLeads =
+    selectedLeads.filter(
+      (lead: any) =>
+        lead.stageId &&
+        lead.stageId.toString() ===
+          admissionStageId,
+    );
+
+  console.log(
+    'Admission Stage:',
+    admissionStageId,
+  );
+
+  console.log(
+    'Selected Leads:',
+    selectedLeads.length,
+  );
+
+  console.log(
+    'Admission Leads:',
+    admissionLeads.length,
+  );
 
   return {
     type: 'admission-leads',
@@ -2257,8 +2397,19 @@ if (
         counsellor.employeeId,
     },
 
-    startDate,
-    endDate,
+    team: isTeam,
+
+    teamUserIds:
+      userIds,
+
+    leadCreatedDateRange:
+      leadCreatedRange,
+
+    leadAssignedDateRange:
+      leadAssignedRange,
+
+    orderCreatedDateRange:
+      orderCreatedRange,
 
     total:
       admissionLeads.length,
@@ -2268,130 +2419,44 @@ if (
   };
 }
 
+  // =========================================================
+  // ORDERS
+  // EXACT SAME ORDERS USED FOR REVENUE
+  // =========================================================
 
-// =========================================================
-// ORDERS
-// =========================================================
+  if (type === 'orders') {
+    return {
+      type: 'orders',
 
-if (type === 'orders') {
-  const orders =
-    await this.orderModel
-      .find({
-        counsellorId: counsellorId,
+      counsellor: {
+        id: counsellor._id,
+        name: counsellor.name,
+        email: counsellor.email,
+        employeeId:
+          counsellor.employeeId,
+      },
 
-        Approved: true,
+      team: isTeam,
 
-        orderDate: {
-          $gte: startDate,
-          $lte: endDate,
-        },
-        $or: [
-          {
-            paymentMode: PaymentMode.LUMPSUM,
+      teamUserIds:
+        userIds,
 
-            'lumpsumDetails.totalReceived': {
-              $gt: 0,
-            },
-          },
+      leadCreatedDateRange:
+        leadCreatedRange,
 
-          {
-            paymentMode: PaymentMode.LOAN,
+      leadAssignedDateRange:
+        leadAssignedRange,
 
-            'loanDetails.disbursementAmount': {
-              $gt: 0,
-            },
-          },
+      orderCreatedDateRange:
+        orderCreatedRange,
 
-          // -------------------------------------------------
-          // Subscription intentionally excluded for now.
-          // Add it here when subscription revenue logic
-          // is finalized.
-          // -------------------------------------------------
-        ],
-        
-      })
-      .sort({
-        orderDate: -1,
-      })
-      .lean();
+      total:
+        formattedOrders.length,
 
-  // -------------------------------------------------------
-  // Add calculated revenue to each order
-  // -------------------------------------------------------
-
-  const formattedOrders =
-    orders.map((order: any) => {
-      let revenue = 0;
-
-      // ---------------------------------------------------
-      // LOAN
-      // ---------------------------------------------------
-
-      if (
-        order.paymentMode ===
-        PaymentMode.LOAN
-      ) {
-        revenue =
-          Number(
-            order.loanDetails
-              ?.disbursementAmount,
-          ) || 0;
-      }
-
-      // ---------------------------------------------------
-      // LUMPSUM
-      // ---------------------------------------------------
-
-      else if (
-        order.paymentMode ===
-        PaymentMode.LUMPSUM
-      ) {
-        revenue =
-          Number(
-            order.lumpsumDetails
-              ?.totalReceived,
-          ) || 0;
-      }
-
-      // ---------------------------------------------------
-      // SUBSCRIPTION
-      // ---------------------------------------------------
-
-      // TODO:
-      // Subscription revenue calculation
-      // will be added later.
-      //
-      // revenue = ...
-
-      return {
-        ...order,
-
-        // Actual revenue counted by CRM
-        revenue,
-      };
-    });
-
-  return {
-    type: 'orders',
-
-    counsellor: {
-      id: counsellor._id,
-      name: counsellor.name,
-      email: counsellor.email,
-      employeeId:
-        counsellor.employeeId,
-    },
-
-    startDate,
-    endDate,
-
-    total:
-      formattedOrders.length,
-
-    data:
-      formattedOrders,
-  };
-}
+      data:
+        formattedOrders,
+    };
+  }
 
   throw new BadRequestException(
     'Invalid type. Use assigned-leads, admission-leads, or orders',
