@@ -93,7 +93,7 @@ export class LeadController {
     )
   @Get('report/source-campaign-stage-summary')
   @ApiOperation({ summary: 'Get source campaign wise lead stage summary report' })
-  sourceCampaignStageSummaryReport(@Query() query: LeadFilterDto, @Req() req: any) {
+  sourceCampaignStageSummaryReport(@Query() query: any, @Req() req: any) {
       return this.logic.sourceCampaignStageSummaryReport(query, req.user);
   }
 
@@ -105,7 +105,7 @@ export class LeadController {
     )
   @Get('report/all-employees-stages')
   @ApiOperation({ summary: 'Get all employees with all stages breakdown' })
-  allEmployeesStagesReport(@Query() query: LeadFilterDto, @Req() req: any) {
+  allEmployeesStagesReport(@Query() query: any, @Req() req: any) {
       return this.logic.allEmployeesStagesReport(query, req.user);
   }
 

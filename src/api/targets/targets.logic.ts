@@ -510,133 +510,497 @@ export class TargetsLogic {
     };
   }
 
-  async revenueReport(level?: any, months?: any, month?: string) {
-    const monthKeys = this.resolveMonthKeys(months, month);
-    const levelNumber = this.resolveLevel(level);
-    const accessibleUsers = await this.getAccessibleUsers();
-    const usersForLevel = accessibleUsers.filter((user) => Number(user.level || 1) === levelNumber);
-    const userIds = usersForLevel.map((user) => user.userId);
+async revenueReport(months?: any, month?: string) {
+  const rawMonthKeys = this.resolveMonthKeys(
+    months,
+    month,
+  );
 
-    const monthContexts = await Promise.all(
-      monthKeys.map(async (monthKey) => {
-        const { startDate, endDate, currentDay, totalDays, daysLeft, isCurrentMonth } = this.getMonthMeta(monthKey);
-        const [targetRows, actualMaps] = await Promise.all([
-          this.data.findByMonth(monthKey),
-          this.buildMetricMaps(userIds, startDate, endDate),
-        ]);
+  const monthKeys = [
+    ...new Set(
+      rawMonthKeys.map((key: any) =>
+        String(key),
+      ),
+    ),
+  ];
 
-        const targetMap = new Map<string, any>();
-        targetRows.forEach((row: any) => {
-          const id = String(row.userId?._id || row.userId);
-          targetMap.set(id, row);
-        });
+  const accessibleUsers =
+    await this.getAccessibleUsers();
 
-        return {
-          monthKey,
-          label: this.formatMonthLabel(monthKey),
-          startDate,
-          endDate,
-          totalDays,
-          daysLeft: isCurrentMonth ? daysLeft : 0,
-          currentDay: isCurrentMonth ? currentDay : totalDays,
-          isCurrentMonth,
-          targetMap,
-          actualMaps,
-        };
+  if (
+    !accessibleUsers ||
+    !accessibleUsers.length
+  ) {
+    return {
+      level: null,
+      months: [],
+      summary: {
+        totalUsers: 0,
+        totalTarget: 0,
+        totalAchieved: 0,
+        totalRemaining: 0,
+        totalPercentage: 0,
+      },
+      users: [],
+    };
+  }
+  const statusCount =
+    new Map<string, number>();
+
+  accessibleUsers.forEach(
+    (user: any) => {
+      const status =
+        String(
+          user.status ??
+          'NO_STATUS',
+        ).toLowerCase();
+
+      statusCount.set(
+        status,
+        (statusCount.get(status) || 0) + 1,
+      );
+    },
+  );
+
+  const activeUsersMap =
+    new Map<string, any>();
+
+  let inactiveCount = 0;
+  let duplicateCount = 0;
+
+  accessibleUsers.forEach(
+    (user: any) => {
+      const userId = String(
+        user.userId ||
+        user._id ||
+        '',
+      );
+
+      if (!userId) {
+        return;
+      }
+
+      if (
+        activeUsersMap.has(userId)
+      ) {
+        duplicateCount++;
+        return;
+      }
+
+      activeUsersMap.set(
+        userId,
+        {
+          ...user,
+          userId,
+        },
+      );
+    },
+  );
+
+  const usersForReport =
+    Array.from(
+      activeUsersMap.values(),
+    );
+
+  const userIds =
+    usersForReport.map(
+      (user: any) =>
+        String(user.userId),
+    );
+
+  if (!userIds.length) {
+    return {
+      level: null,
+      months: [],
+      summary: {
+        totalUsers: 0,
+        totalTarget: 0,
+        totalAchieved: 0,
+        totalRemaining: 0,
+        totalPercentage: 0,
+      },
+      users: [],
+    };
+  }
+
+  const monthContexts =
+    await Promise.all(
+      monthKeys.map(
+        async (monthKey) => {
+          const {
+            startDate,
+            endDate,
+            currentDay,
+            totalDays,
+            daysLeft,
+            isCurrentMonth,
+          } =
+            this.getMonthMeta(
+              monthKey,
+            );
+
+          const [
+            targetRows,
+            actualMaps,
+          ] =
+            await Promise.all([
+              this.data.findByMonth(
+                monthKey,
+              ),
+
+              this.buildMetricMaps(
+                userIds,
+                startDate,
+                endDate,
+              ),
+            ]);
+
+          const targetMap =
+            new Map<string, any>();
+
+          targetRows.forEach(
+            (row: any) => {
+              const id =
+                String(
+                  row.userId?._id ||
+                  row.userId ||
+                  '',
+                );
+
+              if (!id) {
+                return;
+              }
+
+              if (
+                targetMap.has(id)
+              ) {
+                return;
+              }
+
+              targetMap.set(
+                id,
+                row,
+              );
+            },
+          );
+
+          return {
+            monthKey,
+
+            label:
+              this.formatMonthLabel(
+                monthKey,
+              ),
+
+            startDate,
+            endDate,
+
+            totalDays,
+
+            daysLeft:
+              isCurrentMonth
+                ? daysLeft
+                : 0,
+
+            currentDay:
+              isCurrentMonth
+                ? currentDay
+                : totalDays,
+
+            isCurrentMonth,
+
+            targetMap,
+
+            actualMaps,
+          };
+        },
+      ),
+    );
+
+  const monthTotals =
+    monthContexts.map(
+      (context) => ({
+        monthKey:
+          context.monthKey,
+
+        label:
+          context.label,
+
+        startDate:
+          context.startDate,
+
+        endDate:
+          context.endDate,
+
+        totalDays:
+          context.totalDays,
+
+        daysLeft:
+          context.daysLeft,
+
+        currentDay:
+          context.currentDay,
+
+        isCurrentMonth:
+          context.isCurrentMonth,
+
+        target: 0,
+        achieved: 0,
+        remaining: 0,
+        percentage: 0,
       }),
     );
 
-    const monthTotals = monthContexts.map((context) => ({
-      monthKey: context.monthKey,
-      label: context.label,
-      startDate: context.startDate,
-      endDate: context.endDate,
-      totalDays: context.totalDays,
-      daysLeft: context.daysLeft,
-      currentDay: context.currentDay,
-      isCurrentMonth: context.isCurrentMonth,
-      target: 0,
-      achieved: 0,
-      remaining: 0,
-      percentage: 0,
-    }));
+  const users =
+    usersForReport.map(
+      (user: any) => {
+        const userId =
+          String(user.userId);
 
-    const users = usersForLevel.map((user) => {
-      const userId = String(user.userId);
-      let combinedTarget = 0;
-      let combinedAchieved = 0;
+        let combinedTarget = 0;
+        let combinedAchieved = 0;
 
-      const months = monthContexts.map((context, index) => {
-        const targetRow = context.targetMap.get(userId);
-        const targets = this.normalizeTargets(targetRow?.targets);
-        const targetValue = Number(targets.revenue || 0);
-        const achievedValue = Number(context.actualMaps.revenue.get(userId) || 0);
-        const remaining = Math.max(0, targetValue - achievedValue);
-        const percentage = targetValue > 0 ? Math.min(100, Math.round((achievedValue / targetValue) * 100)) : 0;
-        const status = targetValue === 0 ? 'no_target' : achievedValue >= targetValue ? 'achieved' : percentage >= 75 ? 'on_track' : 'behind';
+        const months =
+          monthContexts.map(
+            (
+              context,
+              index,
+            ) => {
+              const targetRow =
+                context.targetMap.get(
+                  userId,
+                );
 
-        monthTotals[index].target += targetValue;
-        monthTotals[index].achieved += achievedValue;
-        monthTotals[index].remaining = Math.max(0, monthTotals[index].target - monthTotals[index].achieved);
-        monthTotals[index].percentage = monthTotals[index].target > 0
-          ? Math.min(100, Math.round((monthTotals[index].achieved / monthTotals[index].target) * 100))
-          : 0;
+              const targets =
+                this.normalizeTargets(
+                  targetRow?.targets,
+                );
 
-        combinedTarget += targetValue;
-        combinedAchieved += achievedValue;
+              const targetValue =
+                Number(
+                  targets.revenue ||
+                  0,
+                );
+
+              const achievedValue =
+                Number(
+                  context.actualMaps.revenue.get(
+                    userId,
+                  ) || 0,
+                );
+
+              const remaining =
+                Math.max(
+                  0,
+                  targetValue -
+                    achievedValue,
+                );
+
+              const percentage =
+                targetValue > 0
+                  ? Math.min(
+                      100,
+                      Math.round(
+                        (achievedValue /
+                          targetValue) *
+                          100,
+                      ),
+                    )
+                  : 0;
+
+              const status =
+                targetValue === 0
+                  ? 'no_target'
+                  : achievedValue >=
+                    targetValue
+                  ? 'achieved'
+                  : percentage >= 75
+                  ? 'on_track'
+                  : 'behind';
+
+              monthTotals[
+                index
+              ].target +=
+                targetValue;
+
+              monthTotals[
+                index
+              ].achieved +=
+                achievedValue;
+
+              monthTotals[
+                index
+              ].remaining =
+                Math.max(
+                  0,
+                  monthTotals[
+                    index
+                  ].target -
+                    monthTotals[
+                      index
+                    ].achieved,
+                );
+
+              monthTotals[
+                index
+              ].percentage =
+                monthTotals[
+                  index
+                ].target > 0
+                  ? Math.min(
+                      100,
+                      Math.round(
+                        (monthTotals[
+                          index
+                        ].achieved /
+                          monthTotals[
+                            index
+                          ].target) *
+                          100,
+                      ),
+                    )
+                  : 0;
+
+              combinedTarget +=
+                targetValue;
+
+              combinedAchieved +=
+                achievedValue;
+
+              return {
+                monthKey:
+                  context.monthKey,
+
+                label:
+                  context.label,
+
+                target:
+                  targetValue,
+
+                achieved:
+                  achievedValue,
+
+                remaining,
+
+                percentage,
+
+                status,
+              };
+            },
+          );
+
+        const combinedRemaining =
+          Math.max(
+            0,
+            combinedTarget -
+              combinedAchieved,
+          );
+
+        const combinedPercentage =
+          combinedTarget > 0
+            ? Math.min(
+                100,
+                Math.round(
+                  (combinedAchieved /
+                    combinedTarget) *
+                    100,
+                ),
+              )
+            : 0;
 
         return {
-          monthKey: context.monthKey,
-          label: context.label,
-          target: targetValue,
-          achieved: achievedValue,
-          remaining,
-          percentage,
-          status,
+          userId,
+
+          employeeId:
+            user.employeeId,
+
+          name:
+            user.name,
+
+          email:
+            user.email,
+
+          roleName:
+            user.roleName,
+
+          level:
+            user.level,
+
+          status:
+            user.status,
+
+          months,
+
+          combinedTarget,
+
+          combinedAchieved,
+
+          combinedRemaining,
+
+          combinedPercentage,
         };
-      });
-
-      const combinedRemaining = Math.max(0, combinedTarget - combinedAchieved);
-      const combinedPercentage = combinedTarget > 0 ? Math.min(100, Math.round((combinedAchieved / combinedTarget) * 100)) : 0;
-
-      return {
-        userId,
-        employeeId: user.employeeId,
-        name: user.name,
-        email: user.email,
-        roleName: user.roleName,
-        level: user.level,
-        months,
-        combinedTarget,
-        combinedAchieved,
-        combinedRemaining,
-        combinedPercentage,
-      };
-    });
-
-    const summary = monthTotals.reduce(
-      (acc, monthRow) => {
-        acc.totalTarget += monthRow.target;
-        acc.totalAchieved += monthRow.achieved;
-        return acc;
       },
-      { totalUsers: users.length, totalTarget: 0, totalAchieved: 0 },
     );
 
-    return {
-      level: levelNumber,
-      months: monthTotals.map((monthRow) => ({
-        ...monthRow,
-        label: monthRow.label,
-      })),
-      summary: {
-        ...summary,
-        totalRemaining: Math.max(0, summary.totalTarget - summary.totalAchieved),
-        totalPercentage: summary.totalTarget > 0 ? Math.min(100, Math.round((summary.totalAchieved / summary.totalTarget) * 100)) : 0,
+  const summary =
+    monthTotals.reduce(
+      (acc, monthRow) => {
+        acc.totalTarget +=
+          monthRow.target;
+
+        acc.totalAchieved +=
+          monthRow.achieved;
+
+        return acc;
       },
-      users,
-    };
-  }
+      {
+        totalUsers:
+          users.length,
+
+        totalTarget: 0,
+
+        totalAchieved: 0,
+      },
+    );
+
+  return {
+    level: null,
+
+    months:
+      monthTotals.map(
+        (monthRow) => ({
+          ...monthRow,
+          label:
+            monthRow.label,
+        }),
+      ),
+
+    summary: {
+      ...summary,
+
+      totalRemaining:
+        Math.max(
+          0,
+          summary.totalTarget -
+            summary.totalAchieved,
+        ),
+
+      totalPercentage:
+        summary.totalTarget > 0
+          ? Math.min(
+              100,
+              Math.round(
+                (summary.totalAchieved /
+                  summary.totalTarget) *
+                  100,
+              ),
+            )
+          : 0,
+    },
+
+    users,
+  };
+}
 
   async myTarget(userId: string, month?: string, metric?: TargetMetricKey) {
     const monthKey = this.normalizeMonthKey(month);

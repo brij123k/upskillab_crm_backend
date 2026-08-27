@@ -129,65 +129,272 @@ export class LeadData {
       );
     }
 
-    // 📅 DATE FILTERS
-    const now = new Date();
-    if (dateFilter) {
-      let start: Date | null = null;
+   // 📅 DATE FILTERS
+const now = new Date();
 
-      if (dateFilter === 'today') {
-        start = new Date(now.setHours(0, 0, 0, 0));
-      } else if (dateFilter === 'week') {
-        start = new Date();
-        start.setDate(start.getDate() - 7);
-      } else if (dateFilter === 'month') {
-        start = new Date();
-        start.setMonth(start.getMonth() - 1);
-      } else if (dateFilter === 'year') {
-        start = new Date();
-        start.setFullYear(start.getFullYear() - 1);
-      }
+if (dateFilter) {
+  let start: Date | null = null;
+  let end: Date | null = null;
 
-      if (start) {
-        query.createdAt = { $gte: start };
-      }
+  if (dateFilter === 'today') {
+    // Today: 00:00:00 → 23:59:59.999
+    start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+  }
+
+  else if (dateFilter === 'week') {
+    // Rolling last 7 days
+    start = new Date(now);
+    start.setDate(start.getDate() - 7);
+
+    end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+  }
+
+  else if (dateFilter === 'month') {
+    // Current calendar month
+    start = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    end = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (dateFilter === 'year') {
+    // Current calendar year
+    start = new Date(
+      now.getFullYear(),
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    end = new Date(
+      now.getFullYear(),
+      11,
+      31,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  if (start) {
+    query.createdAt = {
+      $gte: start,
+    };
+
+    if (end) {
+      query.createdAt.$lte = end;
     }
+  }
+}
 
-    if (assignedDateFilter) {
-      let assignedDatestart: Date | null = null;
 
-      if (assignedDateFilter === 'today') {
-        assignedDatestart = new Date(now.setHours(0, 0, 0, 0));
-      } else if (assignedDateFilter === 'week') {
-        assignedDatestart = new Date();
-        assignedDatestart.setDate(assignedDatestart.getDate() - 7);
-      } else if (assignedDateFilter === 'month') {
-        assignedDatestart = new Date();
-        assignedDatestart.setMonth(assignedDatestart.getMonth() - 1);
-      } else if (assignedDateFilter === 'year') {
-        assignedDatestart = new Date();
-        assignedDatestart.setFullYear(assignedDatestart.getFullYear() - 1);
-      }
+// =========================================================
+// 📅 ASSIGNED DATE FILTER
+// =========================================================
 
-      if (assignedDatestart) {
-        query.assignedDate = { $gte: assignedDatestart };
-      }
+if (assignedDateFilter) {
+  let assignedDatestart: Date | null = null;
+  let assignedDateEnd: Date | null = null;
+
+  if (assignedDateFilter === 'today') {
+    // Today: 00:00:00 → 23:59:59.999
+    assignedDatestart = new Date(now);
+    assignedDatestart.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    assignedDateEnd = new Date(now);
+    assignedDateEnd.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (assignedDateFilter === 'week') {
+    // Rolling last 7 days
+    assignedDatestart = new Date(now);
+    assignedDatestart.setDate(
+      assignedDatestart.getDate() - 7,
+    );
+
+    assignedDateEnd = new Date(now);
+    assignedDateEnd.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (assignedDateFilter === 'month') {
+    // Current calendar month
+    assignedDatestart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    assignedDateEnd = new Date(
+      now.getFullYear(),
+      now.getMonth() + 1,
+      0,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (assignedDateFilter === 'year') {
+    // Current calendar year
+    assignedDatestart = new Date(
+      now.getFullYear(),
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    assignedDateEnd = new Date(
+      now.getFullYear(),
+      11,
+      31,
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  if (assignedDatestart) {
+    query.assignedDate = {
+      $gte: assignedDatestart,
+    };
+
+    if (assignedDateEnd) {
+      query.assignedDate.$lte =
+        assignedDateEnd;
     }
+  }
+}
 
 
-    // 📅 CUSTOM DATE RANGE
-    if (fromDate && toDate) {
-      query.createdAt = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
+// =========================================================
+// 📅 CUSTOM CREATED DATE RANGE
+// Custom range overrides dateFilter
+// =========================================================
 
-    // 📅 ASSIGNED DATE RANGE
-    if (assignedDateFrom || assignedDateTo) {
-      query.assignedDate = {};
-      if (assignedDateFrom) query.assignedDate.$gte = new Date(assignedDateFrom);
-      if (assignedDateTo) query.assignedDate.$lte = new Date(assignedDateTo);
-    }
+if (fromDate || toDate) {
+  query.createdAt = {};
+
+  if (fromDate) {
+    const from = new Date(fromDate);
+
+    from.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    query.createdAt.$gte = from;
+  }
+
+  if (toDate) {
+    const to = new Date(toDate);
+
+    to.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    query.createdAt.$lte = to;
+  }
+}
+
+
+// =========================================================
+// 📅 CUSTOM ASSIGNED DATE RANGE
+// Custom range overrides assignedDateFilter
+// =========================================================
+
+if (
+  assignedDateFrom ||
+  assignedDateTo
+) {
+  query.assignedDate = {};
+
+  if (assignedDateFrom) {
+    const assignedFrom =
+      new Date(
+        assignedDateFrom,
+      );
+
+    assignedFrom.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    query.assignedDate.$gte =
+      assignedFrom;
+  }
+
+  if (assignedDateTo) {
+    const assignedTo =
+      new Date(
+        assignedDateTo,
+      );
+
+    assignedTo.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    query.assignedDate.$lte =
+      assignedTo;
+  }
+}
 
     // 📊 SORTING
     const sortOrder = sort === 'old' ? 1 : -1;

@@ -29,11 +29,10 @@ export class TargetsController {
   @Get('revenue-report')
   @ApiOperation({ summary: 'Get revenue target comparison report for all users' })
   revenueReport(
-    @Query('level') level?: string,
     @Query('months') months?: string | string[],
     @Query('month') month?: string,
   ) {
-    return this.logic.revenueReport(level, months, month);
+    return this.logic.revenueReport(months, month);
   }
 
   @UseGuards(JwtAuthGuard)

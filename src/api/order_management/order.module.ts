@@ -16,6 +16,7 @@ import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { User, UserSchema } from 'src/schema/user.schema';
 import { CallLog, CallLogSchema } from 'src/schema/call-log.schema';
 import { Role, RoleSchema } from 'src/schema/role.schema';
+import { LeadStage, LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
 @Module({
   imports: [
     UserModule,
@@ -29,6 +30,7 @@ import { Role, RoleSchema } from 'src/schema/role.schema';
       { name: User.name, schema: UserSchema },
       { name: CallLog.name, schema: CallLogSchema },
       { name: Role.name, schema: RoleSchema },
+      { name: LeadStage.name, schema: LeadStageSchema },
     ]),
     UserActivityModule,
   ],

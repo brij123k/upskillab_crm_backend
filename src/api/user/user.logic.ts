@@ -573,6 +573,7 @@ export class UserLogic {
 ) {
       return this.userData.getAllUsers(status);
     }
+    console.log(user,"user")
     const userId = user._id || user.userId;
     // 1️⃣ Get profile of requested user
     const profile = await this.profileData.findByUserId(userId);

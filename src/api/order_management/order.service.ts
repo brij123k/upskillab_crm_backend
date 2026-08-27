@@ -17,6 +17,7 @@ import { Lead } from 'src/schema/lead_management/lead.schema';
 import { CallLog } from 'src/schema/call-log.schema';
 import { Role } from 'src/schema/role.schema';
 import { User, UserStatus } from 'src/schema/user.schema';
+import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
 
 @Injectable()
 export class OrderService {
@@ -29,6 +30,8 @@ export class OrderService {
     @InjectModel(CallLog.name) private readonly callLogModel: Model<CallLog>,
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Role.name) private readonly roleModel: Model<Role>,
+    @InjectModel(LeadStage.name)
+    private readonly leadStageModel: Model<LeadStage>,
     private readonly userLogic: UserLogic,
     private readonly emailService: EmailService,
     private readonly userActivityLogic: UserActivityLogic,
@@ -528,119 +531,233 @@ async consultantPerformanceReport(query: any) {
 
   // =========================================================
   // DATE FILTER
-  // Same rolling-period logic as Leads API
   // =========================================================
 
-  let startDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
-  );
+  const filter =
+    String(
+      query.dateFilter || 'month',
+    ).toLowerCase();
 
-  let endDate = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
+  let startDate: Date;
+  let endDate: Date;
 
-  if (query.dateFilter) {
-    const filter =
-      query.dateFilter
-        .toString()
-        .toLowerCase();
+  if (filter === 'today') {
+    startDate = new Date(now);
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
 
-    if (filter === 'today') {
-      // Today
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    }
-
-    else if (filter === 'week') {
-  startDate = new Date();
-  startDate.setDate(
-    startDate.getDate() - 7,
-  );
-
-  endDate = new Date();
-}
-
-    else if (filter === 'month') {
-      // Last 1 month including today
-      startDate = new Date(now);
-      startDate.setMonth(
-        startDate.getMonth() - 1,
-      );
-      startDate.setHours(0, 0, 0, 0);
-
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    }
-
-    else if (filter === 'year') {
-      // Last 1 year including today
-      startDate = new Date(now);
-      startDate.setFullYear(
-        startDate.getFullYear() - 1,
-      );
-      startDate.setHours(0, 0, 0, 0);
-
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    }
+    endDate = new Date(now);
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
   }
 
-  // =========================================================
-  // CUSTOM DATE FILTER
-  // Overrides dateFilter boundaries
-  // =========================================================
+  else if (filter === 'week') {
+    // Last 7 days including today
+    startDate = new Date(now);
+    startDate.setDate(
+      startDate.getDate() - 6,
+    );
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
 
-  if (query.fromDate) {
-    const from =
+    endDate = new Date(now);
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (filter === 'month') {
+    // Current month:
+    // 1st of current month -> today
+    startDate = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    endDate = new Date(now);
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (filter === 'year') {
+    // Current year:
+    // 1 January -> today
+    startDate = new Date(
+      now.getFullYear(),
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+    );
+
+    endDate = new Date(now);
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  else if (filter === 'custom') {
+    if (
+      !query.fromDate ||
+      !query.toDate
+    ) {
+      throw new BadRequestException(
+        'fromDate and toDate are required for custom date filter',
+      );
+    }
+
+    startDate =
       new Date(query.fromDate);
 
-    if (
-      !Number.isNaN(
-        from.getTime(),
-      )
-    ) {
-      startDate =
-        new Date(from);
-
-      startDate.setHours(
-        0,
-        0,
-        0,
-        0,
-      );
-    }
-  }
-
-  if (query.toDate) {
-    const to =
+    endDate =
       new Date(query.toDate);
 
     if (
-      !Number.isNaN(
-        to.getTime(),
+      Number.isNaN(
+        startDate.getTime(),
       )
     ) {
-      endDate =
-        new Date(to);
-
-      endDate.setHours(
-        23,
-        59,
-        59,
-        999,
+      throw new BadRequestException(
+        'Invalid fromDate',
       );
     }
+
+    if (
+      Number.isNaN(
+        endDate.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Invalid toDate',
+      );
+    }
+
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    if (startDate > endDate) {
+      throw new BadRequestException(
+        'fromDate cannot be greater than toDate',
+      );
+    }
+  }
+
+  else {
+    throw new BadRequestException(
+      'Invalid dateFilter. Allowed values: today, week, month, year, custom',
+    );
+  }
+
+  // =========================================================
+  // OPTIONAL CUSTOM DATE OVERRIDE
+  //
+  // Allows:
+  // ?fromDate=...
+  // ?toDate=...
+  //
+  // even without dateFilter=custom
+  // =========================================================
+
+  if (
+    query.fromDate &&
+    filter !== 'custom'
+  ) {
+    const fromDate =
+      new Date(query.fromDate);
+
+    if (
+      Number.isNaN(
+        fromDate.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Invalid fromDate',
+      );
+    }
+
+    startDate =
+      new Date(fromDate);
+
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+  }
+
+  if (
+    query.toDate &&
+    filter !== 'custom'
+  ) {
+    const toDate =
+      new Date(query.toDate);
+
+    if (
+      Number.isNaN(
+        toDate.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Invalid toDate',
+      );
+    }
+
+    endDate =
+      new Date(toDate);
+
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+  }
+
+  if (startDate > endDate) {
+    throw new BadRequestException(
+      'fromDate cannot be greater than toDate',
+    );
   }
 
   // =========================================================
@@ -666,8 +783,17 @@ async consultantPerformanceReport(query: any) {
   }
 
   // =========================================================
+  // TEAM FILTER
+  // =========================================================
+
+  const teamFilter =
+    query.team === true ||
+    String(
+      query.team,
+    ).toLowerCase() === 'true';
+
+  // =========================================================
   // COUNSELLOR FILTER
-  // No team filter
   // =========================================================
 
   const selectedCounsellorId =
@@ -677,17 +803,29 @@ async consultantPerformanceReport(query: any) {
         )
       : null;
 
+  // =========================================================
+  // ROOT USERS
+  //
+  // These users are shown as rows in the report.
+  // =========================================================
+
   let rootUsers =
     await this.userModel
       .find({
         _id: {
           $in: levelUserIds,
         },
+
+        status: 'active',
       })
       .select(
         'name email employeeId role createdAt',
       )
       .lean();
+
+  if (!rootUsers.length) {
+    return [];
+  }
 
   // =========================================================
   // SELECTED COUNSELLOR
@@ -698,9 +836,12 @@ async consultantPerformanceReport(query: any) {
   ) {
     const selectedCounsellor =
       await this.userModel
-        .findById(
-          selectedCounsellorId,
-        )
+        .findOne({
+          _id:
+            selectedCounsellorId,
+
+          status: 'active',
+        })
         .populate(
           'role',
           'level',
@@ -727,74 +868,134 @@ async consultantPerformanceReport(query: any) {
   }
 
   // =========================================================
-  // ALLOWED USERS
-  // No subordinate/team logic
+  // TEAM MAP
+  //
+  // team=false:
+  // root user gets only own data
+  //
+  // team=true:
+  // root user gets own + subordinate data
   // =========================================================
 
-  const allowedUserIdStrings =
-    rootUsers.map(
-      (user) =>
-        user._id.toString(),
+  const teamMap =
+    new Map<
+      string,
+      string[]
+    >();
+
+  for (
+    const rootUser of rootUsers
+  ) {
+    const rootId =
+      rootUser._id.toString();
+
+    // -------------------------------------------------------
+    // NORMAL MODE
+    // -------------------------------------------------------
+
+    if (!teamFilter) {
+      teamMap.set(
+        rootId,
+        [rootId],
+      );
+
+      continue;
+    }
+
+    // -------------------------------------------------------
+    // TEAM MODE
+    // -------------------------------------------------------
+
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        rootId,
+      );
+
+    const memberIds = [
+      rootId,
+
+      ...subordinateIds.map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ];
+
+    const uniqueMemberIds = [
+      ...new Set(
+        memberIds,
+      ),
+    ];
+
+    // -------------------------------------------------------
+    // GET ACTIVE TEAM MEMBERS
+    // -------------------------------------------------------
+
+    const activeMembers =
+      await this.userModel
+        .find({
+          _id: {
+            $in:
+              uniqueMemberIds,
+          },
+
+          status: 'active',
+        })
+        .select(
+          '_id',
+        )
+        .lean();
+
+    const activeMemberIds =
+      activeMembers.map(
+        (member) =>
+          member._id.toString(),
+      );
+
+    // Always keep root user
+    if (
+      !activeMemberIds.includes(
+        rootId,
+      )
+    ) {
+      activeMemberIds.push(
+        rootId,
+      );
+    }
+
+    teamMap.set(
+      rootId,
+      [
+        ...new Set(
+          activeMemberIds,
+        ),
+      ],
     );
+  }
+
+  // =========================================================
+  // ALL USERS INCLUDED IN THE REPORT
+  //
+  // Used by lead/order aggregation.
+  // =========================================================
+
+  const allowedUserIdStrings = [
+    ...new Set(
+      Array.from(
+        teamMap.values(),
+      ).flat(),
+    ),
+  ];
 
   if (
     !allowedUserIdStrings.length
   ) {
-    return rootUsers.map(
-      (user) => ({
-        consultantId:
-          user._id.toString(),
-
-        consultantName:
-          user.name ||
-          'Unknown',
-
-        consultantEmail:
-          user.email ||
-          null,
-
-        employeeId:
-          user.employeeId ||
-          null,
-
-        totalLeadAssigned: 0,
-
-        monthlyRevenueTarget:
-          null,
-
-        registrationDone: 0,
-
-        admDone: 0,
-
-        bookedRevenue: 0,
-
-        unrealisedRevenue: 0,
-
-        realisedRevenue: 0,
-
-        achievementPercentage:
-          null,
-
-        tillDateRealisedInLastMonth:
-          0,
-
-        lastSalePunchDate:
-          null,
-
-        lastRevenuePunched: 0,
-
-        numberOfDaysOnZero:
-          null,
-      }),
-    );
+    return [];
   }
 
   // =========================================================
   // LEAD STATS
   //
-  // IMPORTANT:
-  // We use assignedDate because this report measures
-  // leads assigned to the consultant.
+  // Uses assignedDate
   // =========================================================
 
   const leadStats =
@@ -819,8 +1020,11 @@ async consultantPerformanceReport(query: any) {
       {
         $match: {
           assignedDate: {
-            $gte: startDate,
-            $lte: endDate,
+            $gte:
+              startDate,
+
+            $lte:
+              endDate,
           },
 
           normalizedAssignedTo: {
@@ -918,7 +1122,6 @@ async consultantPerformanceReport(query: any) {
                 // Subscription revenue calculation later.
               ],
 
-              // Never use finalFee here.
               default: 0,
             },
           },
@@ -986,8 +1189,11 @@ async consultantPerformanceReport(query: any) {
       {
         $match: {
           orderDate: {
-            $gte: startDate,
-            $lte: endDate,
+            $gte:
+              startDate,
+
+            $lte:
+              endDate,
           },
 
           normalizedCounsellorId: {
@@ -998,10 +1204,13 @@ async consultantPerformanceReport(query: any) {
       },
 
       // Latest order first
+
       {
         $sort: {
           feeDepositDate: -1,
+
           updatedAt: -1,
+
           createdAt: -1,
         },
       },
@@ -1024,7 +1233,9 @@ async consultantPerformanceReport(query: any) {
                     0,
                   ],
                 },
+
                 1,
+
                 0,
               ],
             },
@@ -1038,7 +1249,9 @@ async consultantPerformanceReport(query: any) {
             $sum: {
               $cond: [
                 '$Approved',
+
                 1,
+
                 0,
               ],
             },
@@ -1102,6 +1315,8 @@ async consultantPerformanceReport(query: any) {
 
   // =========================================================
   // LAST MONTH REVENUE
+  //
+  // Previous calendar month
   // =========================================================
 
   const monthStart =
@@ -1109,6 +1324,10 @@ async consultantPerformanceReport(query: any) {
       now.getFullYear(),
       now.getMonth() - 1,
       1,
+      0,
+      0,
+      0,
+      0,
     );
 
   const monthEnd =
@@ -1201,7 +1420,7 @@ async consultantPerformanceReport(query: any) {
 
       {
         $match: {
-          feeDepositDate: {
+          orderDate: {
             $gte:
               monthStart,
 
@@ -1234,29 +1453,41 @@ async consultantPerformanceReport(query: any) {
   // =========================================================
 
   const statsByConsultant =
-    new Map<string, any>();
+    new Map<
+      string,
+      any
+    >();
 
   const ensureStats =
     (id: string) => {
       if (
-        !statsByConsultant.has(id)
+        !statsByConsultant.has(
+          id,
+        )
       ) {
         statsByConsultant.set(
           id,
           {
-            consultantId: id,
+            consultantId:
+              id,
 
-            totalLeadAssigned: 0,
+            totalLeadAssigned:
+              0,
 
-            registrationDone: 0,
+            registrationDone:
+              0,
 
-            admDone: 0,
+            admDone:
+              0,
 
-            bookedRevenue: 0,
+            bookedRevenue:
+              0,
 
-            unrealisedRevenue: 0,
+            unrealisedRevenue:
+              0,
 
-            realisedRevenue: 0,
+            realisedRevenue:
+              0,
 
             lastSalePunchDate:
               null,
@@ -1379,15 +1610,135 @@ async consultantPerformanceReport(query: any) {
   );
 
   // =========================================================
+  // GET COMBINED STATS
+  //
+  // team=false
+  // → root user's own data
+  //
+  // team=true
+  // → root user + all subordinate data
+  // =========================================================
+
+  const getCombinedStats =
+    (rootUserId: string) => {
+      const memberIds =
+        teamMap.get(
+          rootUserId,
+        ) || [
+          rootUserId,
+        ];
+
+      return memberIds.reduce(
+        (total, memberId) => {
+          const stats =
+            ensureStats(
+              memberId,
+            );
+
+          total.totalLeadAssigned +=
+            stats.totalLeadAssigned ||
+            0;
+
+          total.registrationDone +=
+            stats.registrationDone ||
+            0;
+
+          total.admDone +=
+            stats.admDone ||
+            0;
+
+          total.bookedRevenue +=
+            stats.bookedRevenue ||
+            0;
+
+          total.unrealisedRevenue +=
+            stats.unrealisedRevenue ||
+            0;
+
+          total.realisedRevenue +=
+            stats.realisedRevenue ||
+            0;
+
+          total.tillDateRealisedInLastMonth +=
+            stats.tillDateRealisedInLastMonth ||
+            0;
+
+          // -------------------------------------------------
+          // LATEST SALE FROM COMPLETE TEAM
+          // -------------------------------------------------
+
+          if (
+            stats.lastSalePunchDate
+          ) {
+            if (
+              !total.lastSalePunchDate ||
+              new Date(
+                stats.lastSalePunchDate,
+              ) >
+                new Date(
+                  total.lastSalePunchDate,
+                )
+            ) {
+              total.lastSalePunchDate =
+                stats.lastSalePunchDate;
+
+              total.lastRevenuePunched =
+                stats.lastRevenuePunched ||
+                0;
+            }
+          }
+
+          return total;
+        },
+        {
+          totalLeadAssigned:
+            0,
+
+          registrationDone:
+            0,
+
+          admDone:
+            0,
+
+          bookedRevenue:
+            0,
+
+          unrealisedRevenue:
+            0,
+
+          realisedRevenue:
+            0,
+
+          tillDateRealisedInLastMonth:
+            0,
+
+          lastSalePunchDate:
+            null as Date | null,
+
+          lastRevenuePunched:
+            0,
+        },
+      );
+    };
+
+  // =========================================================
   // FINAL REPORT
   // =========================================================
 
   const report =
     rootUsers
       .map((user) => {
+        const rootUserId =
+          user._id.toString();
+
+        // ---------------------------------------------------
+        // Gets own stats when team=false
+        // Gets combined team stats when team=true
+        // ---------------------------------------------------
+
         const item =
-          ensureStats(
-            user._id.toString(),
+          getCombinedStats(
+            rootUserId,
           );
 
         const lastSalePunchDate =
@@ -1432,9 +1783,16 @@ async consultantPerformanceReport(query: any) {
               )
             : null;
 
+        const memberIds =
+          teamMap.get(
+            rootUserId,
+          ) || [
+            rootUserId,
+          ];
+
         return {
           consultantId:
-            user._id.toString(),
+            rootUserId,
 
           consultantName:
             user?.name ||
@@ -1480,6 +1838,16 @@ async consultantPerformanceReport(query: any) {
             item.lastRevenuePunched,
 
           numberOfDaysOnZero,
+
+          // =================================================
+          // TEAM INFO
+          // =================================================
+
+          team:
+            teamFilter,
+
+          teamSize:
+            memberIds.length,
         };
       })
       .sort(
@@ -2035,67 +2403,26 @@ if (type === 'orders') {
 async employeePoolUtilizationReport(query: any) {
   const now = new Date();
 
-  let startDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
-    0,
-    0,
-    0,
-    0,
-  );
+  const getDateRange = (filter?: string) => {
+    const type = String(filter || 'month').toLowerCase();
 
-  let endDate = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
+    let startDate: Date;
+    let endDate: Date;
 
-  // =========================================================
-  // DATE FILTER
-  // =========================================================
-
-  if (query.dateFilter) {
-    const filter =
-      String(query.dateFilter).toLowerCase();
-
-    // -------------------------------------------------------
-    // TODAY
-    // -------------------------------------------------------
-
-    if (filter === 'today') {
+    if (type === 'today') {
       startDate = new Date(now);
       startDate.setHours(0, 0, 0, 0);
 
       endDate = new Date(now);
       endDate.setHours(23, 59, 59, 999);
-    }
-
-    // -------------------------------------------------------
-    // WEEK
-    // Last 7 days
-    // -------------------------------------------------------
-
-    else if (filter === 'week') {
+    } else if (type === 'week') {
       startDate = new Date(now);
-
-      startDate.setDate(
-        startDate.getDate() - 7,
-      );
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
 
       endDate = new Date(now);
-    }
-
-    // -------------------------------------------------------
-    // MONTH
-    // Current calendar month
-    // -------------------------------------------------------
-
-    else if (filter === 'month') {
+      endDate.setHours(23, 59, 59, 999);
+    } else if (type === 'month') {
       startDate = new Date(
         now.getFullYear(),
         now.getMonth(),
@@ -2115,84 +2442,135 @@ async employeePoolUtilizationReport(query: any) {
         59,
         999,
       );
-    }
-
-    // -------------------------------------------------------
-    // YEAR
-    // Current calendar year
-    // -------------------------------------------------------
-
-    else if (filter === 'year') {
-      startDate = new Date(
-        now.getFullYear(),
-        0,
-        1,
-        0,
-        0,
-        0,
-        0,
-      );
-
-      endDate = new Date(
-        now.getFullYear(),
-        11,
-        31,
-        23,
-        59,
-        59,
-        999,
+    } else {
+      throw new BadRequestException(
+        'Invalid date filter. Allowed values: today, week, month',
       );
     }
-  }
-  const customStart =
-    query.startDate || query.fromDate;
 
-  const customEnd =
-    query.endDate || query.toDate;
-
-  if (customStart) {
-    const from =
-      new Date(customStart);
-
-    if (!Number.isNaN(from.getTime())) {
-      startDate = new Date(from);
-
-      startDate.setHours(
-        0,
-        0,
-        0,
-        0,
-      );
-    }
-  }
-
-  if (customEnd) {
-    const to =
-      new Date(customEnd);
-
-    if (!Number.isNaN(to.getTime())) {
-      endDate = new Date(to);
-
-      endDate.setHours(
-        23,
-        59,
-        59,
-        999,
-      );
-    }
-  }
-
-  // =========================================================
-  // SAFETY CHECK
-  // If dates are reversed, return empty result
-  // =========================================================
-
-  if (startDate > endDate) {
     return {
       startDate,
       endDate,
-      employees: [],
     };
+  };
+
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+    fieldName: string,
+  ) => {
+    if (!fromValue || !toValue) {
+      throw new BadRequestException(
+        `${fieldName}From and ${fieldName}To are both required`,
+      );
+    }
+
+    const startDate = new Date(fromValue);
+    const endDate = new Date(toValue);
+
+    if (Number.isNaN(startDate.getTime())) {
+      throw new BadRequestException(
+        `Invalid ${fieldName}From`,
+      );
+    }
+
+    if (Number.isNaN(endDate.getTime())) {
+      throw new BadRequestException(
+        `Invalid ${fieldName}To`,
+      );
+    }
+
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+
+    if (startDate > endDate) {
+      throw new BadRequestException(
+        `${fieldName}From cannot be greater than ${fieldName}To`,
+      );
+    }
+
+    const diffDays =
+      Math.floor(
+        (endDate.getTime() - startDate.getTime()) /
+          (1000 * 60 * 60 * 24),
+      ) + 1;
+
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        `${fieldName} date range cannot be more than 31 days`,
+      );
+    }
+
+    return {
+      startDate,
+      endDate,
+    };
+  };
+
+  // =========================================================
+  // DATE RANGES
+  // =========================================================
+
+  let assignedStartDate: Date | null = null;
+  let assignedEndDate: Date | null = null;
+
+  let createdStartDate: Date | null = null;
+  let createdEndDate: Date | null = null;
+
+  if (
+    query.assignedDateFrom ||
+    query.assignedDateTo
+  ) {
+    const range = getCustomRange(
+      query.assignedDateFrom,
+      query.assignedDateTo,
+      'assignedDate',
+    );
+
+    assignedStartDate = range.startDate;
+    assignedEndDate = range.endDate;
+  } else if (query.assignedDateFilter) {
+    const range = getDateRange(
+      query.assignedDateFilter,
+    );
+
+    assignedStartDate = range.startDate;
+    assignedEndDate = range.endDate;
+  }
+
+  if (
+    query.createdDateFrom ||
+    query.createdDateTo
+  ) {
+    const range = getCustomRange(
+      query.createdDateFrom,
+      query.createdDateTo,
+      'createdDate',
+    );
+
+    createdStartDate = range.startDate;
+    createdEndDate = range.endDate;
+  } else if (query.createdDateFilter) {
+    const range = getDateRange(
+      query.createdDateFilter,
+    );
+
+    createdStartDate = range.startDate;
+    createdEndDate = range.endDate;
+  }
+
+  // No filter = current month
+  if (
+    !assignedStartDate &&
+    !createdStartDate
+  ) {
+    const range = getDateRange('month');
+
+    assignedStartDate = range.startDate;
+    assignedEndDate = range.endDate;
+
+    createdStartDate = range.startDate;
+    createdEndDate = range.endDate;
   }
 
   // =========================================================
@@ -2200,14 +2578,14 @@ async employeePoolUtilizationReport(query: any) {
   // =========================================================
 
   const levelNumber =
-    this.resolveLevel(
-      query.level,
-    );
+    this.resolveLevel(query.level);
 
   if (levelNumber === null) {
     return {
-      startDate,
-      endDate,
+      assignedStartDate,
+      assignedEndDate,
+      createdStartDate,
+      createdEndDate,
       employees: [],
     };
   }
@@ -2219,55 +2597,180 @@ async employeePoolUtilizationReport(query: any) {
 
   if (!levelUserIds.length) {
     return {
-      startDate,
-      endDate,
+      assignedStartDate,
+      assignedEndDate,
+      createdStartDate,
+      createdEndDate,
       employees: [],
     };
   }
 
-  const levelUserIdStrings =
-    levelUserIds.map(
-      (id) => id.toString(),
-    );
-
   // =========================================================
-  // LEVEL MATCH
+  // TEAM
   // =========================================================
 
-  const buildLevelMatch =
-    (fieldPath: string) => ({
-      $expr: {
-        $in: [
-          {
-            $convert: {
-              input: fieldPath,
-              to: 'string',
-              onError: null,
-              onNull: null,
-            },
+  const teamFilter =
+    query.team === true ||
+    query.team === 'true';
+
+  const rootUsers =
+    await this.userModel
+      .find({
+        _id: {
+          $in: levelUserIds,
+        },
+        status: 'active',
+      })
+      .select(
+        'name email number employeeId role createdAt',
+      )
+      .lean();
+
+  if (!rootUsers.length) {
+    return {
+      assignedStartDate,
+      assignedEndDate,
+      createdStartDate,
+      createdEndDate,
+      employees: [],
+    };
+  }
+
+  const teamMap =
+    new Map<string, string[]>();
+
+  for (const rootUser of rootUsers) {
+    const rootId =
+      rootUser._id.toString();
+
+    if (!teamFilter) {
+      teamMap.set(rootId, [rootId]);
+      continue;
+    }
+
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        rootId,
+      );
+
+    const memberIds = [
+      rootId,
+      ...subordinateIds.map(
+        (id: any) => id.toString(),
+      ),
+    ];
+
+    const uniqueMemberIds = [
+      ...new Set(memberIds),
+    ];
+
+    const activeMembers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: uniqueMemberIds,
           },
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
 
-          levelUserIdStrings,
-        ],
-      },
-    });
+    const activeMemberIds =
+      activeMembers.map(
+        (member) =>
+          member._id.toString(),
+      );
+
+    if (
+      !activeMemberIds.includes(rootId)
+    ) {
+      activeMemberIds.push(rootId);
+    }
+
+    teamMap.set(
+      rootId,
+      [
+        ...new Set(activeMemberIds),
+      ],
+    );
+  }
 
   // =========================================================
-  // LEAD ASSIGNMENTS
+  // GET ALL LEADS
   // =========================================================
 
-  const leadAssignments =
+  const allRootTeamUserIds = [
+    ...new Set(
+      Array.from(teamMap.values()).flat(),
+    ),
+  ];
+
+  const leadMatch: any = {
+    assignedTo: {
+      $in: allRootTeamUserIds,
+    },
+  };
+
+  /*
+   * If both filters exist:
+   * assignedDate AND createdAt must match.
+   *
+   * If only one exists:
+   * only that field is checked.
+   */
+
+  if (
+    assignedStartDate &&
+    assignedEndDate &&
+    createdStartDate &&
+    createdEndDate
+  ) {
+    leadMatch.assignedDate = {
+      $gte: assignedStartDate,
+      $lte: assignedEndDate,
+    };
+
+    leadMatch.createdAt = {
+      $gte: createdStartDate,
+      $lte: createdEndDate,
+    };
+  } else if (
+    assignedStartDate &&
+    assignedEndDate
+  ) {
+    leadMatch.assignedDate = {
+      $gte: assignedStartDate,
+      $lte: assignedEndDate,
+    };
+  } else if (
+    createdStartDate &&
+    createdEndDate
+  ) {
+    leadMatch.createdAt = {
+      $gte: createdStartDate,
+      $lte: createdEndDate,
+    };
+  }
+
+  const allLeads =
     await this.leadModel.aggregate([
       {
-        $match: {
-          assignedDate: {
-            $gte: startDate,
-            $lte: endDate,
-          },
+        $match: leadMatch,
+      },
 
-          ...buildLevelMatch(
-            '$assignedTo',
-          ),
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+
+      {
+        $unwind: {
+          path: '$stage',
+          preserveNullAndEmptyArrays: true,
         },
       },
 
@@ -2285,70 +2788,66 @@ async employeePoolUtilizationReport(query: any) {
       },
 
       {
-        $group: {
-          _id:
-            '$normalizedAssignedTo',
-
-          totalAssigned: {
-            $sum: 1,
+        $project: {
+          _id: 1,
+          assignedTo: 1,
+          normalizedAssignedTo: 1,
+          assignedDate: 1,
+          createdAt: 1,
+          stageId: 1,
+          stageName: {
+            $ifNull: [
+              '$stage.name',
+              'Unknown',
+            ],
           },
         },
       },
     ]);
 
   // =========================================================
-  // NEW LEADS
+  // CALL DATA
   // =========================================================
 
-  const newLeads =
-    await this.leadModel.aggregate([
-      {
-        $match: {
-          createdAt: {
-            $gte: startDate,
-            $lte: endDate,
-          },
+  const callDateMatch: any = {};
 
-          ...buildLevelMatch(
-            '$assignedTo',
-          ),
-        },
-      },
-
-      {
-        $group: {
-          _id: {
-            $convert: {
-              input: '$assignedTo',
-              to: 'string',
-              onError: null,
-              onNull: null,
-            },
-          },
-
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-    ]);
-
-  // =========================================================
-  // CALL STATS
-  // =========================================================
+  if (
+    createdStartDate &&
+    createdEndDate
+  ) {
+    callDateMatch.createdAt = {
+      $gte: createdStartDate,
+      $lte: createdEndDate,
+    };
+  } else if (
+    assignedStartDate &&
+    assignedEndDate
+  ) {
+    callDateMatch.createdAt = {
+      $gte: assignedStartDate,
+      $lte: assignedEndDate,
+    };
+  }
 
   const callStats =
     await this.callLogModel.aggregate([
       {
         $match: {
-          createdAt: {
-            $gte: startDate,
-            $lte: endDate,
-          },
+          ...callDateMatch,
 
-          ...buildLevelMatch(
-            '$userId',
-          ),
+          $expr: {
+            $in: [
+              {
+                $convert: {
+                  input: '$userId',
+                  to: 'string',
+                  onError: null,
+                  onNull: null,
+                },
+              },
+              allRootTeamUserIds,
+            ],
+          },
         },
       },
 
@@ -2363,7 +2862,6 @@ async employeePoolUtilizationReport(query: any) {
                 onNull: null,
               },
             },
-
             customerNumber:
               '$customerNumber',
           },
@@ -2428,309 +2926,41 @@ async employeePoolUtilizationReport(query: any) {
       },
     ]);
 
-  // =========================================================
-  // STAGE UPDATES
-  // =========================================================
-
-  const stageUpdates =
-    await this.leadModel.aggregate([
-      {
-        $match: {
-          ...buildLevelMatch(
-            '$assignedTo',
-          ),
-
-          $expr: {
-            $and: [
-              {
-                $gte: [
-                  {
-                    $ifNull: [
-                      '$modifiedAt',
-                      '$updatedAt',
-                    ],
-                  },
-
-                  startDate,
-                ],
-              },
-
-              {
-                $lte: [
-                  {
-                    $ifNull: [
-                      '$modifiedAt',
-                      '$updatedAt',
-                    ],
-                  },
-
-                  endDate,
-                ],
-              },
-            ],
-          },
-
-          stageId: {
-            $exists: true,
-            $ne: null,
-          },
-        },
-      },
-
-      {
-        $lookup: {
-          from: 'leadstages',
-
-          localField:
-            'stageId',
-
-          foreignField:
-            '_id',
-
-          as: 'stage',
-        },
-      },
-
-      {
-        $unwind: {
-          path: '$stage',
-
-          preserveNullAndEmptyArrays:
-            true,
-        },
-      },
-
-      {
-        $group: {
-          _id: {
-            employeeId: {
-              $convert: {
-                input:
-                  '$assignedTo',
-
-                to: 'string',
-
-                onError: null,
-
-                onNull: null,
-              },
-            },
-
-            stageId:
-              '$stage._id',
-
-            stageName: {
-              $ifNull: [
-                '$stage.name',
-                'Unknown',
-              ],
-            },
-          },
-
-          count: {
-            $sum: 1,
-          },
-        },
-      },
-
-      {
-        $sort: {
-          '_id.stageName': 1,
-        },
-      },
-    ]);
-
-  // =========================================================
-  // MAP LEAD ASSIGNMENTS
-  // =========================================================
-
-  const leadAssignmentByEmployee =
-    new Map<string, number>();
-
-  leadAssignments.forEach(
-    (item) => {
-      const employeeId =
-        item._id?.toString();
-
-      if (!employeeId) return;
-
-      leadAssignmentByEmployee.set(
-        employeeId,
-        item.totalAssigned || 0,
-      );
-    },
-  );
-
-  // =========================================================
-  // MAP NEW LEADS
-  // =========================================================
-
-  const newLeadsByEmployee =
-    new Map<string, number>();
-
-  newLeads.forEach(
-    (item) => {
-      if (!item._id) return;
-
-      newLeadsByEmployee.set(
-        item._id.toString(),
-        item.count || 0,
-      );
-    },
-  );
-
-  // =========================================================
-  // MAP CALL STATS
-  // =========================================================
-
-  const callStatsByEmployee =
+  const callStatsMap =
     new Map<string, any>();
 
-  callStats.forEach(
-    (item) => {
-      if (!item._id) return;
+  callStats.forEach((item) => {
+    if (!item._id) return;
 
-      callStatsByEmployee.set(
-        item._id.toString(),
-        {
-          totalDial:
-            item.totalDial || 0,
-
-          uniqDial:
-            item.uniqDial || 0,
-
-          answeredCall:
-            item.answeredCall || 0,
-
-          answeredTalkTime:
-            item.answeredTalkTime || 0,
-        },
-      );
-    },
-  );
-
-  // =========================================================
-  // MAP STAGE COUNTS
-  // =========================================================
-
-  const stageCountsByEmployee =
-    new Map<
-      string,
-      Array<{
-        stageId: string;
-        stageName: string;
-        count: number;
-      }>
-    >();
-
-  stageUpdates.forEach(
-    (item) => {
-      const employeeId =
-        item._id.employeeId?.toString();
-
-      if (!employeeId) return;
-
-      if (
-        !stageCountsByEmployee.has(
-          employeeId,
-        )
-      ) {
-        stageCountsByEmployee.set(
-          employeeId,
-          [],
-        );
-      }
-
-      stageCountsByEmployee
-        .get(employeeId)
-        ?.push({
-          stageId:
-            item._id.stageId?.toString(),
-
-          stageName:
-            item._id.stageName,
-
-          count:
-            item.count,
-        });
-    },
-  );
-
-  // =========================================================
-  // STAGE HELPERS
-  // =========================================================
-
-  const getStageCount = (
-    employeeId: string,
-    stageName: string,
-  ) => {
-    const stages =
-      stageCountsByEmployee.get(
-        employeeId,
-      ) || [];
-
-    const stage =
-      stages.find(
-        (s) =>
-          s.stageName
-            .toLowerCase() ===
-          stageName.toLowerCase(),
-      );
-
-    return stage?.count || 0;
-  };
-
-  const sumMatchingStageCounts = (
-    employeeId: string,
-    patterns: RegExp[],
-  ) => {
-    const stages =
-      stageCountsByEmployee.get(
-        employeeId,
-      ) || [];
-
-    return stages.reduce(
-      (total, stage) => {
-        return patterns.some(
-          (pattern) =>
-            pattern.test(
-              stage.stageName,
-            ),
-        )
-          ? total + stage.count
-          : total;
+    callStatsMap.set(
+      item._id.toString(),
+      {
+        totalDial:
+          item.totalDial || 0,
+        uniqDial:
+          item.uniqDial || 0,
+        answeredCall:
+          item.answeredCall || 0,
+        answeredTalkTime:
+          item.answeredTalkTime || 0,
       },
-      0,
     );
-  };
+  });
 
   // =========================================================
-  // USERS
+  // ROLES
   // =========================================================
 
-  const users =
-    await this.userModel
-      .find({
-        _id: {
-          $in: levelUserIds,
-        },
-      })
-      .select(
-        'name email number employeeId role createdAt',
-      )
-      .lean();
-
-  const roleIds =
-    Array.from(
-      new Set(
-        users
-          .map(
-            (user) =>
-              user.role?.toString(),
-          )
-          .filter(Boolean),
-      ),
-    );
+  const roleIds = [
+    ...new Set(
+      rootUsers
+        .map(
+          (user) =>
+            user.role?.toString(),
+        )
+        .filter(Boolean),
+    ),
+  ];
 
   const roles =
     roleIds.length
@@ -2739,9 +2969,7 @@ async employeePoolUtilizationReport(query: any) {
             _id: {
               $in: roleIds.map(
                 (id) =>
-                  new Types.ObjectId(
-                    id,
-                  ),
+                  new Types.ObjectId(id),
               ),
             },
           })
@@ -2751,168 +2979,272 @@ async employeePoolUtilizationReport(query: any) {
 
   const rolesById =
     new Map(
-      roles.map(
-        (role) => [
-          role._id.toString(),
-          role.name,
-        ],
-      ),
+      roles.map((role) => [
+        role._id.toString(),
+        role.name,
+      ]),
     );
 
   // =========================================================
-  // VINTAGE
-  // =========================================================
-
-  const calculateVintage =
-    (createdAt?: Date) => {
-      if (!createdAt) return null;
-
-      const start =
-        new Date(createdAt);
-
-      const diff =
-        now.getTime() -
-        start.getTime();
-
-      const days =
-        Math.floor(
-          diff /
-            (1000 *
-              60 *
-              60 *
-              24),
-        );
-
-      return `${days}d`;
-    };
-
-  // =========================================================
-  // EMPLOYEE RESPONSE
+  // EMPLOYEES
   // =========================================================
 
   const employees =
-    users
+    rootUsers
       .map((user) => {
         const employeeId =
           user._id.toString();
 
-        const roleName =
-          user?.role
-            ? rolesById.get(
-                user.role.toString(),
-              )
-            : null;
+        const memberIds =
+          teamMap.get(employeeId) ||
+          [employeeId];
 
-        const callStats =
-          callStatsByEmployee.get(
-            employeeId,
-          ) || {
-            totalDial: 0,
-            uniqDial: 0,
-            answeredCall: 0,
-            answeredTalkTime: 0,
-          };
+        const employeeLeads =
+          allLeads.filter((lead) =>
+            memberIds.includes(
+              lead.normalizedAssignedTo,
+            ),
+          );
 
-        const totalLeadAssigned =
-          leadAssignmentByEmployee.get(
-            employeeId,
-          ) || 0;
+        // Every selected lead
+        const leadAssigned =
+          employeeLeads.length;
 
-        const totalNewLead =
-          newLeadsByEmployee.get(
-            employeeId,
-          ) || 0;
+        // New Lead from SAME selected leads
+        const newLead =
+          employeeLeads.filter(
+            (lead) =>
+              String(
+                lead.stageName || '',
+              ).toLowerCase() ===
+              'new lead',
+          ).length;
+
+        // ===================================================
+        // STAGES FROM SAME LEADS
+        // ===================================================
+
+        const stageMap =
+          new Map<
+            string,
+            {
+              stageId: string;
+              stageName: string;
+              count: number;
+            }
+          >();
+
+        employeeLeads.forEach(
+          (lead) => {
+            const stageName =
+              lead.stageName ||
+              'Unknown';
+
+            const key =
+              lead.stageId?.toString() ||
+              stageName;
+
+            const existing =
+              stageMap.get(key);
+
+            if (existing) {
+              existing.count++;
+            } else {
+              stageMap.set(
+                key,
+                {
+                  stageId:
+                    lead.stageId?.toString(),
+                  stageName,
+                  count: 1,
+                },
+              );
+            }
+          },
+        );
+
+        const allStages =
+          Array.from(
+            stageMap.values(),
+          ).sort((a, b) =>
+            a.stageName.localeCompare(
+              b.stageName,
+            ),
+          );
+
+        // ===================================================
+        // STAGE COUNTS
+        // ===================================================
+
+        const pcatScheduled =
+          employeeLeads.filter(
+            (lead) =>
+              /pcat.*schedul/i.test(
+                lead.stageName || '',
+              ),
+          ).length;
+
+        const pcatDone =
+          employeeLeads.filter(
+            (lead) =>
+              /pcat.*done|pcat.*complete/i.test(
+                lead.stageName || '',
+              ),
+          ).length;
+
+        const registrationDone =
+          employeeLeads.filter(
+            (lead) =>
+              String(
+                lead.stageName || '',
+              ).toLowerCase() ===
+              'registration done',
+          ).length;
+
+        const admissionDone =
+          employeeLeads.filter(
+            (lead) =>
+              String(
+                lead.stageName || '',
+              ).toLowerCase() ===
+              'admission done',
+          ).length;
+
+        // ===================================================
+        // CALLS
+        // ===================================================
+
+        const callData =
+          memberIds.reduce(
+            (acc, memberId) => {
+              const calls =
+                callStatsMap.get(
+                  memberId,
+                );
+
+              if (calls) {
+                acc.totalDial +=
+                  calls.totalDial || 0;
+
+                acc.uniqDial +=
+                  calls.uniqDial || 0;
+
+                acc.answeredCall +=
+                  calls.answeredCall || 0;
+
+                acc.answeredTalkTime +=
+                  calls.answeredTalkTime || 0;
+              }
+
+              return acc;
+            },
+            {
+              totalDial: 0,
+              uniqDial: 0,
+              answeredCall: 0,
+              answeredTalkTime: 0,
+            },
+          );
+
+        const vintage = user.createdAt
+          ? `${Math.floor(
+              (
+                now.getTime() -
+                new Date(
+                  user.createdAt,
+                ).getTime()
+              ) /
+                (1000 *
+                  60 *
+                  60 *
+                  24),
+            )}d`
+          : null;
 
         return {
           employeeId,
 
           employeeName:
-            user?.name ||
-            'Unknown',
+            user.name || 'Unknown',
 
           designation:
-            roleName || null,
+            user.role
+              ? rolesById.get(
+                  user.role.toString(),
+                ) || null
+              : null,
 
-          vintage:
-            calculateVintage(
-              user?.createdAt,
-            ),
+          vintage,
 
-          leadAssigned:
-            totalLeadAssigned,
+          leadAssigned,
 
-          newLead:
-            totalNewLead,
+          newLead,
 
           totalDial:
-            callStats.totalDial,
+            callData.totalDial,
 
           uniqDial:
-            callStats.uniqDial,
+            callData.uniqDial,
 
           answeredCall:
-            callStats.answeredCall,
+            callData.answeredCall,
 
           answeredTalkTime:
-            callStats.answeredTalkTime,
+            callData.answeredTalkTime,
 
-          pcatScheduled:
-            sumMatchingStageCounts(
-              employeeId,
-              [/pcat.*schedul/i],
-            ),
+          pcatScheduled,
 
-          pcatDone:
-            sumMatchingStageCounts(
-              employeeId,
-              [
-                /pcat.*done/i,
-                /pcat.*complete/i,
-              ],
-            ),
+          pcatDone,
 
-          registrationDone:
-            getStageCount(
-              employeeId,
-              'Registration Done',
-            ),
+          registrationDone,
 
-          admissionDone:
-            getStageCount(
-              employeeId,
-              'Admission Done',
-            ),
+          admissionDone,
 
-          allStages:
-            stageCountsByEmployee.get(
-              employeeId,
-            ) || [],
+          allStages,
 
           employeeEmail:
-            user?.email || null,
+            user.email || null,
 
           employeeNumber:
-            user?.number || null,
+            user.number || null,
 
           employeeEmployeeId:
-            user?.employeeId ||
-            null,
+            user.employeeId || null,
+
+          team:
+            teamFilter,
+
+          teamSize:
+            memberIds.length,
         };
       })
-      .sort(
-        (a, b) =>
-          a.employeeName.localeCompare(
-            b.employeeName,
-          ),
+      .sort((a, b) =>
+        a.employeeName.localeCompare(
+          b.employeeName,
+        ),
       );
 
-  // =========================================================
-  // RESPONSE
-  // =========================================================
-
   return {
-    startDate,
-    endDate,
+    assignedStartDate,
+    assignedEndDate,
+
+    createdStartDate,
+    createdEndDate,
+
+    assignedDateFilter:
+      query.assignedDateFilter ||
+      null,
+
+    createdDateFilter:
+      query.createdDateFilter ||
+      null,
+
+    team:
+      teamFilter,
+
+    level:
+      levelNumber,
+
     employees,
   };
 }
@@ -2921,8 +3253,21 @@ async employeeStageLeads(query: any) {
   const {
     employeeId,
     stageId,
+
+    assignedDateFilter,
+    assignedDateFrom,
+    assignedDateTo,
+
+    createdDateFilter,
+    createdDateFrom,
+    createdDateTo,
+
+    // Backward compatibility
     startDate,
     endDate,
+    dateType = 'assigned',
+
+    team,
     page = 1,
     limit = 20,
   } = query;
@@ -2939,65 +3284,397 @@ async employeeStageLeads(query: any) {
     );
   }
 
-  const match: any = {
-    assignedTo: employeeId,
-    stageId: new Types.ObjectId(stageId),
-  };
+  if (!Types.ObjectId.isValid(employeeId)) {
+    throw new BadRequestException(
+      'Invalid employeeId',
+    );
+  }
+
+  if (!Types.ObjectId.isValid(stageId)) {
+    throw new BadRequestException(
+      'Invalid stageId',
+    );
+  }
+
+  const isTeam =
+    team === true ||
+    team === 'true';
 
   // =========================================================
-  // DATE FILTER
+  // DATE HELPERS
   // =========================================================
 
-  if (startDate || endDate) {
-    match.assignedDate = {};
+  const getFilterRange = (
+    filter: string,
+  ) => {
+    const type =
+      String(filter).toLowerCase();
 
-    // -------------------------------------------------------
-    // START DATE
-    // Always start from 00:00:00.000
-    // -------------------------------------------------------
+    const now = new Date();
 
-    if (startDate) {
-      const start = new Date(startDate);
+    let from: Date;
+    let to: Date;
 
-      if (Number.isNaN(start.getTime())) {
-        throw new BadRequestException(
-          'Invalid startDate',
-        );
-      }
-
-      start.setHours(
+    if (type === 'today') {
+      from = new Date(now);
+      from.setHours(
         0,
         0,
         0,
         0,
       );
 
-      match.assignedDate.$gte = start;
-    }
-
-    // -------------------------------------------------------
-    // END DATE
-    // Always end at 23:59:59.999
-    // -------------------------------------------------------
-
-    if (endDate) {
-      const end = new Date(endDate);
-
-      if (Number.isNaN(end.getTime())) {
-        throw new BadRequestException(
-          'Invalid endDate',
-        );
-      }
-
-      end.setHours(
+      to = new Date(now);
+      to.setHours(
         23,
         59,
         59,
         999,
       );
+    } else if (type === 'week') {
+      from = new Date(now);
 
-      match.assignedDate.$lte = end;
+      from.setDate(
+        from.getDate() - 6,
+      );
+
+      from.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      to = new Date(now);
+
+      to.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (type === 'month') {
+      from = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      to = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else {
+      throw new BadRequestException(
+        `Invalid date filter: ${filter}`,
+      );
     }
+
+    return {
+      from,
+      to,
+    };
+  };
+
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+    name: string,
+  ) => {
+    if (!fromValue || !toValue) {
+      throw new BadRequestException(
+        `${name}From and ${name}To are both required`,
+      );
+    }
+
+    const from =
+      new Date(fromValue);
+
+    const to =
+      new Date(toValue);
+
+    if (
+      Number.isNaN(
+        from.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        `Invalid ${name}From`,
+      );
+    }
+
+    if (
+      Number.isNaN(
+        to.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        `Invalid ${name}To`,
+      );
+    }
+
+    from.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    to.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    if (from > to) {
+      throw new BadRequestException(
+        `${name}From cannot be greater than ${name}To`,
+      );
+    }
+
+    const diffDays =
+      Math.floor(
+        (
+          to.getTime() -
+          from.getTime()
+        ) /
+          (
+            1000 *
+            60 *
+            60 *
+            24
+          ),
+      ) + 1;
+
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        `${name} date range cannot be more than 31 days`,
+      );
+    }
+
+    return {
+      from,
+      to,
+    };
+  };
+
+  // =========================================================
+  // ASSIGNED DATE RANGE
+  // =========================================================
+
+  let assignedRange:
+    | {
+        from: Date;
+        to: Date;
+      }
+    | null = null;
+
+  if (
+    assignedDateFrom ||
+    assignedDateTo
+  ) {
+    assignedRange =
+      getCustomRange(
+        assignedDateFrom,
+        assignedDateTo,
+        'assignedDate',
+      );
+  } else if (
+    assignedDateFilter
+  ) {
+    assignedRange =
+      getFilterRange(
+        assignedDateFilter,
+      );
+  }
+
+  // =========================================================
+  // CREATED DATE RANGE
+  // =========================================================
+
+  let createdRange:
+    | {
+        from: Date;
+        to: Date;
+      }
+    | null = null;
+
+  if (
+    createdDateFrom ||
+    createdDateTo
+  ) {
+    createdRange =
+      getCustomRange(
+        createdDateFrom,
+        createdDateTo,
+        'createdDate',
+      );
+  } else if (
+    createdDateFilter
+  ) {
+    createdRange =
+      getFilterRange(
+        createdDateFilter,
+      );
+  }
+
+  // =========================================================
+  // OLD FORMAT SUPPORT
+  // =========================================================
+
+  if (
+    !assignedRange &&
+    !createdRange &&
+    startDate &&
+    endDate
+  ) {
+    const oldRange =
+      getCustomRange(
+        startDate,
+        endDate,
+        dateType === 'created'
+          ? 'createdDate'
+          : 'assignedDate',
+      );
+
+    if (
+      String(dateType).toLowerCase() ===
+      'created'
+    ) {
+      createdRange = oldRange;
+    } else {
+      assignedRange = oldRange;
+    }
+  }
+
+  // =========================================================
+  // DEFAULT
+  // =========================================================
+
+  if (
+    !assignedRange &&
+    !createdRange
+  ) {
+    assignedRange =
+      getFilterRange('month');
+    createdRange =
+      getFilterRange('month');
+  }
+
+  // =========================================================
+  // USERS
+  // =========================================================
+
+  let assignedUserIds: string[] = [
+    employeeId.toString(),
+  ];
+
+  if (isTeam) {
+    const employee =
+      await this.userModel
+        .findOne({
+          _id: employeeId,
+          status: 'active',
+        })
+        .lean();
+
+    if (!employee) {
+      throw new BadRequestException(
+        'Active employee not found',
+      );
+    }
+
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        employeeId.toString(),
+      );
+
+    assignedUserIds = [
+      employeeId.toString(),
+
+      ...subordinateIds.map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ];
+
+    assignedUserIds = [
+      ...new Set(
+        assignedUserIds,
+      ),
+    ];
+
+    const activeUsers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: assignedUserIds,
+          },
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
+
+    assignedUserIds =
+      activeUsers.map(
+        (user) =>
+          user._id.toString(),
+      );
+
+    if (
+      !assignedUserIds.includes(
+        employeeId.toString(),
+      )
+    ) {
+      assignedUserIds.push(
+        employeeId.toString(),
+      );
+    }
+  }
+
+  // =========================================================
+  // MATCH
+  // =========================================================
+
+  const match: any = {
+    assignedTo: {
+      $in: assignedUserIds,
+    },
+
+    stageId:
+      new Types.ObjectId(stageId),
+  };
+
+  /*
+   * If both are supplied:
+   *
+   * assignedDate MUST match
+   * AND
+   * createdAt MUST match
+   */
+
+  if (assignedRange) {
+    match.assignedDate = {
+      $gte: assignedRange.from,
+      $lte: assignedRange.to,
+    };
+  }
+
+  if (createdRange) {
+    match.createdAt = {
+      $gte: createdRange.from,
+      $lte: createdRange.to,
+    };
   }
 
   // =========================================================
@@ -3031,10 +3708,7 @@ async employeeStageLeads(query: any) {
           $match: match,
         },
 
-        // ---------------------------------------------------
-        // STAGE
-        // ---------------------------------------------------
-
+        // Stage
         {
           $lookup: {
             from: 'leadstages',
@@ -3058,10 +3732,7 @@ async employeeStageLeads(query: any) {
           },
         },
 
-        // ---------------------------------------------------
-        // EMPLOYEE
-        // ---------------------------------------------------
-
+        // Employee
         {
           $lookup: {
             from: 'users',
@@ -3117,18 +3788,77 @@ async employeeStageLeads(query: any) {
           },
         },
 
-        // ---------------------------------------------------
-        // RESPONSE FIELDS
-        // ---------------------------------------------------
+        // Root employee
+        {
+          $lookup: {
+            from: 'users',
 
+            let: {
+              rootEmployeeId: {
+                $convert: {
+                  input:
+                    employeeId,
+
+                  to: 'objectId',
+
+                  onError: null,
+
+                  onNull: null,
+                },
+              },
+            },
+
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $eq: [
+                      '$_id',
+                      '$$rootEmployeeId',
+                    ],
+                  },
+                },
+              },
+
+              {
+                $project: {
+                  _id: 1,
+                  name: 1,
+                  employeeId: 1,
+                  email: 1,
+                  number: 1,
+                },
+              },
+            ],
+
+            as: 'rootEmployee',
+          },
+        },
+
+        {
+          $unwind: {
+            path: '$rootEmployee',
+
+            preserveNullAndEmptyArrays:
+              true,
+          },
+        },
+
+        // Response
         {
           $project: {
             _id: 1,
+
             leadId: 1,
+
             name: 1,
+
             phone: 1,
+
             email: 1,
+
             source: 1,
+
             assignedTo: 1,
 
             stageName:
@@ -3137,13 +3867,26 @@ async employeeStageLeads(query: any) {
             employeeName:
               '$employee.name',
 
+            employeeEmployeeId:
+              '$employee.employeeId',
+
+            employeeEmail:
+              '$employee.email',
+
+            employeeNumber:
+              '$employee.number',
+
+            rootEmployeeName:
+              '$rootEmployee.name',
+
+            rootEmployeeId:
+              '$rootEmployee._id',
+
             assignedDate: 1,
+
+            createdAt: 1,
           },
         },
-
-        // ---------------------------------------------------
-        // SORT
-        // ---------------------------------------------------
 
         {
           $sort: {
@@ -3151,10 +3894,6 @@ async employeeStageLeads(query: any) {
             createdAt: -1,
           },
         },
-
-        // ---------------------------------------------------
-        // PAGINATION
-        // ---------------------------------------------------
 
         {
           $skip: skip,
@@ -3188,6 +3927,35 @@ async employeeStageLeads(query: any) {
           limitNumber,
       ),
 
+    team: isTeam,
+
+    employeeId,
+
+    assignedDateRange:
+      assignedRange
+        ? {
+            from:
+              assignedRange.from,
+            to:
+              assignedRange.to,
+          }
+        : null,
+
+    createdDateRange:
+      createdRange
+        ? {
+            from:
+              createdRange.from,
+            to:
+              createdRange.to,
+          }
+        : null,
+
+    teamUserIds:
+      isTeam
+        ? assignedUserIds
+        : [employeeId],
+
     data,
   };
 }
@@ -3195,33 +3963,14 @@ async employeeStageLeads(query: any) {
 async sourceCampaignWiseLeadRevenueReport(query: any) {
   const now = new Date();
 
-  let startDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
-  );
+  const getFilterRange = (filter: any) => {
+    const value =
+      String(filter || '').toLowerCase();
 
-  let endDate = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
+    let startDate: Date;
+    let endDate: Date;
 
-  // =========================================================
-  // DATE FILTER
-  // =========================================================
-
-  if (query.dateFilter) {
-    const filter =
-      query.dateFilter
-        .toString()
-        .toLowerCase();
-
-    if (filter === 'today') {
+    if (value === 'today') {
       startDate = new Date(now);
       startDate.setHours(
         0,
@@ -3237,15 +3986,11 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         59,
         999,
       );
-    }
-
-    else if (filter === 'week') {
+    } else if (value === 'week') {
       startDate = new Date(now);
-
       startDate.setDate(
         startDate.getDate() - 6,
       );
-
       startDate.setHours(
         0,
         0,
@@ -3254,20 +3999,21 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
       );
 
       endDate = new Date(now);
-
       endDate.setHours(
         23,
         59,
         59,
         999,
       );
-    }
-
-    else if (filter === 'month') {
+    } else if (value === 'month') {
       startDate = new Date(
         now.getFullYear(),
         now.getMonth(),
         1,
+        0,
+        0,
+        0,
+        0,
       );
 
       endDate = new Date(
@@ -3279,13 +4025,15 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         59,
         999,
       );
-    }
-
-    else if (filter === 'year') {
+    } else if (value === 'year') {
       startDate = new Date(
         now.getFullYear(),
         0,
         1,
+        0,
+        0,
+        0,
+        0,
       );
 
       endDate = new Date(
@@ -3297,105 +4045,270 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         59,
         999,
       );
+    } else {
+      throw new BadRequestException(
+        `Invalid date filter: ${filter}`,
+      );
     }
-  }
 
-  // =========================================================
-  // SPECIFIC MONTH
-  // =========================================================
+    return {
+      $gte: startDate,
+      $lte: endDate,
+    };
+  };
 
-  if (query.month) {
-    const [year, month] =
-      query.month
-        .split('-')
-        .map(Number);
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+    name: string,
+  ) => {
+    if (!fromValue || !toValue) {
+      throw new BadRequestException(
+        `${name}From and ${name}To are both required`,
+      );
+    }
 
-    startDate = new Date(
-      year,
-      month - 1,
-      1,
+    const from =
+      new Date(fromValue);
+
+    const to =
+      new Date(toValue);
+
+    if (
+      Number.isNaN(from.getTime()) ||
+      Number.isNaN(to.getTime())
+    ) {
+      throw new BadRequestException(
+        `Invalid ${name} date`,
+      );
+    }
+
+    from.setHours(
+      0,
+      0,
+      0,
+      0,
     );
 
-    endDate = new Date(
-      year,
-      month,
-      0,
+    to.setHours(
       23,
       59,
       59,
       999,
     );
-  }
 
-  // =========================================================
-  // FROM DATE
-  // =========================================================
-
-  if (query.fromDate) {
-    const from =
-      new Date(
-        query.fromDate,
-      );
-
-    if (
-      !Number.isNaN(
-        from.getTime(),
-      )
-    ) {
-      startDate =
-        new Date(from);
-
-      startDate.setHours(
-        0,
-        0,
-        0,
-        0,
+    if (from > to) {
+      throw new BadRequestException(
+        `${name}From cannot be greater than ${name}To`,
       );
     }
-  }
 
-  // =========================================================
-  // TO DATE
-  // =========================================================
+    const diffDays =
+      Math.floor(
+        (
+          to.getTime() -
+          from.getTime()
+        ) /
+          (
+            1000 *
+            60 *
+            60 *
+            24
+          ),
+      ) + 1;
 
-  if (query.toDate) {
-    const to =
-      new Date(
-        query.toDate,
-      );
-
-    if (
-      !Number.isNaN(
-        to.getTime(),
-      )
-    ) {
-      endDate =
-        new Date(to);
-
-      endDate.setHours(
-        23,
-        59,
-        59,
-        999,
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        `${name} date range cannot be more than 31 days`,
       );
     }
+
+    return {
+      $gte: from,
+      $lte: to,
+    };
+  };
+
+  const getDateRange = (
+    filter: any,
+    from: any,
+    to: any,
+    name: string,
+  ) => {
+    if (from || to) {
+      return getCustomRange(
+        from,
+        to,
+        name,
+      );
+    }
+
+    if (filter) {
+      return getFilterRange(
+        filter,
+      );
+    }
+
+    return null;
+  };
+
+  // =========================================================
+  // LEAD CREATED DATE FILTER
+  // =========================================================
+
+  const leadCreatedRange =
+    getDateRange(
+      query.leadCreatedDateFilter,
+      query.leadCreatedDateFrom,
+      query.leadCreatedDateTo,
+      'leadCreatedDate',
+    );
+
+  // =========================================================
+  // ORDER CREATED DATE FILTER
+  // =========================================================
+
+  const orderCreatedRange =
+    getDateRange(
+      query.orderCreatedDateFilter,
+      query.orderCreatedDateFrom,
+      query.orderCreatedDateTo,
+      'orderCreatedDate',
+    );
+
+  const hasLeadCreatedFilter =
+    !!leadCreatedRange;
+
+  const hasOrderCreatedFilter =
+    !!orderCreatedRange;
+
+  // =========================================================
+  // DEFAULT
+  // Current calendar month based on LEAD CREATED DATE
+  // =========================================================
+
+  const defaultLeadCreatedRange =
+    !hasLeadCreatedFilter &&
+    !hasOrderCreatedFilter
+      ? getFilterRange('month')
+      : null;
+
+  // =========================================================
+  // GET ADMISSION DONE STAGE
+  // =========================================================
+
+  const admissionStage =
+    await this.leadStageModel
+      .findOne({
+        name: {
+          $regex:
+            /^admission done$/i,
+        },
+      })
+      .select('_id')
+      .lean();
+
+  if (!admissionStage) {
+    throw new BadRequestException(
+      'Admission Done stage not found',
+    );
   }
 
   // =========================================================
-  // STEP 1 : FETCH ORDERS FIRST
+  // LEADS
+  // Only required when:
+  // 1. Lead created date filter exists
+  // 2. Both lead + order filters exist
+  // 3. No filter exists -> default current month
+  // =========================================================
+
+  let selectedLeads: any[] = [];
+
+  const shouldFilterByLead =
+    hasLeadCreatedFilter ||
+    !!defaultLeadCreatedRange;
+
+  if (shouldFilterByLead) {
+    const leadMatch: any = {
+      stageId:
+        admissionStage._id,
+
+      createdAt:
+        leadCreatedRange ||
+        defaultLeadCreatedRange,
+    };
+
+    if (query.source) {
+      leadMatch.source =
+        String(
+          query.source,
+        ).toLowerCase();
+    }
+
+    if (query.state) {
+      leadMatch.state =
+        query.state;
+    }
+
+    if (query.source_campaign) {
+      leadMatch.source_campaign = {
+        $regex:
+          query.source_campaign,
+        $options: 'i',
+      };
+    }
+
+    selectedLeads =
+      await this.leadModel
+        .find(leadMatch)
+        .select(
+          `
+            _id
+            leadId
+            name
+            phone
+            mobile
+            email
+            source
+            source_campaign
+            stageId
+            createdAt
+            assignedDate
+          `,
+        )
+        .lean();
+  }
+
+  // =========================================================
+  // LEAD CONTACTS
+  // =========================================================
+
+  const leadMobiles =
+    shouldFilterByLead
+      ? [
+          ...new Set(
+            selectedLeads
+              .flatMap(
+                (lead: any) => [
+                  lead.phone,
+                  lead.mobile,
+                ],
+              )
+              .filter(Boolean)
+              .map(
+                (value: any) =>
+                  String(value),
+              ),
+          ),
+        ]
+      : [];
+
+  // =========================================================
+  // ORDER MATCH
   // =========================================================
 
   const orderMatch: any = {
-    orderDate: {
-      $gte: startDate,
-      $lte: endDate,
-    },
-
     Approved: true,
-
-    // -------------------------------------------------------
-    // Only orders having actual revenue
-    // -------------------------------------------------------
 
     $or: [
       {
@@ -3413,11 +4326,41 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
           $gt: 0,
         },
       },
-
-      // Subscription intentionally excluded
-      // until subscription revenue logic is added.
     ],
   };
+
+  // ---------------------------------------------------------
+  // CASE:
+  // Lead created date is applied
+  // Orders must belong to selected Admission Done leads
+  // ---------------------------------------------------------
+
+  if (shouldFilterByLead) {
+    if (!leadMobiles.length) {
+      orderMatch.mobile = {
+        $in: [],
+      };
+    } else {
+      orderMatch.mobile = {
+        $in: leadMobiles,
+      };
+    }
+  }
+
+  // ---------------------------------------------------------
+  // CASE:
+  // Order created date is applied
+  // Direct order date filtering
+  // ---------------------------------------------------------
+
+  if (hasOrderCreatedFilter) {
+    orderMatch.orderDate =
+      orderCreatedRange;
+  }
+
+  // =========================================================
+  // GET ORDERS
+  // =========================================================
 
   const orders =
     await this.orderModel
@@ -3425,17 +4368,13 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
       .lean();
 
   // =========================================================
-  // CALCULATE REVENUE FOR EACH ORDER
+  // CALCULATE ORDER REVENUE
   // =========================================================
 
   const formattedOrders =
     orders
       .map((order: any) => {
         let revenue = 0;
-
-        // ---------------------------------------------------
-        // LUMPSUM
-        // ---------------------------------------------------
 
         if (
           order.paymentMode ===
@@ -3449,10 +4388,6 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
             ) || 0;
         }
 
-        // ---------------------------------------------------
-        // LOAN
-        // ---------------------------------------------------
-
         else if (
           order.paymentMode ===
           'Loan'
@@ -3464,14 +4399,6 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
                 ?.disbursementAmount,
             ) || 0;
         }
-
-        // ---------------------------------------------------
-        // SUBSCRIPTION
-        // ---------------------------------------------------
-
-        // TODO:
-        // Subscription revenue will be
-        // implemented later.
 
         return {
           ...order,
@@ -3489,13 +4416,107 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
       );
 
   // =========================================================
-  // NO ORDERS
+  // ORDER DATE ONLY
+  // Get leads for campaign/source mapping
+  // But DO NOT filter orders using lead date
+  // =========================================================
+
+  if (
+    !shouldFilterByLead &&
+    formattedOrders.length
+  ) {
+    const orderMobiles = [
+      ...new Set(
+        formattedOrders
+          .map(
+            (order: any) =>
+              order.mobile,
+          )
+          .filter(Boolean)
+          .map(
+            (value: any) =>
+              String(value),
+          ),
+      ),
+    ];
+
+    const leadMatch: any = {
+      phone: {
+        $in: orderMobiles,
+      },
+    };
+
+    if (query.source) {
+      leadMatch.source =
+        String(
+          query.source,
+        ).toLowerCase();
+    }
+
+    if (query.state) {
+      leadMatch.state =
+        query.state;
+    }
+
+    if (query.stageId) {
+      leadMatch.stageId =
+        new Types.ObjectId(
+          query.stageId,
+        );
+    }
+
+    if (query.stage) {
+      const stage =
+        await this.leadStageModel
+          .findOne({
+            name: {
+              $regex:
+                query.stage,
+              $options: 'i',
+            },
+          })
+          .select('_id')
+          .lean();
+
+      if (stage) {
+        leadMatch.stageId =
+          stage._id;
+      }
+    }
+
+    selectedLeads =
+      await this.leadModel
+        .find(leadMatch)
+        .populate(
+          'stageId',
+          'name order',
+        )
+        .lean();
+  }
+
+  // =========================================================
+  // EMPTY RESPONSE
   // =========================================================
 
   if (!formattedOrders.length) {
     return {
-      startDate,
-      endDate,
+      startDate:
+        shouldFilterByLead
+          ? (
+              leadCreatedRange ||
+              defaultLeadCreatedRange
+            )?.$gte || null
+          : orderCreatedRange?.$gte ||
+            null,
+
+      endDate:
+        shouldFilterByLead
+          ? (
+              leadCreatedRange ||
+              defaultLeadCreatedRange
+            )?.$lte || null
+          : orderCreatedRange?.$lte ||
+            null,
 
       campaigns: [],
 
@@ -3519,114 +4540,32 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
   }
 
   // =========================================================
-  // STEP 2 : FETCH LEADS
-  // =========================================================
-
-  const mobiles = [
-    ...new Set(
-      formattedOrders
-        .map(
-          (o: any) =>
-            o.mobile,
-        )
-        .filter(Boolean),
-    ),
-  ];
-
-  const leadMatch: any = {
-    phone: {
-      $in: mobiles,
-    },
-  };
-
-  if (query.source) {
-    leadMatch.source =
-      query.source.toLowerCase();
-  }
-
-  if (query.state) {
-    leadMatch.state =
-      query.state;
-  }
-
-  if (query.stageId) {
-    leadMatch.stageId =
-      new Types.ObjectId(
-        query.stageId,
-      );
-  }
-
-  const leads =
-    await this.leadModel
-      .find(leadMatch)
-      .populate(
-        'stageId',
-        'name order',
-      )
-      .lean();
-
-  const filteredLeads =
-    query.stage
-      ? leads.filter(
-          (lead: any) =>
-            String(
-              lead?.stageId
-                ?.name || '',
-            )
-              .toLowerCase()
-              .includes(
-                String(
-                  query.stage,
-                ).toLowerCase(),
-              ),
-        )
-      : leads;
-
-  if (!filteredLeads.length) {
-    return {
-      startDate,
-      endDate,
-
-      campaigns: [],
-
-      data: [],
-
-      totals: {
-        total: {
-          totalLead: 0,
-          revenue: 0,
-        },
-
-        byCampaign: {},
-      },
-
-      stats: {
-        totalLead: 0,
-        totalRevenue: 0,
-        totalOrders:
-          formattedOrders.length,
-      },
-    };
-  }
-
-  // =========================================================
-  // STEP 3 : MAP LEADS
+  // MAP LEADS BY PHONE
   // =========================================================
 
   const leadByPhone =
     new Map<string, any>();
 
-  filteredLeads.forEach(
+  selectedLeads.forEach(
     (lead: any) => {
-      leadByPhone.set(
-        lead.phone,
-        lead,
-      );
+      if (lead.phone) {
+        leadByPhone.set(
+          String(lead.phone),
+          lead,
+        );
+      }
+
+      if (lead.mobile) {
+        leadByPhone.set(
+          String(lead.mobile),
+          lead,
+        );
+      }
     },
   );
 
   // =========================================================
-  // STEP 4 : GROUP DATA
+  // GROUP DATA
   // =========================================================
 
   const groupedData =
@@ -3636,10 +4575,12 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
     (order: any) => {
       const lead =
         leadByPhone.get(
-          order.mobile,
+          String(order.mobile),
         );
 
-      if (!lead) return;
+      if (!lead) {
+        return;
+      }
 
       const source =
         lead.source ||
@@ -3650,9 +4591,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         'Unknown';
 
       if (
-        !groupedData.has(
-          source,
-        )
+        !groupedData.has(source)
       ) {
         groupedData.set(
           source,
@@ -3666,9 +4605,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
       }
 
       const sourceGroup =
-        groupedData.get(
-          source,
-        );
+        groupedData.get(source);
 
       if (
         !sourceGroup.campaigns.has(
@@ -3676,14 +4613,18 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
         )
       ) {
         sourceGroup.campaigns.set(
-  campaignName,
-  {
-    campaignName,
-    revenue: 0,
-    leadIds: new Set<string>(),
-    orders: [],
-  },
-);
+          campaignName,
+          {
+            campaignName,
+
+            revenue: 0,
+
+            leadIds:
+              new Set<string>(),
+
+            orders: [],
+          },
+        );
       }
 
       const campaign =
@@ -3691,50 +4632,55 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
           campaignName,
         );
 
-      // =====================================================
-      // USE CALCULATED REVENUE
-      // =====================================================
-
       campaign.revenue +=
-  Number(
-    order.calculatedRevenue ||
-      0,
-  );
+        Number(
+          order.calculatedRevenue ||
+            0,
+        );
 
-campaign.leadIds.add(
-  String(
-    lead._id,
-  ),
-);
+      campaign.leadIds.add(
+        String(lead._id),
+      );
 
-// Return the actual order
-// which generated this revenue.
-campaign.orders.push({
-  ...order,
+      campaign.orders.push({
+        ...order,
 
-  lead: {
-    _id: lead._id,
-    leadId: lead.leadId,
-    name: lead.name,
-    phone: lead.phone,
-    email: lead.email,
-    source: lead.source,
-    source_campaign:
-      lead.source_campaign,
-    stageId: lead.stageId,
-  },
+        lead: {
+          _id: lead._id,
 
-  calculatedRevenue:
-    Number(
-      order.calculatedRevenue ||
-        0,
-    ),
-});
+          leadId:
+            lead.leadId,
+
+          name:
+            lead.name,
+
+          phone:
+            lead.phone,
+
+          email:
+            lead.email,
+
+          source:
+            lead.source,
+
+          source_campaign:
+            lead.source_campaign,
+
+          stageId:
+            lead.stageId,
+        },
+
+        calculatedRevenue:
+          Number(
+            order.calculatedRevenue ||
+              0,
+          ),
+      });
     },
   );
 
   // =========================================================
-  // RESPONSE
+  // CAMPAIGNS
   // =========================================================
 
   const allCampaigns =
@@ -3744,12 +4690,12 @@ campaign.orders.push({
     string[] = [];
 
   groupedData.forEach(
-    (data) => {
+    (item) => {
       sourceNames.push(
-        data.source,
+        item.source,
       );
 
-      data.campaigns.forEach(
+      item.campaigns.forEach(
         (campaign: any) => {
           allCampaigns.add(
             campaign.campaignName,
@@ -3764,10 +4710,20 @@ campaign.orders.push({
       allCampaigns,
     ).sort();
 
-  const response: any = {
-    startDate,
+  const activeRange =
+    shouldFilterByLead
+      ? (
+          leadCreatedRange ||
+          defaultLeadCreatedRange
+        )
+      : orderCreatedRange;
 
-    endDate,
+  const response: any = {
+    startDate:
+      activeRange?.$gte || null,
+
+    endDate:
+      activeRange?.$lte || null,
 
     campaigns,
 
@@ -3792,6 +4748,10 @@ campaign.orders.push({
         formattedOrders.length,
     },
   };
+
+  // =========================================================
+  // RESPONSE DATA
+  // =========================================================
 
   sourceNames
     .sort()
@@ -3826,6 +4786,7 @@ campaign.orders.push({
                 `${campaignName}_revenue`
               ] =
                 campaign.revenue;
+
               row[
                 `${campaignName}_orders`
               ] =
@@ -3894,6 +4855,7 @@ campaign.orders.push({
               row[
                 `${campaignName}_revenue`
               ] = 0;
+
               row[
                 `${campaignName}_orders`
               ] = [];
@@ -3903,11 +4865,11 @@ campaign.orders.push({
 
         row.totalLead =
           campaigns.reduce(
-            (sum, c) =>
+            (sum, campaign) =>
               sum +
               (
                 row[
-                  `${c}_lead`
+                  `${campaign}_lead`
                 ] || 0
               ),
             0,
@@ -3915,11 +4877,11 @@ campaign.orders.push({
 
         row.totalRevenue =
           campaigns.reduce(
-            (sum, c) =>
+            (sum, campaign) =>
               sum +
               (
                 row[
-                  `${c}_revenue`
+                  `${campaign}_revenue`
                 ] || 0
               ),
             0,
@@ -4130,12 +5092,11 @@ async employeePoolRevenueReport(query: any) {
     999,
   );
 
-  // ---------------------------------------------------------
-  // DATE FILTER
-  // ---------------------------------------------------------
-
+  // Date filter
   if (query.dateFilter) {
-    const filter = query.dateFilter.toString().toLowerCase();
+    const filter = query.dateFilter
+      .toString()
+      .toLowerCase();
 
     if (filter === 'month') {
       startDate = new Date(
@@ -4148,6 +5109,35 @@ async employeePoolRevenueReport(query: any) {
         now.getFullYear(),
         now.getMonth() + 1,
         0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (filter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(now.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
         23,
         59,
         59,
@@ -4174,11 +5164,10 @@ async employeePoolRevenueReport(query: any) {
     }
   }
 
-  // ---------------------------------------------------------
-  // LEVEL
-  // ---------------------------------------------------------
-
-  const levelNumber = this.resolveLevel(query.level);
+  // Level
+  const levelNumber = this.resolveLevel(
+    query.level,
+  );
 
   if (levelNumber === null) {
     return {
@@ -4191,7 +5180,9 @@ async employeePoolRevenueReport(query: any) {
   }
 
   const levelUserIds =
-    await this.getUserIdsByRoleLevel(levelNumber);
+    await this.getUserIdsByRoleLevel(
+      levelNumber,
+    );
 
   if (!levelUserIds.length) {
     return {
@@ -4203,35 +5194,43 @@ async employeePoolRevenueReport(query: any) {
     };
   }
 
-  // ---------------------------------------------------------
-  // COUNSELLOR / TEAM FILTER
-  // ---------------------------------------------------------
-
-  const selectedCounsellorId = query.counsellorId
-    ? String(query.counsellorId)
-    : null;
-
+  // Team filter
   const teamFilter =
-    String(query.teamFilter).toLowerCase() === 'true';
+    query.team === true ||
+    query.team === 'true' ||
+    query.teamFilter === true ||
+    query.teamFilter === 'true';
 
+  const selectedCounsellorId =
+    query.counsellorId
+      ? String(query.counsellorId)
+      : null;
+
+  // Get level users
   let rootUsers = await this.userModel
     .find({
-      _id: { $in: levelUserIds },
+      _id: {
+        $in: levelUserIds,
+      },
+      status: 'active',
     })
     .select(
       'name email number employeeId role createdAt',
     )
     .lean();
 
-  // ---------------------------------------------------------
-  // SELECTED COUNSELLOR
-  // ---------------------------------------------------------
-
+  // Selected counsellor
   if (selectedCounsellorId) {
     const selectedCounsellor =
       await this.userModel
-        .findById(selectedCounsellorId)
-        .populate('role', 'level')
+        .findOne({
+          _id: selectedCounsellorId,
+          status: 'active',
+        })
+        .populate(
+          'role',
+          'level',
+        )
         .select(
           'name email number employeeId role createdAt',
         )
@@ -4252,16 +5251,20 @@ async employeePoolRevenueReport(query: any) {
       };
     }
 
-    rootUsers = [selectedCounsellor];
+    rootUsers = [
+      selectedCounsellor,
+    ];
   }
 
-  // ---------------------------------------------------------
-  // BUILD ALLOWED USERS
-  // ---------------------------------------------------------
+  // Build employee -> users included in report
+  const rootUsersById =
+    new Map<string, any>();
 
-  const rootUsersById = new Map<string, any>();
-  const ownerByUserId = new Map<string, string>();
-  const allAllowedUserIds = new Set<string>();
+  const ownerByUserId =
+    new Map<string, string>();
+
+  const allAllowedUserIds =
+    new Set<string>();
 
   for (const rootUser of rootUsers) {
     const rootId =
@@ -4272,16 +5275,12 @@ async employeePoolRevenueReport(query: any) {
       rootUser,
     );
 
-    // -------------------------------------------------------
-    // COUNSELLOR FILTER + teamFilter=false
-    // ONLY selected counsellor
-    // -------------------------------------------------------
+    // team=false => own data only
+    if (!teamFilter) {
+      allAllowedUserIds.add(
+        rootId,
+      );
 
-    if (
-      selectedCounsellorId &&
-      !teamFilter
-    ) {
-      allAllowedUserIds.add(rootId);
       ownerByUserId.set(
         rootId,
         rootId,
@@ -4290,29 +5289,30 @@ async employeePoolRevenueReport(query: any) {
       continue;
     }
 
-    // -------------------------------------------------------
-    // teamFilter=true
-    // Include counsellor + complete subordinate tree
-    // -------------------------------------------------------
-
+    // team=true => own + complete subtree
     const subtreeIds =
       await this.getUserAndSubordinateIds(
         rootId,
       );
 
-    subtreeIds.forEach((id) => {
+    // Always include root employee
+    const memberIds = [
+      rootId,
+      ...subtreeIds,
+    ];
+
+    for (const memberId of memberIds) {
+      const id =
+        memberId.toString();
+
       allAllowedUserIds.add(id);
 
       ownerByUserId.set(
         id,
         rootId,
       );
-    });
+    }
   }
-
-  // ---------------------------------------------------------
-  // NO USERS
-  // ---------------------------------------------------------
 
   if (!allAllowedUserIds.size) {
     return {
@@ -4320,49 +5320,35 @@ async employeePoolRevenueReport(query: any) {
       endDate,
       months: [],
       pools: [],
-      employees: rootUsers.map((user) => ({
-        employeeId:
-          user._id.toString(),
-
-        employeeName:
-          user.name || 'Unknown',
-
-        employeeEmail:
-          user.email || null,
-
-        employeeNumber:
-          user.number || null,
-
-        employeeEmployeeId:
-          user.employeeId || null,
-
-        pools: [],
-      })),
+      employees: [],
     };
   }
 
   const allowedUserIdStrings =
-    Array.from(allAllowedUserIds);
+    Array.from(
+      allAllowedUserIds,
+    );
 
-  const poolObjectId =
-    query.poolId
-      ? new Types.ObjectId(
-          query.poolId,
-        )
-      : null;
+  let poolObjectId: Types.ObjectId | null =
+    null;
 
-  // ---------------------------------------------------------
-  // REVENUE AGGREGATION
-  // ---------------------------------------------------------
+  if (
+    query.poolId &&
+    Types.ObjectId.isValid(
+      query.poolId,
+    )
+  ) {
+    poolObjectId =
+      new Types.ObjectId(
+        query.poolId,
+      );
+  }
 
+  // Revenue aggregation
   const revenueRows =
     await this.orderModel.aggregate([
       {
         $addFields: {
-          // -------------------------------------------------
-          // NORMALIZED POOL
-          // -------------------------------------------------
-
           normalizedPoolId: {
             $convert: {
               input: '$courseVertical',
@@ -4371,10 +5357,6 @@ async employeePoolRevenueReport(query: any) {
               onNull: null,
             },
           },
-
-          // -------------------------------------------------
-          // NORMALIZED EMPLOYEE
-          // -------------------------------------------------
 
           normalizedEmployeeId: {
             $convert: {
@@ -4385,10 +5367,6 @@ async employeePoolRevenueReport(query: any) {
             },
           },
 
-          // -------------------------------------------------
-          // MONTH
-          // -------------------------------------------------
-
           monthLabel: {
             $concat: [
               {
@@ -4397,9 +5375,7 @@ async employeePoolRevenueReport(query: any) {
                   date: '$orderDate',
                 },
               },
-
               "'",
-
               {
                 $substr: [
                   {
@@ -4414,17 +5390,9 @@ async employeePoolRevenueReport(query: any) {
             ],
           },
 
-          // -------------------------------------------------
-          // CALCULATED REVENUE
-          // -------------------------------------------------
-
           calculatedRevenue: {
             $switch: {
               branches: [
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
-
                 {
                   case: {
                     $eq: [
@@ -4441,10 +5409,6 @@ async employeePoolRevenueReport(query: any) {
                   },
                 },
 
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
                 {
                   case: {
                     $eq: [
@@ -4460,30 +5424,17 @@ async employeePoolRevenueReport(query: any) {
                     ],
                   },
                 },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription revenue calculation
-                // will be added later.
               ],
 
-              // Do NOT use finalFee.
-              // Subscription currently returns 0.
               default: 0,
             },
           },
         },
       },
 
-      // -------------------------------------------------------
-      // MATCH
-      // -------------------------------------------------------
-
       {
         $match: {
+          Approved:true,
           orderDate: {
             $gte: startDate,
             $lte: endDate,
@@ -4510,10 +5461,6 @@ async employeePoolRevenueReport(query: any) {
         },
       },
 
-      // -------------------------------------------------------
-      // GROUP
-      // -------------------------------------------------------
-
       {
         $group: {
           _id: {
@@ -4527,15 +5474,10 @@ async employeePoolRevenueReport(query: any) {
               '$monthLabel',
           },
 
-          // Monthly revenue
           revenue: {
             $sum:
               '$calculatedRevenue',
           },
-
-          // ---------------------------------------------------
-          // INDIVIDUAL ORDERS
-          // ---------------------------------------------------
 
           orders: {
             $push: {
@@ -4577,8 +5519,6 @@ async employeePoolRevenueReport(query: any) {
               finalFee:
                 '$finalFee',
 
-              // This is the actual revenue
-              // counted in this report.
               revenue:
                 '$calculatedRevenue',
 
@@ -4618,20 +5558,11 @@ async employeePoolRevenueReport(query: any) {
         },
       },
 
-      // -------------------------------------------------------
-      // POOL LOOKUP
-      // -------------------------------------------------------
-
       {
         $lookup: {
           from: 'pools',
-
-          localField:
-            '_id.poolId',
-
-          foreignField:
-            '_id',
-
+          localField: '_id.poolId',
+          foreignField: '_id',
           as: 'pool',
         },
       },
@@ -4639,15 +5570,9 @@ async employeePoolRevenueReport(query: any) {
       {
         $unwind: {
           path: '$pool',
-
-          preserveNullAndEmptyArrays:
-            true,
+          preserveNullAndEmptyArrays: true,
         },
       },
-
-      // -------------------------------------------------------
-      // PROJECT
-      // -------------------------------------------------------
 
       {
         $project: {
@@ -4673,10 +5598,6 @@ async employeePoolRevenueReport(query: any) {
         },
       },
 
-      // -------------------------------------------------------
-      // SORT
-      // -------------------------------------------------------
-
       {
         $sort: {
           employeeId: 1,
@@ -4686,10 +5607,7 @@ async employeePoolRevenueReport(query: any) {
       },
     ]);
 
-  // ---------------------------------------------------------
-  // MONTH ORDER
-  // ---------------------------------------------------------
-
+  // Month order
   const monthOrder = [
     'Jan',
     'Feb',
@@ -4729,10 +5647,7 @@ async employeePoolRevenueReport(query: any) {
     return valueA - valueB;
   });
 
-  // ---------------------------------------------------------
-  // EMPLOYEE MAP
-  // ---------------------------------------------------------
-
+  // Employee map
   const employeeMap =
     new Map<string, any>();
 
@@ -4764,10 +5679,7 @@ async employeePoolRevenueReport(query: any) {
     );
   }
 
-  // ---------------------------------------------------------
-  // BUILD REVENUE + ORDERS DATA
-  // ---------------------------------------------------------
-
+  // Build revenue data
   revenueRows.forEach((row) => {
     const employeeId =
       String(
@@ -4778,15 +5690,17 @@ async employeePoolRevenueReport(query: any) {
       return;
     }
 
-    // -------------------------------------------------------
-    // If teamFilter=true, subordinate revenue/order
-    // belongs to the root counsellor.
-    // -------------------------------------------------------
-
+    // team=true => assign subordinate data
+    // to root employee
+    //
+    // team=false => employee owns
+    // only their own data
     const rootId =
-      ownerByUserId.get(
-        employeeId,
-      ) || employeeId;
+      teamFilter
+        ? ownerByUserId.get(
+            employeeId,
+          ) || employeeId
+        : employeeId;
 
     const sourceUser =
       rootUsersById.get(
@@ -4836,14 +5750,8 @@ async employeePoolRevenueReport(query: any) {
 
         revenueByMonth: {},
 
-        // All orders belonging
-        // to this employee + pool
         orders: [],
       };
-
-    // -------------------------------------------------------
-    // MONTHLY REVENUE
-    // -------------------------------------------------------
 
     poolEntry.revenueByMonth[
       row.month
@@ -4853,10 +5761,6 @@ async employeePoolRevenueReport(query: any) {
           row.month
         ] || 0
       ) + row.revenue;
-
-    // -------------------------------------------------------
-    // ADD ORDERS
-    // -------------------------------------------------------
 
     if (
       Array.isArray(row.orders) &&
@@ -4878,10 +5782,7 @@ async employeePoolRevenueReport(query: any) {
     );
   });
 
-  // ---------------------------------------------------------
-  // POOLS
-  // ---------------------------------------------------------
-
+  // Pools
   const pools =
     Array.from(
       new Map(
@@ -4906,10 +5807,7 @@ async employeePoolRevenueReport(query: any) {
       }),
     );
 
-  // ---------------------------------------------------------
-  // FINAL EMPLOYEE RESPONSE
-  // ---------------------------------------------------------
-
+  // Final employee response
   const employees =
     Array.from(
       employeeMap.values(),
@@ -4930,12 +5828,6 @@ async employeePoolRevenueReport(query: any) {
         employeeEmployeeId:
           emp.employeeEmployeeId,
 
-        // ---------------------------------------------------
-        // EVERY EMPLOYEE GETS EVERY POOL
-        // Missing revenue = 0
-        // Missing orders = []
-        // ---------------------------------------------------
-
         pools: pools.map(
           (reportPool) => {
             const existingPool =
@@ -4950,10 +5842,6 @@ async employeePoolRevenueReport(query: any) {
               poolName:
                 reportPool.poolName,
 
-              // ---------------------------------------------
-              // MONTHLY REVENUE
-              // ---------------------------------------------
-
               revenueByMonth:
                 months.map(
                   (month) => ({
@@ -4962,15 +5850,9 @@ async employeePoolRevenueReport(query: any) {
                     revenue:
                       existingPool
                         ?.revenueByMonth
-                        ?.[
-                          month
-                        ] || 0,
+                        ?.[month] || 0,
                   }),
                 ),
-
-              // ---------------------------------------------
-              // ORDERS
-              // ---------------------------------------------
 
               orders:
                 existingPool
@@ -4985,16 +5867,23 @@ async employeePoolRevenueReport(query: any) {
         ),
       );
 
-  // ---------------------------------------------------------
-  // FINAL RESPONSE
-  // ---------------------------------------------------------
-
   return {
     startDate,
     endDate,
     months,
     pools,
     employees,
+
+    filters: {
+      level:
+        levelNumber,
+
+      team:
+        teamFilter,
+
+      counsellorId:
+        selectedCounsellorId,
+    },
   };
 }
 
