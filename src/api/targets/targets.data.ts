@@ -47,13 +47,28 @@ export class TargetsData {
     return this.targetModel.findByIdAndUpdate(id, data, { new: true }).lean();
   }
 
-  upsertByUserAndMonth(userId: string, monthKey: string, data: any) {
-    return this.targetModel.findOneAndUpdate(
-      { userId: new Types.ObjectId(userId), monthKey },
-      { $set: data, $setOnInsert: { userId: new Types.ObjectId(userId), monthKey } },
-      { new: true, upsert: true },
-    ).lean();
-  }
+upsertByUserAndMonth(userId: string, monthKey: string, data: any) {
+  const { userId: _userId, monthKey: _monthKey, ...updateData } = data;
+
+  return this.targetModel.findOneAndUpdate(
+    {
+      userId: new Types.ObjectId(userId),
+      monthKey,
+    },
+    {
+      $set: updateData,
+      $setOnInsert: {
+        userId: new Types.ObjectId(userId),
+        monthKey,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      setDefaultsOnInsert: true,
+    },
+  ).lean();
+}
 
   upsertMany(rows: any[]) {
     return Promise.all(rows.map((row) => this.upsertByUserAndMonth(row.userId, row.monthKey, row)));

@@ -1652,7 +1652,2208 @@ async employeePoolDailyUtilizationReport(query: any) {
     employees,
   };
 }
+async employeePoolDailyUtilizationTeamReport(
+  query: any,
+) {
+  const now = new Date();
 
+  // =========================================================
+  // DATE RANGE
+  // =========================================================
+
+  let startDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    1,
+  );
+
+  let endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+
+  if (query.dateFilter) {
+    const filter =
+      String(
+        query.dateFilter,
+      ).toLowerCase();
+
+    if (filter === 'today') {
+      startDate = new Date(now);
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+  }
+
+  const fromProvided =
+    Boolean(query.fromDate);
+
+  const toProvided =
+    Boolean(query.toDate);
+
+  if (fromProvided) {
+    const from =
+      new Date(
+        query.fromDate,
+      );
+
+    if (
+      !Number.isNaN(
+        from.getTime(),
+      )
+    ) {
+      startDate =
+        new Date(from);
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      if (!toProvided) {
+        endDate =
+          new Date(from);
+
+        endDate.setHours(
+          23,
+          59,
+          59,
+          999,
+        );
+      }
+    }
+  }
+
+  if (toProvided) {
+    const to =
+      new Date(
+        query.toDate,
+      );
+
+    if (
+      !Number.isNaN(
+        to.getTime(),
+      )
+    ) {
+      endDate =
+        new Date(to);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+
+      if (!fromProvided) {
+        startDate =
+          new Date(to);
+
+        startDate.setHours(
+          0,
+          0,
+          0,
+          0,
+        );
+      }
+    }
+  }
+
+  if (startDate > endDate) {
+    const temp =
+      startDate;
+
+    startDate =
+      endDate;
+
+    endDate =
+      temp;
+  }
+
+  // =========================================================
+  // MAX 5 DAYS
+  // =========================================================
+
+  const diffDays =
+    Math.ceil(
+      Math.abs(
+        endDate.getTime() -
+          startDate.getTime(),
+      ) /
+        (
+          1000 *
+          60 *
+          60 *
+          24
+        ),
+    );
+
+  if (diffDays > 5) {
+    throw new BadRequestException(
+      'Maximum 5 days allowed for daily utilization report',
+    );
+  }
+
+  // =========================================================
+  // EMPLOYEE ID
+  // =========================================================
+
+  const employeeId =
+    query.employeeId ||
+    query.counsellorId;
+
+  if (!employeeId) {
+    throw new BadRequestException(
+      'employeeId is required',
+    );
+  }
+
+  if (
+    !Types.ObjectId.isValid(
+      employeeId,
+    )
+  ) {
+    throw new BadRequestException(
+      'Invalid employeeId',
+    );
+  }
+
+  const selectedEmployeeId =
+    String(employeeId);
+
+  const selectedEmployeeObjectId =
+    new Types.ObjectId(
+      selectedEmployeeId,
+    );
+
+  // =========================================================
+  // GET SELECTED EMPLOYEE
+  // =========================================================
+
+  const selectedEmployee =
+    await this.userModel
+      .findOne({
+        _id:
+          selectedEmployeeObjectId,
+
+        status: 'active',
+      })
+      .select(
+        'name email number employeeId role createdAt',
+      )
+      .lean();
+
+  if (!selectedEmployee) {
+    throw new BadRequestException(
+      'Employee not found or inactive',
+    );
+  }
+
+  const rootId =
+    selectedEmployee._id.toString();
+
+  // =========================================================
+  // TEAM FILTER
+  // =========================================================
+
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
+  // =========================================================
+  // GET DIRECT TEAM
+  // =========================================================
+
+  let directTeam: any[] =
+    [];
+
+  if (isTeam) {
+    directTeam =
+      await this.userLogic.getUsersUnder(
+        selectedEmployee,
+      );
+  }
+
+  // =========================================================
+  // IMPORTANT
+  //
+  // ONLY DIRECT TEAM MEMBERS
+  //
+  // NEVER RETURN SELECTED EMPLOYEE
+  // INSIDE employees
+  // =========================================================
+
+  const directTeamMap =
+    new Map<string, any>();
+
+  for (
+    const user of
+    directTeam || []
+  ) {
+    const userId =
+      user?._id?.toString?.() ||
+      user?.id?.toString?.();
+
+    if (!userId) {
+      continue;
+    }
+
+    // Never return parent as child
+    if (
+      userId === rootId
+    ) {
+      continue;
+    }
+
+    directTeamMap.set(
+      userId,
+      {
+        ...user,
+        _id: userId,
+      },
+    );
+  }
+
+  const visibleUsers =
+    Array.from(
+      directTeamMap.values(),
+    );
+
+  console.log(
+    'employeePoolDailyUtilizationTeamReport',
+    {
+      selectedEmployeeId:
+        rootId,
+
+      isTeam,
+
+      directTeamCount:
+        visibleUsers.length,
+
+      directTeamIds:
+        visibleUsers.map(
+          (user: any) =>
+            user._id.toString(),
+        ),
+    },
+  );
+
+  // =========================================================
+  // TEAM MAP
+  //
+  // For every employee we return,
+  // calculate their COMPLETE subtree.
+  //
+  // Response itself still shows ONLY direct children.
+  // =========================================================
+
+  const teamMap =
+    new Map<
+      string,
+      string[]
+    >();
+
+  const teamSizeMap =
+    new Map<
+      string,
+      number
+    >();
+
+  // =========================================================
+  // SELECTED EMPLOYEE / PARENT
+  // =========================================================
+
+  if (isTeam) {
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        rootId,
+      );
+
+    const uniqueSubordinateIds =
+      [
+        ...new Set(
+          subordinateIds.map(
+            (id: any) =>
+              id.toString(),
+          ),
+        ),
+      ].filter(
+        (id) =>
+          id !== rootId,
+      );
+
+    // Descendants only
+    teamSizeMap.set(
+      rootId,
+      uniqueSubordinateIds.length,
+    );
+
+    const allIds = [
+      rootId,
+      ...uniqueSubordinateIds,
+    ];
+
+    const activeUsers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: allIds
+              .filter(
+                (id) =>
+                  Types.ObjectId.isValid(
+                    id,
+                  ),
+              )
+              .map(
+                (id) =>
+                  new Types.ObjectId(
+                    id,
+                  ),
+              ),
+          },
+
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
+
+    const activeIds =
+      activeUsers.map(
+        (user) =>
+          user._id.toString(),
+      );
+
+    if (
+      !activeIds.includes(
+        rootId,
+      )
+    ) {
+      activeIds.push(
+        rootId,
+      );
+    }
+
+    teamMap.set(
+      rootId,
+      [
+        ...new Set(
+          activeIds,
+        ),
+      ],
+    );
+  } else {
+    teamSizeMap.set(
+      rootId,
+      0,
+    );
+
+    teamMap.set(
+      rootId,
+      [rootId],
+    );
+  }
+
+  // =========================================================
+  // DIRECT TEAM SUBTREES
+  // =========================================================
+
+  for (
+    const user of
+    visibleUsers
+  ) {
+    const userId =
+      user._id.toString();
+
+    if (!isTeam) {
+      teamSizeMap.set(
+        userId,
+        0,
+      );
+
+      teamMap.set(
+        userId,
+        [userId],
+      );
+
+      continue;
+    }
+
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        userId,
+      );
+
+    const uniqueSubordinateIds =
+      [
+        ...new Set(
+          subordinateIds.map(
+            (id: any) =>
+              id.toString(),
+          ),
+        ),
+      ].filter(
+        (id) =>
+          id !== userId,
+      );
+
+    // Descendants only
+    teamSizeMap.set(
+      userId,
+      uniqueSubordinateIds.length,
+    );
+
+    const allIds = [
+      userId,
+      ...uniqueSubordinateIds,
+    ];
+
+    const activeUsers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: allIds
+              .filter(
+                (id) =>
+                  Types.ObjectId.isValid(
+                    id,
+                  ),
+              )
+              .map(
+                (id) =>
+                  new Types.ObjectId(
+                    id,
+                  ),
+              ),
+          },
+
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
+
+    const activeIds =
+      activeUsers.map(
+        (member) =>
+          member._id.toString(),
+      );
+
+    // Always include root
+    if (
+      !activeIds.includes(
+        userId,
+      )
+    ) {
+      activeIds.push(
+        userId,
+      );
+    }
+
+    teamMap.set(
+      userId,
+      [
+        ...new Set(
+          activeIds,
+        ),
+      ],
+    );
+  }
+
+  // =========================================================
+  // ALL USERS USED BY DAILY QUERIES
+  // =========================================================
+
+  const allAllowedUserIds = [
+    ...new Set(
+      Array.from(
+        teamMap.values(),
+      )
+        .flat()
+        .filter(
+          (id) =>
+            Types.ObjectId.isValid(
+              id,
+            ),
+        ),
+    ),
+  ];
+
+  console.log(
+    'Daily hierarchy allowed users',
+    {
+      selectedEmployeeId:
+        rootId,
+
+      count:
+        allAllowedUserIds.length,
+
+      allAllowedUserIds,
+    },
+  );
+
+  // =========================================================
+  // ALLOWED MATCH HELPER
+  // =========================================================
+
+  const buildAllowedMatch = (
+    fieldPath: string,
+  ) => ({
+    $expr: {
+      $in: [
+        {
+          $convert: {
+            input:
+              fieldPath,
+
+            to: 'string',
+
+            onError: null,
+
+            onNull: null,
+          },
+        },
+
+        allAllowedUserIds,
+      ],
+    },
+  });
+
+  // =========================================================
+  // DATES
+  // =========================================================
+
+  const dates: Date[] =
+    [];
+
+  for (
+    let d =
+      new Date(startDate);
+    d <= endDate;
+    d.setDate(
+      d.getDate() + 1,
+    )
+  ) {
+    dates.push(
+      new Date(d),
+    );
+  }
+
+  const dateStrings =
+    dates.map(
+      (date) =>
+        this.formatLocalDate(
+          date,
+        ),
+    ).reverse();
+
+  // =========================================================
+  // DAILY METRICS
+  // =========================================================
+
+  const dailyMetrics =
+    new Map<
+      string,
+      any
+    >();
+
+  // =========================================================
+  // FETCH DATA DAY BY DAY
+  // =========================================================
+
+  for (
+    const date of dates
+  ) {
+    const dayStart =
+      new Date(date);
+
+    dayStart.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    const dayEnd =
+      new Date(date);
+
+    dayEnd.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    const dateStr =
+      this.formatLocalDate(
+        date,
+      );
+
+    // =======================================================
+    // CALLS
+    // =======================================================
+
+    const calls =
+      await this.callLogModel.aggregate([
+        {
+          $match: {
+            createdAt: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            ...buildAllowedMatch(
+              '$userId',
+            ),
+          },
+        },
+
+        {
+          $group: {
+            _id: {
+              $convert: {
+                input:
+                  '$userId',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+
+            dial: {
+              $sum: 1,
+            },
+
+            answered: {
+              $sum: {
+                $cond: [
+                  {
+                    $gt: [
+                      '$duration',
+                      0,
+                    ],
+                  },
+
+                  1,
+
+                  0,
+                ],
+              },
+            },
+
+            talkTime: {
+              $sum: {
+                $cond: [
+                  {
+                    $gt: [
+                      '$duration',
+                      0,
+                    ],
+                  },
+
+                  '$duration',
+
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]);
+
+    calls.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.dial =
+          item.dial || 0;
+
+        existing.answered =
+          item.answered || 0;
+
+        existing.talkTime =
+          item.talkTime || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+
+    // =======================================================
+    // LEADS
+    // =======================================================
+
+    const leads =
+      await this.leadModel.aggregate([
+        {
+          $addFields: {
+            normalizedAssignedTo: {
+              $convert: {
+                input:
+                  '$assignedTo',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            assignedDate: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            normalizedAssignedTo: {
+              $in:
+                allAllowedUserIds,
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedAssignedTo',
+
+            lead: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    leads.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.lead =
+          item.lead || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+
+    // =======================================================
+    // PCAT SCHEDULED
+    // =======================================================
+
+    const pcatScheduled =
+      await this.leadModel.aggregate([
+        {
+          $addFields: {
+            normalizedAssignedTo: {
+              $convert: {
+                input:
+                  '$assignedTo',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            pcatScheduledDate: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            normalizedAssignedTo: {
+              $in:
+                allAllowedUserIds,
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedAssignedTo',
+
+            pcatScheduled: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    pcatScheduled.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.pcatScheduled =
+          item.pcatScheduled || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+
+    // =======================================================
+    // PCAT DONE
+    // =======================================================
+
+    const pcatDone =
+      await this.leadModel.aggregate([
+        {
+          $addFields: {
+            normalizedAssignedTo: {
+              $convert: {
+                input:
+                  '$assignedTo',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            pcatDoneDate: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            normalizedAssignedTo: {
+              $in:
+                allAllowedUserIds,
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedAssignedTo',
+
+            pcatDone: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    pcatDone.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.pcatDone =
+          item.pcatDone || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+
+    // =======================================================
+    // REGISTRATION
+    // =======================================================
+
+    const registrations =
+      await this.orderModel.aggregate([
+        {
+          $addFields: {
+            normalizedCounsellorId: {
+              $convert: {
+                input:
+                  '$counsellorId',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            orderDate: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            registrationAmount: {
+              $gt: 0,
+            },
+
+            normalizedCounsellorId: {
+              $in:
+                allAllowedUserIds,
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedCounsellorId',
+
+            registrationDone: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    registrations.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.registrationDone =
+          item.registrationDone || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+
+    // =======================================================
+    // ADMISSION
+    // =======================================================
+
+    const admissions =
+      await this.orderModel.aggregate([
+        {
+          $addFields: {
+            normalizedCounsellorId: {
+              $convert: {
+                input:
+                  '$counsellorId',
+
+                to: 'string',
+
+                onError: null,
+
+                onNull: null,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            orderDate: {
+              $gte:
+                dayStart,
+
+              $lte:
+                dayEnd,
+            },
+
+            Approved: true,
+
+            normalizedCounsellorId: {
+              $in:
+                allAllowedUserIds,
+            },
+          },
+        },
+
+        {
+          $group: {
+            _id:
+              '$normalizedCounsellorId',
+
+            admissionDone: {
+              $sum: 1,
+            },
+          },
+        },
+      ]);
+
+    admissions.forEach(
+      (item) => {
+        if (!item._id) {
+          return;
+        }
+
+        const employeeId =
+          item._id.toString();
+
+        const key =
+          `${dateStr}_${employeeId}`;
+
+        const existing =
+          dailyMetrics.get(
+            key,
+          ) || {};
+
+        existing.admissionDone =
+          item.admissionDone || 0;
+
+        dailyMetrics.set(
+          key,
+          existing,
+        );
+      },
+    );
+  }
+
+  // =========================================================
+  // GET ROLES FOR DIRECT TEAM + PARENT
+  // =========================================================
+
+  const allUsersForRoles = [
+    {
+      ...selectedEmployee,
+      _id: rootId,
+    },
+    ...visibleUsers,
+  ];
+
+  const roleIds = [
+    ...new Set(
+      allUsersForRoles
+        .map(
+          (user: any) => {
+            if (!user?.role) {
+              return null;
+            }
+
+            if (
+              typeof user.role ===
+                'object' &&
+              user.role._id
+            ) {
+              return user.role._id.toString();
+            }
+
+            return user.role.toString();
+          },
+        )
+        .filter(
+          (id: any) =>
+            id &&
+            Types.ObjectId.isValid(
+              id,
+            ),
+        ),
+    ),
+  ];
+
+  const roles =
+    roleIds.length
+      ? await this.roleModel
+          .find({
+            _id: {
+              $in:
+                roleIds.map(
+                  (id) =>
+                    new Types.ObjectId(
+                      id,
+                    ),
+                ),
+            },
+          })
+          .select('name')
+          .lean()
+      : [];
+
+  const rolesById =
+    new Map(
+      roles.map(
+        (role: any) => [
+          role._id.toString(),
+          role.name,
+        ],
+      ),
+    );
+
+  // =========================================================
+  // VINTAGE
+  // =========================================================
+
+  const calculateVintage = (
+    createdAt?: Date,
+  ) => {
+    if (!createdAt) {
+      return null;
+    }
+
+    const created =
+      new Date(
+        createdAt,
+      );
+
+    if (
+      Number.isNaN(
+        created.getTime(),
+      )
+    ) {
+      return null;
+    }
+
+    const diff =
+      now.getTime() -
+      created.getTime();
+
+    const days =
+      Math.floor(
+        diff /
+          (
+            1000 *
+            60 *
+            60 *
+            24
+          ),
+      );
+
+    if (days < 0) {
+      return '0D';
+    }
+
+    if (days >= 365) {
+      const years =
+        Math.floor(
+          days / 365,
+        );
+
+      const remainingDays =
+        days % 365;
+
+      return remainingDays === 0
+        ? `${years}Y`
+        : `${years}Y ${remainingDays}D`;
+    }
+
+    return `${days}D`;
+  };
+
+  // =========================================================
+  // DESIGNATION
+  // =========================================================
+
+  const getDesignation = (
+    user: any,
+  ) => {
+    if (!user?.role) {
+      return null;
+    }
+
+    if (
+      typeof user.role ===
+        'object' &&
+      user.role._id
+    ) {
+      return (
+        user.role.name ||
+        rolesById.get(
+          user.role._id.toString(),
+        ) ||
+        null
+      );
+    }
+
+    const roleId =
+      user.role.toString();
+
+    return (
+      rolesById.get(
+        roleId,
+      ) || null
+    );
+  };
+
+  // =========================================================
+  // BUILD ONE EMPLOYEE'S DAILY METRICS
+  //
+  // Metrics use the COMPLETE subtree.
+  // =========================================================
+
+  const buildEmployee =
+    (user: any) => {
+      const userId =
+        user._id.toString();
+
+      const memberIds =
+        teamMap.get(
+          userId,
+        ) || [userId];
+
+      const metrics =
+        dateStrings.map(
+          (dateStr) => {
+            const combined = {
+              date: dateStr,
+
+              dial: 0,
+
+              answered: 0,
+
+              talkTime: 0,
+
+              lead: 0,
+
+              pcatScheduled: 0,
+
+              pcatDone: 0,
+
+              registrationDone: 0,
+
+              admissionDone: 0,
+            };
+
+            memberIds.forEach(
+              (memberId) => {
+                const key =
+                  `${dateStr}_${memberId}`;
+
+                const metric =
+                  dailyMetrics.get(
+                    key,
+                  ) || {};
+
+                combined.dial +=
+                  metric.dial || 0;
+
+                combined.answered +=
+                  metric.answered ||
+                  0;
+
+                combined.talkTime +=
+                  metric.talkTime ||
+                  0;
+
+                combined.lead +=
+                  metric.lead || 0;
+
+                combined.pcatScheduled +=
+                  metric.pcatScheduled ||
+                  0;
+
+                combined.pcatDone +=
+                  metric.pcatDone ||
+                  0;
+
+                combined.registrationDone +=
+                  metric.registrationDone ||
+                  0;
+
+                combined.admissionDone +=
+                  metric.admissionDone ||
+                  0;
+              },
+            );
+
+            return combined;
+          },
+        );
+
+      return {
+        employeeId:
+          userId,
+
+        employeeName:
+          user.name ||
+          'Unknown',
+
+        employeeEmail:
+          user.email ||
+          null,
+
+        employeeNumber:
+          user.number ||
+          null,
+
+        employeeEmployeeId:
+          user.employeeId ||
+          null,
+
+        designation:
+          getDesignation(
+            user,
+          ),
+
+        vintage:
+          calculateVintage(
+            user.createdAt,
+          ),
+
+        team:
+          isTeam,
+
+        // Descendants only
+        teamSize:
+          teamSizeMap.get(
+            userId,
+          ) || 0,
+
+        hasTeam:
+          (
+            teamSizeMap.get(
+              userId,
+            ) || 0
+          ) > 0,
+
+        dailyMetrics:
+          metrics,
+      };
+    };
+
+  // =========================================================
+  // PARENT EMPLOYEE
+  // =========================================================
+
+  const parentEmployee =
+    buildEmployee({
+      ...selectedEmployee,
+      _id: rootId,
+    });
+
+  // =========================================================
+  // DIRECT TEAM ONLY
+  //
+  // Parent is NEVER returned here.
+  // =========================================================
+
+  const employees =
+    visibleUsers
+      .filter(
+        (user: any) =>
+          user._id.toString() !==
+          rootId,
+      )
+      .map(
+        (user: any) =>
+          buildEmployee(
+            user,
+          ),
+      )
+      .sort(
+        (a, b) =>
+          (
+            a.employeeName ||
+            ''
+          ).localeCompare(
+            b.employeeName ||
+              '',
+          ),
+      );
+
+  // =========================================================
+  // RESPONSE
+  // =========================================================
+
+  return {
+    startDate,
+
+    endDate,
+
+    dateStrings,
+
+    team:
+      isTeam,
+
+    employeeId:
+      rootId,
+
+    parentEmployee,
+
+    employees,
+  };
+}
+
+async employeePoolDailyUtilizationCalls(
+  query: any,
+) {
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const page = Math.max(
+    1,
+    Number(query.page) || 1,
+  );
+
+  const limit = Math.min(
+    100,
+    Math.max(
+      1,
+      Number(query.limit) || 20,
+    ),
+  );
+
+  const skip =
+    (page - 1) * limit;
+
+  // =========================================================
+  // EMPLOYEE ID
+  // =========================================================
+
+  const employeeId =
+    query.employeeId ||
+    query.counsellorId;
+
+  if (!employeeId) {
+    throw new BadRequestException(
+      'employeeId is required',
+    );
+  }
+
+  if (
+    !Types.ObjectId.isValid(
+      String(employeeId),
+    )
+  ) {
+    throw new BadRequestException(
+      'Invalid employeeId',
+    );
+  }
+
+  const selectedEmployeeId =
+    String(employeeId);
+
+  const selectedEmployeeObjectId =
+    new Types.ObjectId(
+      selectedEmployeeId,
+    );
+
+  // =========================================================
+  // EXACT DATE
+  // =========================================================
+
+  const date =
+    query.date ||
+    query.fromDate;
+
+  if (!date) {
+    throw new BadRequestException(
+      'date is required. Example: 2026-09-05',
+    );
+  }
+
+  const parsedDate =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsedDate.getTime(),
+    )
+  ) {
+    throw new BadRequestException(
+      'Invalid date. Expected format: YYYY-MM-DD',
+    );
+  }
+
+  const startDate =
+    new Date(parsedDate);
+
+  startDate.setHours(
+    0,
+    0,
+    0,
+    0,
+  );
+
+  const endDate =
+    new Date(parsedDate);
+
+  endDate.setHours(
+    23,
+    59,
+    59,
+    999,
+  );
+
+  // =========================================================
+  // GET SELECTED EMPLOYEE
+  // =========================================================
+
+  const selectedEmployee =
+    await this.userModel
+      .findOne({
+        _id:
+          selectedEmployeeObjectId,
+
+        status: 'active',
+      })
+      .select(
+        'name email number employeeId role createdAt',
+      )
+      .lean();
+
+  if (!selectedEmployee) {
+    throw new BadRequestException(
+      'Employee not found or inactive',
+    );
+  }
+
+  // =========================================================
+  // TEAM FILTER
+  // =========================================================
+
+  const teamFilter =
+    query.team === true ||
+    query.team === 'true';
+
+  // =========================================================
+  // BUILD USER SCOPE
+  //
+  // team=false
+  //   => selected employee only
+  //
+  // team=true
+  //   => selected employee + complete subtree
+  // =========================================================
+
+  let allowedUserIds: string[] =
+    [selectedEmployeeId];
+
+  if (teamFilter) {
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        selectedEmployeeId,
+      );
+
+    const allIds = [
+      selectedEmployeeId,
+
+      ...(subordinateIds || []).map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ];
+
+    const uniqueIds = [
+      ...new Set(allIds),
+    ];
+
+    // Only active users
+    const activeUsers =
+      await this.userModel
+        .find({
+          _id: {
+            $in: uniqueIds
+              .filter(
+                (id) =>
+                  Types.ObjectId.isValid(
+                    id,
+                  ),
+              )
+              .map(
+                (id) =>
+                  new Types.ObjectId(
+                    id,
+                  ),
+              ),
+          },
+
+          status: 'active',
+        })
+        .select('_id')
+        .lean();
+
+    allowedUserIds =
+      activeUsers.map(
+        (user) =>
+          user._id.toString(),
+      );
+
+    // Always keep selected employee
+    if (
+      !allowedUserIds.includes(
+        selectedEmployeeId,
+      )
+    ) {
+      allowedUserIds.push(
+        selectedEmployeeId,
+      );
+    }
+  }
+
+  allowedUserIds = [
+    ...new Set(
+      allowedUserIds.filter(
+        (id) =>
+          Types.ObjectId.isValid(
+            id,
+          ),
+      ),
+    ),
+  ];
+
+  console.log(
+    'employeePoolDailyUtilizationCalls',
+    {
+      selectedEmployeeId,
+      date,
+      startDate,
+      endDate,
+      teamFilter,
+      allowedUserCount:
+        allowedUserIds.length,
+      page,
+      limit,
+    },
+  );
+
+  // =========================================================
+  // ANSWERED FILTER
+  //
+  // answered=true
+  //   => duration > 0
+  //
+  // answered=false
+  //   => duration <= 0 OR missing duration
+  //
+  // no answered filter
+  //   => all calls
+  // =========================================================
+
+  const hasAnsweredFilter =
+    query.answered !==
+      undefined &&
+    query.answered !== null &&
+    query.answered !== '';
+
+  let answeredFilter:
+    | any[]
+    | null = null;
+
+  if (hasAnsweredFilter) {
+    const answered =
+      String(
+        query.answered,
+      ).toLowerCase();
+
+    if (
+      answered === 'true' ||
+      answered === '1'
+    ) {
+      answeredFilter = [
+        {
+          $expr: {
+            $gt: [
+              {
+                $convert: {
+                  input:
+                    '$duration',
+
+                  to: 'double',
+
+                  onError: 0,
+
+                  onNull: 0,
+                },
+              },
+
+              0,
+            ],
+          },
+        },
+      ];
+    } else if (
+      answered === 'false' ||
+      answered === '0'
+    ) {
+      answeredFilter = [
+        {
+          $expr: {
+            $lte: [
+              {
+                $convert: {
+                  input:
+                    '$duration',
+
+                  to: 'double',
+
+                  onError: 0,
+
+                  onNull: 0,
+                },
+              },
+
+              0,
+            ],
+          },
+        },
+      ];
+    } else {
+      throw new BadRequestException(
+        'answered must be true or false',
+      );
+    }
+  }
+
+  // =========================================================
+  // SEARCH
+  //
+  // Search customer number if supplied.
+  // =========================================================
+
+  const search =
+    query.search
+      ? String(
+          query.search,
+        ).trim()
+      : null;
+
+  const searchMatch =
+    search
+      ? [
+          {
+            $or: [
+              {
+                customerNumber: {
+                  $regex: search,
+                  $options: 'i',
+                },
+              },
+
+              {
+                phoneNumber: {
+                  $regex: search,
+                  $options: 'i',
+                },
+              },
+
+              {
+                mobile: {
+                  $regex: search,
+                  $options: 'i',
+                },
+              },
+            ],
+          },
+        ]
+      : [];
+
+  // =========================================================
+  // BASE MATCH
+  // =========================================================
+
+  const baseMatch: any = {
+    createdAt: {
+      $gte: startDate,
+
+      $lte: endDate,
+    },
+  };
+
+  // =========================================================
+  // AGGREGATION
+  //
+  // Normalize userId because existing data may contain
+  // ObjectId/string values.
+  // =========================================================
+
+  const pipeline: any[] = [
+    {
+      $addFields: {
+        normalizedUserId: {
+          $convert: {
+            input:
+              '$userId',
+
+            to: 'string',
+
+            onError: null,
+
+            onNull: null,
+          },
+        },
+
+        normalizedDuration: {
+          $convert: {
+            input:
+              '$duration',
+
+            to: 'double',
+
+            onError: 0,
+
+            onNull: 0,
+          },
+        },
+      },
+    },
+
+    {
+      $match: {
+        ...baseMatch,
+
+        normalizedUserId: {
+          $in:
+            allowedUserIds,
+        },
+      },
+    },
+
+    ...searchMatch,
+
+    ...(answeredFilter || []),
+  ];
+
+  // =========================================================
+  // TOTAL COUNT
+  // =========================================================
+
+  const countPipeline = [
+    ...pipeline,
+
+    {
+      $count: 'total',
+    },
+  ];
+
+  const countResult =
+    await this.callLogModel.aggregate(
+      countPipeline,
+    );
+
+  const total =
+    countResult.length
+      ? Number(
+          countResult[0].total || 0,
+        )
+      : 0;
+
+  // =========================================================
+  // CALL RECORDS
+  // =========================================================
+
+  const calls =
+    await this.callLogModel.aggregate([
+      ...pipeline,
+
+      {
+        $sort: {
+          createdAt: -1,
+          _id: -1,
+        },
+      },
+
+      {
+        $skip: skip,
+      },
+
+      {
+        $limit: limit,
+      },
+
+      // =====================================================
+      // EMPLOYEE LOOKUP
+      // =====================================================
+
+      {
+        $lookup: {
+          from: 'users',
+
+          let: {
+            callUserId:
+              '$normalizedUserId',
+          },
+
+          pipeline: [
+            {
+              $addFields: {
+                normalizedId: {
+                  $convert: {
+                    input:
+                      '$_id',
+
+                    to: 'string',
+
+                    onError:
+                      null,
+
+                    onNull:
+                      null,
+                  },
+                },
+              },
+            },
+
+            {
+              $match: {
+                $expr: {
+                  $eq: [
+                    '$normalizedId',
+
+                    '$$callUserId',
+                  ],
+                },
+              },
+            },
+
+            {
+              $project: {
+                _id: 1,
+
+                name: 1,
+
+                email: 1,
+
+                employeeId: 1,
+              },
+            },
+          ],
+
+          as: 'employee',
+        },
+      },
+
+      {
+        $unwind: {
+          path: '$employee',
+
+          preserveNullAndEmptyArrays:
+            true,
+        },
+      },
+
+      // =====================================================
+      // FINAL RESPONSE FIELDS
+      // =====================================================
+
+      {
+        $project: {
+          _id: 1,
+
+          callId: '$_id',
+
+          userId:
+            '$normalizedUserId',
+
+          employeeName:
+            '$employee.name',
+
+          employeeEmail:
+            '$employee.email',
+
+          employeeId:
+            '$employee.employeeId',
+
+          customerNumber: 1,
+
+          duration:
+            '$normalizedDuration',
+
+          createdAt: 1,
+
+          answered: {
+            $gt: [
+              '$normalizedDuration',
+              0,
+            ],
+          },
+
+          callStatus: {
+            $cond: [
+              {
+                $gt: [
+                  '$normalizedDuration',
+                  0,
+                ],
+              },
+
+              'answered',
+
+              'not_answered',
+            ],
+          },
+
+          // Keep commonly useful fields
+          // if they exist in your CallLog document.
+          direction: 1,
+
+          status: 1,
+
+          type: 1,
+
+          recordingUrl: 1,
+        },
+      },
+    ]);
+
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const totalPages =
+    Math.ceil(
+      total / limit,
+    );
+
+  return {
+    date:
+      this.formatLocalDate(
+        parsedDate,
+      ),
+
+    startDate,
+
+    endDate,
+
+    employeeId:
+      selectedEmployeeId,
+
+    employeeName:
+      selectedEmployee.name ||
+      'Unknown',
+
+    team:
+      teamFilter,
+
+    answered:
+      hasAnsweredFilter
+        ? String(
+            query.answered,
+          ).toLowerCase()
+        : null,
+
+    search:
+      search || null,
+
+    page,
+
+    limit,
+
+    total,
+
+    totalPages,
+
+    hasNextPage:
+      page < totalPages,
+
+    hasPreviousPage:
+      page > 1,
+
+    calls,
+  };
+}
 //   async getWithReviews(filters: any, userId?: string) {
 //   const result = await this.callLogData.findWithPagination(
 //     filters,

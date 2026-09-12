@@ -110,6 +110,43 @@ async getreviewbycallId(
     return this.logic.employeePoolDailyUtilizationReport(query);
   }
 
+  @Get('report/employee-pool-daily-utilization/team')
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Calls.MODULE,
+  PERMISSIONS.Calls.ACTIONS.READ,
+)
+@ApiOperation({
+  summary:
+    'Get daily employee utilization hierarchy with direct team members',
+})
+employeePoolDailyUtilizationTeamReport(
+  @Query() query: any,
+) {
+  return this.logic.employeePoolDailyUtilizationTeamReport(
+    query,
+  );
+}
+@Get('report/employee-pool-daily-utilization/calls')
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Calls.MODULE,
+  PERMISSIONS.Calls.ACTIONS.READ,
+)
+@ApiOperation({
+  summary:
+    'Get paginated call records for an employee on an exact date',
+})
+employeePoolDailyUtilizationCalls(
+  @Query() query: any,
+) {
+  return this.logic.employeePoolDailyUtilizationCalls(
+    query,
+  );
+}
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete call log' })
   delete(

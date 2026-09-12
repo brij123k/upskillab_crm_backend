@@ -97,16 +97,31 @@ export class OrderController {
         return this.service.paymentReport();
     }
 
-    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-    @Roles('Admin', 'bd')
-    @RequirePermission(
-        PERMISSIONS.Orders.MODULE,
-        PERMISSIONS.Orders.ACTIONS.READ,
-    )
-    @Get('report/consultant-performance')
-    consultantPerformanceReport(@Query() query: any) {
-        return this.service.consultantPerformanceReport(query);
-    }
+   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+    PERMISSIONS.Orders.MODULE,
+    PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/consultant-performance')
+consultantPerformanceReport(@Query() query: any) {
+    return this.service.consultantPerformanceReport(query);
+}
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+    PERMISSIONS.Orders.MODULE,
+    PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/consultant-performance/team')
+@ApiOperation({
+    summary:
+        'Get consultant performance hierarchy with direct team members',
+})
+consultantPerformanceTeamReport(@Query() query: any) {
+    return this.service.consultantPerformanceTeamReport(query);
+}
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('Admin', 'bd')
@@ -130,6 +145,21 @@ consultantPerformanceDetails(@Query() query: any) {
     employeePoolUtilizationReport(@Query() query: any) {
         return this.service.employeePoolUtilizationReport(query);
     }
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@ApiOperation({
+  summary:
+    'Get employee utilization hierarchy with direct team members',
+})
+@Get('report/employee-pool-utilization/team')
+employeePoolUtilizationTeamReport(@Query() query: any) {
+  return this.service.employeePoolUtilizationTeamReport(query);
+}
 
     @Get('report/employee-stage-leads')
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
@@ -173,16 +203,33 @@ consultantPerformanceDetails(@Query() query: any) {
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-    @Roles('Admin', 'bd')
-    @RequirePermission(
-        PERMISSIONS.Orders.MODULE,
-        PERMISSIONS.Orders.ACTIONS.READ,
-    )
-    @Get('report/employee-pool-revenue')
-    @ApiOperation({ summary: 'Get employee pool revenue report grouped by month' })
-    employeePoolRevenueReport(@Query() query: any) {
-        return this.service.employeePoolRevenueReport(query);
-    }
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/employee-pool-revenue')
+@ApiOperation({
+  summary: 'Get employee pool revenue report grouped by month',
+})
+employeePoolRevenueReport(@Query() query: any) {
+  return this.service.employeePoolRevenueReport(query);
+}
+
+
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/employee-pool-revenue/team')
+@ApiOperation({
+  summary: 'Get direct team employee pool revenue report',
+})
+employeePoolRevenueTeamReport(@Query() query: any) {
+  return this.service.employeePoolRevenueTeamReport(query);
+}
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')

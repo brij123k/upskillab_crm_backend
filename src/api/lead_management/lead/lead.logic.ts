@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, InternalServerErrorException, ForbiddenException } from '@nestjs/common';
 import axios from 'axios';
 import { LeadData } from './lead.data';
 import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
@@ -22,7 +22,7 @@ import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
 import { MaskSetting } from 'src/schema/mask.schema';
 import { LeadStageHistoryService } from '../LeadStageHistory/LeadStageHistory.service';
-import { Order } from 'src/schema/order_Management/order.schema';
+import { Order, PaymentMode } from 'src/schema/order_Management/order.schema';
 
 @Injectable()
 export class LeadLogic {
@@ -92,7 +92,23 @@ export class LeadLogic {
 
     return `${localPart[0]}${'*'.repeat(localPart.length - 2)}${localPart[localPart.length - 1]}@${domain}`;
   }
+  private async getUserAndSubordinateIds(userId: string): Promise<string[]> {
+    try {
+      const users = await this.userLogic.getUsersUnder({
+        userId,
+        roleName: 'user',
+      });
 
+      const ids = users
+        .map((user: any) => user?._id?.toString?.())
+        .filter(Boolean);
+
+      ids.push(userId);
+      return [...new Set(ids)];
+    } catch {
+      return [userId];
+    }
+  }
   private maskLeadPayload(
   payload: any,
   settings: {
@@ -1592,6 +1608,1118 @@ async allEmployeesStagesReport(query: any, user: any) {
   };
 }
 
+async employeeTeamStagesReport(
+employeeId: string,
+query: any,
+user: any,
+) {
+const match: any = {};
+
+if (query.assignedDate) {
+const singleDate = new Date(query.assignedDate);
+
+if (!Number.isNaN(singleDate.getTime())) {
+  const startDate = new Date(singleDate);
+  const endDate = new Date(singleDate);
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  match.assignedDate = {
+    $gte: startDate,
+    $lte: endDate,
+  };
+}
+
+} else if (query.assignedDateFilter) {
+const now = new Date();
+
+let startDate: Date | null = null;
+let endDate: Date | null = null;
+
+const dateFilter = query.assignedDateFilter
+  .toString()
+  .toLowerCase();
+
+if (dateFilter === 'today') {
+  startDate = new Date(now);
+  startDate.setHours(0, 0, 0, 0);
+
+  endDate = new Date(now);
+  endDate.setHours(23, 59, 59, 999);
+} else if (dateFilter === 'week') {
+  startDate = new Date(now);
+  startDate.setDate(startDate.getDate() - 6);
+  startDate.setHours(0, 0, 0, 0);
+
+  endDate = new Date(now);
+  endDate.setHours(23, 59, 59, 999);
+} else if (dateFilter === 'month') {
+  startDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    1,
+  );
+
+  endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+} else if (dateFilter === 'year') {
+  startDate = new Date(
+    now.getFullYear(),
+    0,
+    1,
+  );
+
+  endDate = new Date(
+    now.getFullYear(),
+    11,
+    31,
+    23,
+    59,
+    59,
+    999,
+  );
+}
+
+if (startDate && endDate) {
+  match.assignedDate = {
+    $gte: startDate,
+    $lte: endDate,
+  };
+}
+
+} else if (
+query.assignedDateFrom &&
+query.assignedDateTo
+) {
+const from = new Date(query.assignedDateFrom);
+const to = new Date(query.assignedDateTo);
+
+if (
+  !Number.isNaN(from.getTime()) &&
+  !Number.isNaN(to.getTime())
+) {
+  const startDate = new Date(from);
+  const endDate = new Date(to);
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+
+  match.assignedDate = {
+    $gte: startDate,
+    $lte: endDate,
+  };
+}
+
+}
+
+const selectedEmployee =
+await this.userModel
+.findById(employeeId)
+.select(
+'_id name email number employeeId level roleLevel role status',
+)
+.lean();
+
+if (!selectedEmployee) {
+return {
+employee: null,
+totalDirectEmployees: 0,
+employees: [],
+};
+}
+
+const currentUserId =
+user.userId?.toString();
+
+const currentUser =
+await this.userModel
+.findById(currentUserId)
+.lean();
+
+if (!currentUser) {
+return {
+employee: null,
+totalDirectEmployees: 0,
+employees: [],
+};
+}
+
+
+const isAdmin =
+user.isSuperAdmin ||
+user.role === 'Admin';
+
+if (!isAdmin) {
+const currentUserUnderUsers =
+await this.userLogic.getUsersUnder(
+currentUser,
+);
+
+const accessibleUserIds = new Set(
+  [
+    currentUserId,
+    ...currentUserUnderUsers.map(
+      (u: any) =>
+        u._id.toString(),
+    ),
+  ],
+);
+
+if (
+  !accessibleUserIds.has(
+    employeeId.toString(),
+  )
+) {
+  return {
+    employee: null,
+    totalDirectEmployees: 0,
+    employees: [],
+  };
+}
+}
+const directMembers =
+await this.userLogic.getUsersUnder(
+selectedEmployee,
+);
+
+const directMemberMap =
+new Map<string, any>();
+
+directMembers.forEach((member: any) => {
+const memberId =
+member._id?.toString();
+
+if (
+  memberId &&
+  memberId !== employeeId.toString()
+) {
+  directMemberMap.set(
+    memberId,
+    member,
+  );
+}
+
+});
+
+const uniqueDirectMembers =
+Array.from(
+directMemberMap.values(),
+);
+
+const directMemberIds =
+uniqueDirectMembers.map((member: any) =>
+member._id.toString(),
+);
+
+const allRequiredIds = [
+employeeId.toString(),
+...directMemberIds,
+];
+
+const employeeLeadResults =
+await this.leadModel.aggregate([
+{
+$match: {
+...match,
+assignedTo: {
+$in: allRequiredIds,
+},
+},
+},
+{
+$addFields: {
+assignedUserId: {
+$cond: [
+{
+$ifNull: [
+'$assignedTo',
+false,
+],
+},
+{
+$toString:
+'$assignedTo',
+},
+null,
+],
+},
+},
+},
+{
+$lookup: {
+from: 'leadstages',
+localField: 'stageId',
+foreignField: '_id',
+as: 'stage',
+},
+},
+{
+$unwind: {
+path: '$stage',
+preserveNullAndEmptyArrays: true,
+},
+},
+{
+$group: {
+_id: {
+assignedUserId:
+'$assignedUserId',
+
+        stageName: {
+          $ifNull: [
+            '$stage.name',
+            'Unknown',
+          ],
+        },
+      },
+
+      count: {
+        $sum: 1,
+      },
+    },
+  },
+]);
+
+/*
+
+==========================================
+CREATE USER -> STAGE MAP
+==========================================
+*/
+
+const userStageMap =
+new Map<
+string,
+Map<string, number>
+>();
+
+employeeLeadResults.forEach(
+(item: any) => {
+const userId =
+item._id.assignedUserId;
+
+  if (!userId) {
+    return;
+  }
+
+  if (
+    !userStageMap.has(userId)
+  ) {
+    userStageMap.set(
+      userId,
+      new Map<string, number>(),
+    );
+  }
+
+  userStageMap
+    .get(userId)!
+    .set(
+      item._id.stageName,
+      item.count,
+    );
+},
+
+);
+
+/*
+
+==========================================
+HELPER:
+BUILD OWN LEAD REPORT
+
+
+Only own leads.
+Team leads are NOT added.
+==========================================
+*/
+
+const buildOwnLeadReport = (
+employee: any,
+) => {
+const id =
+employee._id.toString();
+
+const stageMap =
+  userStageMap.get(id);
+
+let totalLead = 0;
+
+const stages = stageMap
+  ? Array.from(
+      stageMap.entries(),
+    )
+      .map(
+        ([leadStage, count]) => {
+          totalLead += count;
+
+          return {
+            leadStage,
+            count,
+          };
+        },
+      )
+      .sort((a, b) =>
+        a.leadStage.localeCompare(
+          b.leadStage,
+        ),
+      )
+  : [];
+
+return {
+  employeeId: id,
+
+  employeeName:
+    employee.name || 'Unknown',
+
+  employeeEmail:
+    employee.email || null,
+
+  employeeNumber:
+    employee.number || null,
+
+  employeeEmployeeId:
+    employee.employeeId || null,
+
+  employeeLevel:
+    employee.level ??
+    employee.roleLevel ??
+    null,
+
+  totalLead,
+
+  stages,
+};
+
+};
+
+/*
+
+==========================================
+SELECTED EMPLOYEE OWN REPORT
+==========================================
+*/
+
+const employeeReport =
+buildOwnLeadReport(
+selectedEmployee,
+);
+
+/*
+
+==========================================
+BUILD DIRECT MEMBERS REPORT
+
+
+Each member returns:
+
+
+own lead data
+
+
+teamSize
+
+
+hasTeam
+
+
+Nested employees are NOT returned.
+==========================================
+*/
+
+const employees =
+await Promise.all(
+uniqueDirectMembers.map(
+async (member: any) => {
+const memberReport =
+buildOwnLeadReport(member);
+
+      /*
+       * Get all users below this member
+       * only for counting team size.
+       */
+
+      const memberUnderUsers =
+        await this.userLogic.getUsersUnder(
+          member,
+        );
+
+      const uniqueUnderUserIds =
+        new Set(
+          memberUnderUsers
+            .map((u: any) =>
+              u._id?.toString(),
+            )
+            .filter(Boolean)
+            .filter(
+              (id: string) =>
+                id !==
+                member._id.toString(),
+            ),
+        );
+
+      return {
+        ...memberReport,
+
+        teamSize:
+          uniqueUnderUserIds.size,
+
+        hasTeam:
+          uniqueUnderUserIds.size > 0,
+      };
+    },
+  ),
+);
+
+/*
+
+==========================================
+SORT MEMBERS
+==========================================
+*/
+
+employees.sort(
+(a: any, b: any) =>
+b.totalLead - a.totalLead,
+);
+
+/*
+
+==========================================
+RESPONSE
+==========================================
+*/
+
+return {
+employee: {
+...employeeReport,
+},
+
+totalDirectEmployees:
+  employees.length,
+
+employees,
+
+filters: {
+  assignedDate:
+    query.assignedDate || null,
+
+  assignedDateFilter:
+    query.assignedDateFilter || null,
+
+  assignedDateFrom:
+    query.assignedDateFrom || null,
+
+  assignedDateTo:
+    query.assignedDateTo || null,
+},
+
+};
+}
+
+async employeeStageLeadsReport(
+  employeeId: string,
+  query: any,
+  user: any,
+) {
+  const match: any = {};
+  console.log('employeeStageLeadsReport query:', query);
+  /*
+   * ==========================================
+   * PAGINATION
+   * Default:
+   * page = 1
+   * limit = 10
+   * ==========================================
+   */
+
+  const page = Math.max(
+    parseInt(query.page, 10) || 1,
+    1,
+  );
+
+  const limit = Math.min(
+    Math.max(
+      parseInt(query.limit, 10) || 10,
+      1,
+    ),
+    100,
+  );
+
+  const skip = (page - 1) * limit;
+
+  /*
+   * ==========================================
+   * DATE FILTER
+   * ==========================================
+   */
+
+  if (query.assignedDate) {
+    const singleDate = new Date(query.assignedDate);
+
+    if (!Number.isNaN(singleDate.getTime())) {
+      const startDate = new Date(singleDate);
+      const endDate = new Date(singleDate);
+
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  } else if (query.assignedDateFilter) {
+    const now = new Date();
+
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
+
+    const dateFilter = query.assignedDateFilter
+      .toString()
+      .toLowerCase();
+
+    if (dateFilter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (dateFilter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (dateFilter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (dateFilter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
+
+    if (startDate && endDate) {
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  } else if (
+    query.assignedDateFrom &&
+    query.assignedDateTo
+  ) {
+    const from = new Date(query.assignedDateFrom);
+    const to = new Date(query.assignedDateTo);
+
+    if (
+      !Number.isNaN(from.getTime()) &&
+      !Number.isNaN(to.getTime())
+    ) {
+      const startDate = new Date(from);
+      const endDate = new Date(to);
+
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  }
+
+  /*
+   * ==========================================
+   * GET SELECTED EMPLOYEE
+   * ==========================================
+   */
+
+  const employee = await this.userModel
+    .findById(employeeId)
+    .select(
+      '_id name email number employeeId level roleLevel status',
+    )
+    .lean();
+
+  if (!employee) {
+    return {
+      employee: null,
+      stageName: query.stageName || null,
+      totalLeads: 0,
+      page,
+      limit,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+      leads: [],
+    };
+  }
+
+  /*
+   * ==========================================
+   * CURRENT USER
+   * ==========================================
+   */
+
+  const currentUserId =
+    user.userId?.toString();
+
+  const currentUser =
+    await this.userModel
+      .findById(currentUserId)
+      .lean();
+
+  if (!currentUser) {
+    return {
+      employee: null,
+      stageName: query.stageName || null,
+      totalLeads: 0,
+      page,
+      limit,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+      leads: [],
+    };
+  }
+
+  const isAdmin =
+    user.isSuperAdmin ||
+    user.role === 'Admin';
+
+  /*
+   * ==========================================
+   * CHECK ACCESS
+   * ==========================================
+   */
+
+  if (!isAdmin) {
+    const underUsers =
+      await this.userLogic.getUsersUnder(
+        currentUser,
+      );
+
+    const accessibleIds = new Set([
+      currentUserId,
+      ...underUsers.map((u: any) =>
+        u._id.toString(),
+      ),
+    ]);
+
+    if (
+      !accessibleIds.has(
+        employeeId.toString(),
+      )
+    ) {
+      return {
+        employee: null,
+        stageName: query.stageName || null,
+        totalLeads: 0,
+        page,
+        limit,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+        leads: [],
+      };
+    }
+  }
+
+  /*
+   * ==========================================
+   * TEAM MODE
+   *
+   * false:
+   * selected employee only
+   *
+   * true:
+   * selected employee + all users under him
+   * ==========================================
+   */
+
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
+  let employeeIds = [
+    employeeId.toString(),
+  ];
+
+  if (isTeam) {
+    const underUsers =
+      await this.userLogic.getUsersUnder(
+        employee,
+      );
+
+    employeeIds = [
+      employeeId.toString(),
+      ...underUsers
+        .map((u: any) =>
+          u._id?.toString(),
+        )
+        .filter(Boolean),
+    ];
+
+    employeeIds = [
+      ...new Set(employeeIds),
+    ];
+  }
+
+  /*
+   * ==========================================
+   * STAGE FILTER
+   * ==========================================
+   */
+
+  const stageName =
+    query.stageName?.toString().trim();
+
+  /*
+   * ==========================================
+   * BASE PIPELINE
+   * ==========================================
+   */
+
+  const pipeline: any[] = [
+    {
+      $match: {
+        ...match,
+        assignedTo: {
+          $in: employeeIds,
+        },
+      },
+    },
+
+    /*
+     * Convert assignedTo to ObjectId
+     */
+
+    {
+      $addFields: {
+        assignedUserObjectId: {
+          $convert: {
+            input: '$assignedTo',
+            to: 'objectId',
+            onError: null,
+            onNull: null,
+          },
+        },
+      },
+    },
+
+    /*
+     * Get employee
+     */
+
+    {
+      $lookup: {
+        from: 'users',
+        localField: 'assignedUserObjectId',
+        foreignField: '_id',
+        as: 'assignedEmployee',
+      },
+    },
+
+    {
+      $unwind: {
+        path: '$assignedEmployee',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    /*
+     * Get stage
+     */
+
+    {
+      $lookup: {
+        from: 'leadstages',
+        localField: 'stageId',
+        foreignField: '_id',
+        as: 'stage',
+      },
+    },
+
+    {
+      $unwind: {
+        path: '$stage',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+  ];
+
+  /*
+   * ==========================================
+   * STAGE NAME FILTER
+   * ==========================================
+   */
+
+  if (stageName) {
+    pipeline.push({
+      $match: {
+        'stage.name': stageName,
+      },
+    });
+  }
+
+  /*
+   * ==========================================
+   * SORT
+   * ==========================================
+   */
+
+  pipeline.push({
+    $sort: {
+      assignedDate: -1,
+      _id: -1,
+    },
+  });
+
+  /*
+   * ==========================================
+   * GET TOTAL COUNT
+   *
+   * IMPORTANT:
+   * Count happens BEFORE skip/limit.
+   * ==========================================
+   */
+
+  const countPipeline = [
+    ...pipeline,
+    {
+      $count: 'total',
+    },
+  ];
+
+  const countResult =
+    await this.leadModel.aggregate(
+      countPipeline,
+    );
+
+  const totalLeads =
+    countResult[0]?.total || 0;
+
+  /*
+   * ==========================================
+   * PAGINATION
+   * ==========================================
+   */
+
+  pipeline.push({
+    $skip: skip,
+  });
+
+  pipeline.push({
+    $limit: limit,
+  });
+
+  /*
+   * ==========================================
+   * PROJECT
+   * ==========================================
+   */
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+
+      leadId: {
+        $toString: '$leadId',
+      },
+
+      assignedDate: 1,
+
+      assignedTo: {
+        $cond: [
+          {
+            $ifNull: [
+              '$assignedTo',
+              false,
+            ],
+          },
+          {
+            $toString: '$assignedTo',
+          },
+          null,
+        ],
+      },
+
+      employee: {
+        employeeId: {
+          $toString:
+            '$assignedEmployee._id',
+        },
+
+        name:
+          '$assignedEmployee.name',
+
+        email:
+          '$assignedEmployee.email',
+
+        number:
+          '$assignedEmployee.number',
+
+        employeeIdNumber:
+          '$assignedEmployee.employeeId',
+      },
+
+      stage: {
+        id: {
+          $toString:
+            '$stage._id',
+        },
+
+        name:
+          '$stage.name',
+      },
+
+      name: 1,
+      email: 1,
+      number: 1,
+      phone: 1,
+      source: 1,
+      course: 1,
+      status: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  });
+
+  /*
+   * ==========================================
+   * GET PAGINATED LEADS
+   * ==========================================
+   */
+
+  const leads =
+    await this.leadModel.aggregate(
+      pipeline,
+    );
+
+  /*
+   * ==========================================
+   * PAGINATION INFORMATION
+   * ==========================================
+   */
+
+  const totalPages =
+    totalLeads > 0
+      ? Math.ceil(
+          totalLeads / limit,
+        )
+      : 0;
+
+  const hasNextPage =
+    page < totalPages;
+
+  const hasPreviousPage =
+    page > 1 && totalPages > 0;
+
+  /*
+   * ==========================================
+   * RESPONSE
+   * ==========================================
+   */
+
+  return {
+    employee: {
+      employeeId:
+        employee._id.toString(),
+
+      employeeName:
+        employee.name || 'Unknown',
+
+      employeeEmail:
+        employee.email || null,
+
+      employeeNumber:
+        employee.number || null,
+
+      employeeEmployeeId:
+        employee.employeeId || null,
+    },
+
+    stageName:
+      stageName || 'ALL',
+
+    team: isTeam,
+
+    teamSize:
+      isTeam
+        ? employeeIds.length - 1
+        : 0,
+
+    totalLeads,
+
+    pagination: {
+      page,
+      limit,
+      totalLeads,
+      totalPages,
+      hasNextPage,
+      hasPreviousPage,
+    },
+
+    leads,
+
+    filters: {
+      assignedDate:
+        query.assignedDate || null,
+
+      assignedDateFilter:
+        query.assignedDateFilter || null,
+
+      assignedDateFrom:
+        query.assignedDateFrom || null,
+
+      assignedDateTo:
+        query.assignedDateTo || null,
+
+      stageName:
+        stageName || null,
+
+      team:
+        isTeam,
+    },
+  };
+}
+
+
 async poolWiseDataReport(query: any) {
   const now = new Date();
 
@@ -1929,23 +3057,73 @@ async poolWiseDataReport(query: any) {
   };
 }
 
-async stateWiseReport(query: any, user: any) {
+async poolWiseLeadsReport(query: any) {
+  console.log('poolWiseLeadsReport query:', query);
   const now = new Date();
-  let startDate = new Date();
-  let endDate = new Date();
+  const page = Math.max(
+    parseInt(query.page, 10) || 1,
+    1,
+  );
 
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
+  const limit = Math.min(
+    Math.max(
+      parseInt(query.limit, 10) || 10,
+      1,
+    ),
+    100,
+  );
+
+  const skip = (page - 1) * limit;
+
+  let startDate = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    1,
+  );
+
+  let endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+
+  /*
+   * ==========================================
+   * DATE FILTER
+   * ==========================================
+   */
 
   if (query.dateFilter) {
-    const filter = query.dateFilter.toLowerCase();
+    const filter = query.dateFilter
+      .toString()
+      .toLowerCase();
 
-    if (filter === 'week') {
-      startDate = new Date();
-      startDate.setDate(startDate.getDate() - 6);
+    if (filter === 'today') {
+      startDate = new Date(now);
       startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (filter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(
+        startDate.getDate() - 6,
+      );
+      startDate.setHours(0, 0, 0, 0);
+
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
     } else if (filter === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
+
       endDate = new Date(
         now.getFullYear(),
         now.getMonth() + 1,
@@ -1956,365 +3134,348 @@ async stateWiseReport(query: any, user: any) {
         999,
       );
     } else if (filter === 'year') {
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
+
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
     }
   }
 
-  if (query.fromDate && query.toDate) {
-    startDate = new Date(query.fromDate);
-    startDate.setHours(0, 0, 0, 0);
-    endDate = new Date(query.toDate);
-    endDate.setHours(23, 59, 59, 999);
-  }
+  /*
+   * ==========================================
+   * CUSTOM FROM DATE
+   * ==========================================
+   */
 
-  const leadMatch: any = {
-    createdAt: { $gte: startDate, $lte: endDate },
-  };
-  const revenueLeadMatch: any = {};
+  if (query.fromDate) {
+    const from = new Date(query.fromDate);
 
-  if (query.state) {
-    const stateFilter = { $regex: query.state, $options: 'i' };
-    leadMatch.state = stateFilter;
-    revenueLeadMatch['lead.state'] = stateFilter;
-  }
+    if (!Number.isNaN(from.getTime())) {
+      startDate = new Date(from);
 
-  if (query.source_campaign) {
-    const campaignFilter = {
-      $regex: query.source_campaign,
-      $options: 'i',
-    };
-    leadMatch.source_campaign = campaignFilter;
-    revenueLeadMatch['lead.source_campaign'] = campaignFilter;
-  }
-
-  if (!user.isSuperAdmin) {
-    const pool = await this.poolModel
-      .findOne({ pool_owner: user.userId })
-      .select('_id');
-    const users = await this.userLogic.getUsersUnder(user);
-    const accessibleUserIds = [
-      ...new Set([...users.map((item) => item._id.toString()), user.userId]),
-    ]
-      .filter((id) => Types.ObjectId.isValid(id))
-      .map((id) => new Types.ObjectId(id));
-
-    if (pool?._id) {
-      leadMatch.$or = [
-        { assignedTo: { $in: accessibleUserIds } },
-        { poolId: pool._id },
-      ];
-      revenueLeadMatch.$or = [
-        { 'lead.assignedTo': { $in: accessibleUserIds } },
-        { 'lead.poolId': pool._id },
-      ];
-    } else {
-      leadMatch.assignedTo = { $in: accessibleUserIds };
-      revenueLeadMatch['lead.assignedTo'] = {
-        $in: accessibleUserIds,
-      };
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
     }
   }
 
-  const leadResults = await this.leadModel.aggregate([
-    { $match: leadMatch },
-    {
-      $lookup: {
-        from: 'leadstages',
-        localField: 'stageId',
-        foreignField: '_id',
-        as: 'stage',
-      },
-    },
-    { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
-    {
-      $group: {
-        _id: {
-          state: { $ifNull: ['$state', 'Unknown'] },
-          sourceCampaign: { $ifNull: ['$source_campaign', 'Unknown'] },
-          stage: { $ifNull: ['$stage.name', 'Unknown'] },
-        },
-        count: { $sum: 1 },
-      },
-    },
-  ]);
+  /*
+   * ==========================================
+   * CUSTOM TO DATE
+   * ==========================================
+   */
 
-  // Revenue is filtered by the order date, then attributed to the matching
-  // lead's campaign and state. Phone is included because many leads/orders
-  // do not share a usable email address.
-  const revenueResults = await this.orderModel.aggregate([
-    {
-      $match: {
-        Approved: true,
-        orderDate: { $gte: startDate, $lte: endDate },
-      },
-    },
-    {
-      $lookup: {
-        from: 'leads',
-        let: { orderEmail: '$email', orderMobile: '$mobile' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  {
-                    $and: [
-                      { $ne: [{ $ifNull: ['$$orderEmail', ''] }, ''] },
-                      { $eq: ['$email', '$$orderEmail'] },
-                    ],
-                  },
-                  {
-                    $and: [
-                      { $ne: [{ $ifNull: ['$$orderMobile', ''] }, ''] },
-                      { $eq: ['$phone', '$$orderMobile'] },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-          {
-            $addFields: {
-              emailMatch: { $eq: ['$email', '$$orderEmail'] },
-            },
-          },
-          { $sort: { emailMatch: -1, createdAt: -1 } },
-          // One order must be attributed once, not once for every duplicate lead.
-          { $limit: 1 },
-        ],
-        as: 'lead',
-      },
-    },
-    { $unwind: '$lead' },
-    { $match: revenueLeadMatch },
-    {
-      $group: {
-        _id: {
-          state: { $ifNull: ['$lead.state', 'Unknown'] },
-          sourceCampaign: {
-            $ifNull: ['$lead.source_campaign', 'Unknown'],
-          },
-        },
-        revenue: {
-          $sum: { $ifNull: ['$countedRevenue', '$finalFee'] },
-        },
-      },
-    },
-  ]);
-  const campaignMap = new Map<string, any>();
-  const ensureState = (campaignName: string, state: string) => {
-    if (!campaignMap.has(campaignName)) {
-      campaignMap.set(campaignName, {
-        campaignName,
-        totalLeads: 0,
-        totalAdmissionDone: 0,
-        totalRevenue: 0,
-        statesMap: new Map<string, any>(),
-      });
+  if (query.toDate) {
+    const to = new Date(query.toDate);
+
+    if (!Number.isNaN(to.getTime())) {
+      endDate = new Date(to);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
     }
+  }
 
-    const campaign = campaignMap.get(campaignName);
-    if (!campaign.statesMap.has(state)) {
-      campaign.statesMap.set(state, {
-        state,
-        totalLeads: 0,
-        pcatScheduled: 0,
-        pcatDone: 0,
-        registrationDone: 0,
-        admissionDone: 0,
-        revenue: 0,
-        stages: {},
-      });
-    }
+  /*
+   * ==========================================
+   * POOL ID
+   * ==========================================
+   */
 
+  const poolId =
+    query.poolId?.toString().trim();
+
+  if (!poolId) {
+    console.log('poolWiseLeadsReport: poolId is required');
     return {
-      campaign,
-      state: campaign.statesMap.get(state),
+      startDate,
+      endDate,
+      poolId: null,
+      stageName:
+        query.stageName || null,
+      totalLeads: 0,
+
+      pagination: {
+        page,
+        limit,
+        totalLeads: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+
+      leads: [],
     };
-  };
+  }
 
-  leadResults.forEach((row) => {
-    const campaignName = row._id.sourceCampaign;
-    const stateName = row._id.state;
-    const stage = row._id.stage;
-    const item = ensureState(campaignName, stateName);
+  /*
+   * ==========================================
+   * STAGE NAME
+   * ==========================================
+   */
 
-    item.state.totalLeads += row.count;
-    item.state.stages[stage] = (item.state.stages[stage] || 0) + row.count;
-    item.campaign.totalLeads += row.count;
+  const stageName =
+    query.stageName
+      ?.toString()
+      .trim();
 
-    const stageName = stage.toLowerCase().trim();
-    if (stageName === 'pcat schedule' || stageName === 'pcat scheduled') {
-      item.state.pcatScheduled += row.count;
-    } else if (stageName === 'pcat done') {
-      item.state.pcatDone += row.count;
-    } else if (stageName === 'registration done') {
-      item.state.registrationDone += row.count;
-    } else if (stageName === 'admission done') {
-      item.state.admissionDone += row.count;
-    }
-  });
+  /*
+   * ==========================================
+   * LEVEL
+   * ==========================================
+   */
 
-  // Keep revenue-only campaign/state rows too. An order can be in this date
-  // range even when its lead was created before the selected range.
-  revenueResults.forEach((row) => {
-    const item = ensureState(row._id.sourceCampaign, row._id.state);
-    item.state.revenue = Number(row.revenue) || 0;
-  });
-
-  const report = Array.from(campaignMap.values()).map((campaign: any) => {
-    const states = Array.from(campaign.statesMap.values()).map(
-      (state: any) => ({
-        ...state,
-        conversionPercentage:
-          state.totalLeads > 0
-            ? Number(
-                ((state.admissionDone / state.totalLeads) * 100).toFixed(2),
-              )
-            : 0,
-      }),
+  const levelNumber =
+    this.resolveLevel(
+      query.level,
     );
 
-    campaign.totalAdmissionDone = states.reduce(
-      (sum, state) => sum + state.admissionDone,
-      0,
+  if (levelNumber === null) {
+    return {
+      startDate,
+      endDate,
+      poolId,
+      stageName:
+        stageName || null,
+      totalLeads: 0,
+
+      pagination: {
+        page,
+        limit,
+        totalLeads: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+
+      leads: [],
+    };
+  }
+
+  /*
+   * ==========================================
+   * GET USERS BY LEVEL
+   * ==========================================
+   */
+
+  const levelUserIds =
+    await this.getUserIdsByRoleLevel(
+      levelNumber,
     );
-    campaign.totalRevenue = states.reduce(
-      (sum, state) => sum + state.revenue,
-      0,
-    );
-    campaign.states = states.sort((a, b) => b.totalLeads - a.totalLeads);
-    delete campaign.statesMap;
+    console.log('poolWiseLeadsReport: levelUserIds:', levelUserIds);
+  if (!levelUserIds.length) {
+    return {
+      startDate,
+      endDate,
+      poolId,
+      stageName:
+        stageName || null,
+      totalLeads: 0,
 
-    return campaign;
-  });
+      pagination: {
+        page,
+        limit,
+        totalLeads: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
 
-  return {
-    startDate,
-    endDate,
-    data: report.sort((a, b) => b.totalLeads - a.totalLeads),
-  };
-}
-async stateWiseEmployeeReport(query: any, user: any) {
-  const now = new Date();
-  let startDate = new Date();
-  let endDate = new Date();
+      leads: [],
+    };
+  }
 
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
+  /*
+   * ==========================================
+   * BASE USER IDS
+   * ==========================================
+   */
 
-  if (query.dateFilter) {
-    const filter = query.dateFilter.toLowerCase();
+  const baseUserIds = [
+    ...new Set(
+      levelUserIds.map((id: any) =>
+        id.toString(),
+      ),
+    ),
+  ];
 
-    if (filter === 'week') {
-      startDate = new Date();
-      startDate.setDate(startDate.getDate() - 6);
-      startDate.setHours(0, 0, 0, 0);
-    } else if (filter === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999,
+  /*
+   * ==========================================
+   * TEAM FILTER
+   * ==========================================
+   */
+
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
+  let userIds: string[] = [];
+
+  if (isTeam) {
+    const teamUserIds =
+      new Set<string>();
+
+    for (const employeeId of baseUserIds) {
+      const employee =
+        await this.userModel
+          .findById(employeeId)
+          .lean();
+
+      if (!employee) {
+        continue;
+      }
+
+      /*
+       * Include employee himself
+       */
+
+      teamUserIds.add(
+        employeeId,
       );
-    } else if (filter === 'year') {
-      startDate = new Date(now.getFullYear(), 0, 1);
-      endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+
+      /*
+       * Include everyone under employee
+       */
+
+      const usersUnder =
+        await this.userLogic.getUsersUnder(
+          employee,
+        );
+
+      usersUnder.forEach(
+        (u: any) => {
+          if (u?._id) {
+            teamUserIds.add(
+              u._id.toString(),
+            );
+          }
+        },
+      );
     }
+
+    userIds =
+      Array.from(
+        teamUserIds,
+      );
+  } else {
+    userIds = baseUserIds;
   }
 
-  if (query.fromDate && query.toDate) {
-    startDate = new Date(query.fromDate);
-    startDate.setHours(0, 0, 0, 0);
-    endDate = new Date(query.toDate);
-    endDate.setHours(23, 59, 59, 999);
+  if (!userIds.length) {
+    return {
+      startDate,
+      endDate,
+      poolId,
+      stageName:
+        stageName || null,
+      totalLeads: 0,
+
+      pagination: {
+        page,
+        limit,
+        totalLeads: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+
+      leads: [],
+    };
   }
+
+  /*
+   * ==========================================
+   * VERIFY POOL EXISTS
+   * ==========================================
+   */
+
+  const pool =
+    await this.poolModel
+      .findById(poolId)
+      .select('_id name')
+      .lean();
+
+  if (!pool) {
+    console.log('poolWiseLeadsReport: pool not found for poolId:', poolId);
+    return {
+      startDate,
+      endDate,
+      poolId,
+      poolName: null,
+      stageName:
+        stageName || null,
+      totalLeads: 0,
+
+      pagination: {
+        page,
+        limit,
+        totalLeads: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+
+      leads: [],
+    };
+  }
+
+  /*
+   * ==========================================
+   * BASE LEAD MATCH
+   * ==========================================
+   *
+   * Same filters as poolWiseDataReport
+   */
 
   const leadMatch: any = {
-    createdAt: { $gte: startDate, $lte: endDate },
-  };
-  const revenueLeadMatch: any = {};
-  const revenueOrderMatch: any = {};
-
-  if (query.state) {
-    const stateFilter = { $regex: query.state, $options: 'i' };
-    leadMatch.state = stateFilter;
-    revenueLeadMatch['lead.state'] = stateFilter;
-  }
-
-  if (query.source) {
-    leadMatch.source = query.source;
-    revenueLeadMatch['lead.source'] = query.source;
-  }
-
-  if (query.status) {
-    leadMatch.status = query.status;
-    revenueLeadMatch['lead.status'] = query.status;
-  }
-
-  if (query.stageId) {
-    const stageId = new Types.ObjectId(query.stageId);
-    leadMatch.stageId = stageId;
-    revenueLeadMatch['lead.stageId'] = stageId;
-  }
-
-  if (query.poolId) {
-    const poolId = new Types.ObjectId(query.poolId);
-    leadMatch.poolId = poolId;
-    revenueLeadMatch['lead.poolId'] = poolId;
-  }
-
-  const requestedEmployeeId = query.counsellorId || query.assignedTo;
-  if (requestedEmployeeId && Types.ObjectId.isValid(requestedEmployeeId)) {
-    const employeeId = new Types.ObjectId(requestedEmployeeId);
-    leadMatch.assignedTo = employeeId;
-    revenueOrderMatch.counsellorId = employeeId;
-  }
-
-  let accessibleUserIds: Types.ObjectId[] = [];
-  let poolId: any = null;
-
-  if (!user.isSuperAdmin) {
-    const pool = await this.poolModel
-      .findOne({ pool_owner: user.userId })
-      .select('_id');
-    poolId = pool?._id;
-    const users = await this.userLogic.getUsersUnder(user);
-    accessibleUserIds = [
-      ...new Set([...users.map((item) => item._id.toString()), user.userId]),
-    ]
-      .filter((id) => Types.ObjectId.isValid(id))
-      .map((id) => new Types.ObjectId(id));
-
-    if (poolId) {
-      leadMatch.$or = [
-        { assignedTo: { $in: accessibleUserIds } },
-        { poolId },
-      ];
-    } else {
-      leadMatch.assignedTo = { $in: accessibleUserIds };
-    }
-  }
-
-  const leadResults = await this.leadModel.aggregate([
-    { $match: leadMatch },
-    {
-      $lookup: {
-        from: 'leadstages',
-        localField: 'stageId',
-        foreignField: '_id',
-        as: 'stage',
-      },
+    createdAt: {
+      $gte: startDate,
+      $lte: endDate,
     },
-    { $unwind: { path: '$stage', preserveNullAndEmptyArrays: true } },
+
+    assignedTo: {
+      $in: userIds,
+    },
+
+    poolId: new Types.ObjectId(poolId),
+  };
+
+  /*
+   * ==========================================
+   * PIPELINE
+   * ==========================================
+   */
+
+  const pipeline: any[] = [
+    {
+      $match: leadMatch,
+    },
+
+    /*
+     * Get assigned employee
+     */
+
     {
       $addFields: {
-        employeeLookupId: {
+        assignedUserObjectId: {
           $convert: {
             input: '$assignedTo',
             to: 'objectId',
@@ -2324,248 +3485,4908 @@ async stateWiseEmployeeReport(query: any, user: any) {
         },
       },
     },
+
     {
       $lookup: {
         from: 'users',
-        localField: 'employeeLookupId',
+        localField:
+          'assignedUserObjectId',
         foreignField: '_id',
-        as: 'employee',
+        as: 'assignedEmployee',
       },
     },
-    { $unwind: { path: '$employee', preserveNullAndEmptyArrays: false } },
-    {
-      $group: {
-        _id: {
-          state: { $ifNull: ['$state', 'Unknown'] },
-          employeeId: { $ifNull: ['$employee._id', null] },
-          employeeName: { $ifNull: ['$employee.name', 'Unassigned'] },
-          employeeEmail: { $ifNull: ['$employee.email', ''] },
-          employeeCode: { $ifNull: ['$employee.employeeId', ''] },
-          stage: { $ifNull: ['$stage.name', 'Unknown'] },
-        },
-        count: { $sum: 1 },
-      },
-    },
-  ]);
 
-  // Revenue is owned by the employee who created the order (counsellorId),
-  // while state is read from the related lead. Match both email and mobile so
-  // valid orders are not lost when one contact field differs or is empty.
-  const revenuePipeline: any[] = [
     {
-      $match: {
-        Approved: true,
-        orderDate: { $gte: startDate, $lte: endDate },
-        ...revenueOrderMatch,
+      $unwind: {
+        path: '$assignedEmployee',
+        preserveNullAndEmptyArrays: true,
       },
     },
+
+    /*
+     * Get stage
+     */
+
     {
       $lookup: {
-        from: 'leads',
-        let: { orderEmail: '$email', orderMobile: '$mobile' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  {
-                    $and: [
-                      { $ne: [{ $ifNull: ['$$orderEmail', ''] }, ''] },
-                      { $eq: ['$email', '$$orderEmail'] },
-                    ],
-                  },
-                  {
-                    $and: [
-                      { $ne: [{ $ifNull: ['$$orderMobile', ''] }, ''] },
-                      { $eq: ['$phone', '$$orderMobile'] },
-                    ],
-                  },
-                ],
-              },
-            },
-          },
-          { $addFields: { emailMatch: { $eq: ['$email', '$$orderEmail'] } } },
-          { $sort: { emailMatch: -1, createdAt: -1 } },
-          { $limit: 1 },
-        ],
-        as: 'lead',
+        from: 'leadstages',
+        localField: 'stageId',
+        foreignField: '_id',
+        as: 'stage',
       },
     },
-    { $unwind: '$lead' },
-    { $match: revenueLeadMatch },
+
+    {
+      $unwind: {
+        path: '$stage',
+        preserveNullAndEmptyArrays: true,
+      },
+    },
   ];
 
-  if (!user.isSuperAdmin) {
-    if (poolId) {
-      revenuePipeline.push({
-        $match: {
-          $or: [
-            { counsellorId: { $in: accessibleUserIds } },
-            { 'lead.poolId': poolId },
-          ],
-        },
-      });
-    } else {
-      revenuePipeline.push({
-        $match: { counsellorId: { $in: accessibleUserIds } },
-      });
-    }
+  /*
+   * ==========================================
+   * STAGE FILTER
+   * ==========================================
+   */
+
+  if (stageName) {
+    pipeline.push({
+      $match: {
+        'stage.name': stageName,
+      },
+    });
   }
 
-  revenuePipeline.push(
-    {
-      $group: {
-        _id: {
-          state: { $ifNull: ['$lead.state', 'Unknown'] },
-          employeeId: '$counsellorId',
-        },
-        revenue: { $sum: { $ifNull: ['$countedRevenue', '$finalFee'] } },
-      },
+  /*
+   * ==========================================
+   * SORT
+   * ==========================================
+   */
+
+  pipeline.push({
+    $sort: {
+      createdAt: -1,
+      _id: -1,
     },
+  });
+
+  /*
+   * ==========================================
+   * COUNT BEFORE PAGINATION
+   * ==========================================
+   */
+
+  const countPipeline = [
+    ...pipeline,
     {
-      $addFields: {
-        employeeLookupId: {
-          $convert: {
-            input: '$_id.employeeId',
-            to: 'objectId',
-            onError: null,
-            onNull: null,
+      $count: 'total',
+    },
+  ];
+
+  const countResult =
+    await this.leadModel.aggregate(
+      countPipeline,
+    );
+
+  const totalLeads =
+    countResult[0]?.total || 0;
+
+  /*
+   * ==========================================
+   * PAGINATION
+   * ==========================================
+   */
+
+  pipeline.push({
+    $skip: skip,
+  });
+
+  pipeline.push({
+    $limit: limit,
+  });
+
+  /*
+   * ==========================================
+   * RESPONSE FIELDS
+   * ==========================================
+   */
+
+  pipeline.push({
+    $project: {
+      _id: 1,
+
+      leadId: {
+        $toString: '$leadId',
+      },
+
+      poolId: {
+        $toString: '$poolId',
+      },
+
+      assignedDate: 1,
+
+      createdAt: 1,
+
+      updatedAt: 1,
+
+      assignedTo: {
+        $cond: [
+          {
+            $ifNull: [
+              '$assignedTo',
+              false,
+            ],
           },
+
+          {
+            $toString:
+              '$assignedTo',
+          },
+
+          null,
+        ],
+      },
+
+      employee: {
+        id: {
+          $toString:
+            '$assignedEmployee._id',
         },
+
+        employeeId:
+          '$assignedEmployee.employeeId',
+
+        name:
+          '$assignedEmployee.name',
+
+        email:
+          '$assignedEmployee.email',
+
+        number:
+          '$assignedEmployee.number',
       },
-    },
-    {
-      $lookup: {
-        from: 'users',
-        localField: 'employeeLookupId',
-        foreignField: '_id',
-        as: 'employee',
+
+      stage: {
+        id: {
+          $toString:
+            '$stage._id',
+        },
+
+        name:
+          '$stage.name',
       },
+
+      /*
+       * Common lead information
+       */
+
+      name: 1,
+      email: 1,
+      number: 1,
+      phone: 1,
+      source: 1,
+      course: 1,
+      status: 1,
     },
-    { $unwind: { path: '$employee', preserveNullAndEmptyArrays: false } },
-    {
-      $project: {
-        _id: 1,
-        revenue: 1,
-        employeeName: { $ifNull: ['$employee.name', 'Unknown'] },
-        employeeEmail: { $ifNull: ['$employee.email', ''] },
-        employeeCode: { $ifNull: ['$employee.employeeId', ''] },
-      },
-    },
-  );
-
-  const revenueResults = await this.orderModel.aggregate(revenuePipeline);
-  const employeeMap = new Map<string, any>();
-  const ensureEmployeeState = (
-    employeeId: string,
-    employeeName: string,
-    employeeEmail: string,
-    employeeCode: string,
-    state: string,
-  ) => {
-    if (!employeeMap.has(employeeId)) {
-      employeeMap.set(employeeId, {
-        employeeId,
-        employeeName,
-        employeeEmail,
-        employeeCode,
-        totalLeads: 0,
-        totalAdmissionDone: 0,
-        totalRevenue: 0,
-        statesMap: new Map<string, any>(),
-      });
-    }
-
-    const employee = employeeMap.get(employeeId);
-    if (!employee.statesMap.has(state)) {
-      employee.statesMap.set(state, {
-        state,
-        totalLeads: 0,
-        pcatScheduled: 0,
-        pcatDone: 0,
-        registrationDone: 0,
-        admissionDone: 0,
-        revenue: 0,
-        stages: {},
-      });
-    }
-
-    return { employee, state: employee.statesMap.get(state) };
-  };
-
-  leadResults.forEach((row) => {
-    const employeeId = row._id.employeeId?.toString() || 'unassigned';
-    const item = ensureEmployeeState(
-      employeeId,
-      row._id.employeeName,
-      row._id.employeeEmail,
-      row._id.employeeCode,
-      row._id.state,
-    );
-    const stage = row._id.stage;
-
-    item.state.totalLeads += row.count;
-    item.state.stages[stage] = (item.state.stages[stage] || 0) + row.count;
-    item.employee.totalLeads += row.count;
-
-    const stageName = stage.toLowerCase().trim();
-    if (stageName === 'pcat schedule' || stageName === 'pcat scheduled') {
-      item.state.pcatScheduled += row.count;
-    } else if (stageName === 'pcat done') {
-      item.state.pcatDone += row.count;
-    } else if (stageName === 'registration done') {
-      item.state.registrationDone += row.count;
-    } else if (stageName === 'admission done') {
-      item.state.admissionDone += row.count;
-    }
   });
 
-  // Include states that only have approved orders during this range.
-  revenueResults.forEach((row) => {
-    const employeeId = row._id.employeeId?.toString() || 'unknown';
-    const item = ensureEmployeeState(
-      employeeId,
-      row.employeeName,
-      row.employeeEmail,
-      row.employeeCode,
-      row._id.state,
-    );
-    item.state.revenue = Number(row.revenue) || 0;
-  });
+  /*
+   * ==========================================
+   * EXECUTE
+   * ==========================================
+   */
 
-  const report = Array.from(employeeMap.values()).map((employee: any) => {
-    const states = Array.from(employee.statesMap.values()).map(
-      (state: any) => ({
-        ...state,
-        conversionPercentage:
-          state.totalLeads > 0
-            ? Number(
-                ((state.admissionDone / state.totalLeads) * 100).toFixed(2),
-              )
-            : 0,
-      }),
+  const leads =
+    await this.leadModel.aggregate(
+      pipeline,
     );
+console.log('poolWiseLeadsReport: leads:', leads);
+  /*
+   * ==========================================
+   * PAGINATION INFO
+   * ==========================================
+   */
 
-    employee.totalAdmissionDone = states.reduce(
-      (sum, state) => sum + state.admissionDone,
-      0,
-    );
-    employee.totalRevenue = states.reduce(
-      (sum, state) => sum + state.revenue,
-      0,
-    );
-    employee.states = states.sort((a, b) => b.totalLeads - a.totalLeads);
-    delete employee.statesMap;
+  const totalPages =
+    totalLeads > 0
+      ? Math.ceil(
+          totalLeads / limit,
+        )
+      : 0;
 
-    return employee;
-  });
+  const hasNextPage =
+    page < totalPages;
+
+  const hasPreviousPage =
+    page > 1 &&
+    totalPages > 0;
+
+  /*
+   * ==========================================
+   * FINAL RESPONSE
+   * ==========================================
+   */
 
   return {
     startDate,
     endDate,
-    data: report.sort((a, b) => b.totalLeads - a.totalLeads),
+
+    level:
+      levelNumber,
+
+    team:
+      isTeam,
+
+    poolId:
+      pool._id.toString(),
+
+    poolName:
+      pool.name || 'Unknown',
+
+    stageName:
+      stageName || 'ALL',
+
+    totalLeads,
+
+    pagination: {
+      page,
+      limit,
+      totalLeads,
+      totalPages,
+      hasNextPage,
+      hasPreviousPage,
+    },
+
+    leads,
+
+    filters: {
+      dateFilter:
+        query.dateFilter || null,
+
+      fromDate:
+        query.fromDate || null,
+
+      toDate:
+        query.toDate || null,
+
+      level:
+        query.level || null,
+
+      team:
+        isTeam,
+
+      poolId,
+
+      stageName:
+        stageName || null,
+    },
   };
 }
+
+async stateWiseReport(
+  query: any,
+  user: any,
+) {
+  const now = new Date();
+
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const page = Math.max(
+    1,
+    Number(query.page) || 1,
+  );
+
+  const limit = Math.min(
+    100,
+    Math.max(
+      1,
+      Number(query.limit) || 10,
+    ),
+  );
+
+  const skip =
+    (page - 1) * limit;
+
+  // =========================================================
+  // DATE RANGE
+  // =========================================================
+
+  const getFilterRange = (
+    filter: any,
+  ) => {
+    const value = String(
+      filter || 'today',
+    )
+      .trim()
+      .toLowerCase();
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (value === 'today') {
+      startDate = new Date(now);
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'week') {
+      startDate = new Date(now);
+
+      startDate.setDate(
+        startDate.getDate() - 6,
+      );
+
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'month') {
+      // First day of current month
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      // Today only
+      endDate = new Date(now);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      // Today only
+      endDate = new Date(now);
+
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else {
+      throw new BadRequestException(
+        `Invalid date filter: ${filter}`,
+      );
+    }
+
+    return {
+      startDate,
+      endDate,
+    };
+  };
+
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+  ) => {
+    if (
+      !fromValue ||
+      !toValue
+    ) {
+      throw new BadRequestException(
+        'fromDate and toDate are both required',
+      );
+    }
+
+    const startDate =
+      new Date(fromValue);
+
+    const endDate =
+      new Date(toValue);
+
+    if (
+      Number.isNaN(
+        startDate.getTime(),
+      ) ||
+      Number.isNaN(
+        endDate.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Invalid custom date range',
+      );
+    }
+
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    if (
+      startDate > endDate
+    ) {
+      throw new BadRequestException(
+        'fromDate cannot be greater than toDate',
+      );
+    }
+
+    const diffDays =
+      Math.floor(
+        (
+          endDate.getTime() -
+          startDate.getTime()
+        ) /
+          (
+            1000 *
+            60 *
+            60 *
+            24
+          ),
+      ) + 1;
+
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        'Date range cannot be more than 31 days',
+      );
+    }
+
+    return {
+      startDate,
+      endDate,
+    };
+  };
+
+  let dateRange: {
+    startDate: Date;
+    endDate: Date;
+  };
+
+  if (
+    query.fromDate ||
+    query.toDate
+  ) {
+    dateRange =
+      getCustomRange(
+        query.fromDate,
+        query.toDate,
+      );
+  } else {
+    dateRange =
+      getFilterRange(
+        query.dateFilter ||
+          'today',
+      );
+  }
+
+  const {
+    startDate,
+    endDate,
+  } = dateRange;
+
+  // =========================================================
+  // LEAD MATCH
+  // =========================================================
+
+  const leadMatch: any = {
+    createdAt: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  };
+
+  if (query.state) {
+    leadMatch.state = {
+      $regex: String(
+        query.state,
+      ),
+      $options: 'i',
+    };
+  }
+
+  if (
+    query.source_campaign
+  ) {
+    leadMatch.source_campaign = {
+      $regex: String(
+        query.source_campaign,
+      ),
+      $options: 'i',
+    };
+  }
+
+  // =========================================================
+  // GET SELECTED LEADS
+  // =========================================================
+
+  const selectedLeads =
+    await this.leadModel
+      .find(leadMatch)
+      .select(
+        `
+          _id
+          leadId
+          name
+          phone
+          mobile
+          email
+          state
+          source_campaign
+          stageId
+          createdAt
+          assignedTo
+          assignedDate
+        `,
+      )
+      .lean();
+
+  // =========================================================
+  // GET STAGES
+  // =========================================================
+
+  const stageIds = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.stageId?.toString(),
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const stages =
+    stageIds.length
+      ? await this.leadStageModel
+          .find({
+            _id: {
+              $in: stageIds,
+            },
+          })
+          .select(
+            '_id name',
+          )
+          .lean()
+      : [];
+
+  const stageMap =
+    new Map<string, string>();
+
+  stages.forEach(
+    (stage: any) => {
+      stageMap.set(
+        stage._id.toString(),
+        stage.name ||
+          'Unknown',
+      );
+    },
+  );
+
+  // =========================================================
+  // LEAD EMAILS / PHONES
+  // =========================================================
+
+  const leadEmails = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.email,
+        )
+        .filter(Boolean)
+        .map(
+          (email: any) =>
+            String(email)
+              .trim()
+              .toLowerCase(),
+        ),
+    ),
+  ];
+
+  const leadPhones = [
+    ...new Set(
+      selectedLeads
+        .map(
+          (lead: any) =>
+            lead.phone ||
+            lead.mobile,
+        )
+        .filter(Boolean)
+        .map(
+          (phone: any) =>
+            String(phone).trim(),
+        ),
+    ),
+  ];
+
+  // =========================================================
+  // GET ORDERS ONLY FOR SELECTED LEADS
+  // =========================================================
+
+  let orders: any[] = [];
+
+  if (
+    leadEmails.length ||
+    leadPhones.length
+  ) {
+    const orderOrConditions: any[] =
+      [];
+
+    if (
+      leadEmails.length
+    ) {
+      orderOrConditions.push({
+        $expr: {
+          $in: [
+            {
+              $toLower: {
+                $ifNull: [
+                  '$email',
+                  '',
+                ],
+              },
+            },
+            leadEmails,
+          ],
+        },
+      });
+    }
+
+    if (
+      leadPhones.length
+    ) {
+      orderOrConditions.push({
+        mobile: {
+          $in: leadPhones,
+        },
+      });
+    }
+
+    orders =
+      await this.orderModel
+        .aggregate([
+          {
+            $match: {
+              Approved: true,
+
+              $or:
+                orderOrConditions,
+            },
+          },
+
+          {
+            $addFields: {
+              revenue: {
+                $switch: {
+                  branches: [
+                    {
+                      case: {
+                        $eq: [
+                          '$paymentMode',
+                          PaymentMode.LOAN,
+                        ],
+                      },
+
+                      then: {
+                        $ifNull: [
+                          '$loanDetails.disbursementAmount',
+                          0,
+                        ],
+                      },
+                    },
+
+                    {
+                      case: {
+                        $eq: [
+                          '$paymentMode',
+                          PaymentMode.LUMPSUM,
+                        ],
+                      },
+
+                      then: {
+                        $ifNull: [
+                          '$lumpsumDetails.totalReceived',
+                          0,
+                        ],
+                      },
+                    },
+                  ],
+
+                  default: 0,
+                },
+              },
+
+              normalizedEmail: {
+                $toLower: {
+                  $ifNull: [
+                    '$email',
+                    '',
+                  ],
+                },
+              },
+            },
+          },
+
+          {
+            $project: {
+              _id: 1,
+              email: 1,
+              mobile: 1,
+              normalizedEmail: 1,
+              revenue: 1,
+            },
+          },
+        ]);
+  }
+
+  // =========================================================
+  // MAP SELECTED LEAD TO STATE / CAMPAIGN
+  // =========================================================
+
+  const leadByEmail =
+    new Map<string, any>();
+
+  const leadByPhone =
+    new Map<string, any>();
+
+  selectedLeads.forEach(
+    (lead: any) => {
+      if (lead.email) {
+        leadByEmail.set(
+          String(lead.email)
+            .trim()
+            .toLowerCase(),
+          lead,
+        );
+      }
+
+      const phone =
+        lead.phone ||
+        lead.mobile;
+
+      if (phone) {
+        leadByPhone.set(
+          String(phone).trim(),
+          lead,
+        );
+      }
+    },
+  );
+
+  // =========================================================
+  // REPORT MAP
+  // =========================================================
+
+  const campaignMap =
+    new Map<string, any>();
+
+  const ensureState = (
+    campaignName: string,
+    stateName: string,
+  ) => {
+    if (
+      !campaignMap.has(
+        campaignName,
+      )
+    ) {
+      campaignMap.set(
+        campaignName,
+        {
+          campaignName,
+
+          totalLeads: 0,
+
+          totalAdmissionDone: 0,
+
+          totalRegistrationDone: 0,
+
+          totalRevenue: 0,
+
+          statesMap:
+            new Map<string, any>(),
+        },
+      );
+    }
+
+    const campaign =
+      campaignMap.get(
+        campaignName,
+      );
+
+    if (
+      !campaign.statesMap.has(
+        stateName,
+      )
+    ) {
+      campaign.statesMap.set(
+        stateName,
+        {
+          state: stateName,
+
+          totalLeads: 0,
+
+          pcatScheduled: 0,
+
+          pcatDone: 0,
+
+          registrationDone: 0,
+
+          admissionDone: 0,
+
+          revenue: 0,
+
+          stages: {},
+        },
+      );
+    }
+
+    return {
+      campaign,
+
+      state:
+        campaign.statesMap.get(
+          stateName,
+        ),
+    };
+  };
+
+  // =========================================================
+  // PROCESS SELECTED LEADS
+  // =========================================================
+
+  selectedLeads.forEach(
+    (lead: any) => {
+      const campaignName =
+        lead.source_campaign ||
+        'Unknown';
+
+      const stateName =
+        lead.state ||
+        'Unknown';
+
+      const stageName =
+        lead.stageId
+          ? stageMap.get(
+              lead.stageId.toString(),
+            ) || 'Unknown'
+          : 'Unknown';
+
+      const item =
+        ensureState(
+          campaignName,
+          stateName,
+        );
+
+      item.state.totalLeads +=
+        1;
+
+      item.campaign.totalLeads +=
+        1;
+
+      item.state.stages[
+        stageName
+      ] =
+        (
+          item.state.stages[
+            stageName
+          ] || 0
+        ) + 1;
+
+      const normalizedStage =
+        String(stageName)
+          .toLowerCase()
+          .trim();
+
+      if (
+        normalizedStage ===
+          'pcat schedule' ||
+        normalizedStage ===
+          'pcat scheduled'
+      ) {
+        item.state.pcatScheduled +=
+          1;
+      } else if (
+        normalizedStage ===
+        'pcat done'
+      ) {
+        item.state.pcatDone +=
+          1;
+      } else if (
+        normalizedStage ===
+        'registration done'
+      ) {
+        item.state.registrationDone +=
+          1;
+      } else if (
+        normalizedStage ===
+        'admission done'
+      ) {
+        item.state.admissionDone +=
+          1;
+      }
+    },
+  );
+
+  // =========================================================
+  // PROCESS REVENUE
+  // =========================================================
+
+  orders.forEach(
+    (order: any) => {
+      let lead: any = null;
+
+      if (
+        order.normalizedEmail
+      ) {
+        lead =
+          leadByEmail.get(
+            order.normalizedEmail,
+          );
+      }
+
+      if (
+        !lead &&
+        order.mobile
+      ) {
+        lead =
+          leadByPhone.get(
+            String(
+              order.mobile,
+            ).trim(),
+          );
+      }
+
+      if (!lead) {
+        return;
+      }
+
+      const campaignName =
+        lead.source_campaign ||
+        'Unknown';
+
+      const stateName =
+        lead.state ||
+        'Unknown';
+
+      const item =
+        ensureState(
+          campaignName,
+          stateName,
+        );
+
+      item.state.revenue +=
+        Number(
+          order.revenue,
+        ) || 0;
+    },
+  );
+
+  // =========================================================
+  // BUILD COMPLETE CAMPAIGN REPORT
+  // =========================================================
+
+  const completeReport =
+    Array.from(
+      campaignMap.values(),
+    ).map(
+      (campaign: any) => {
+        const states =
+          Array.from(
+            campaign.statesMap.values(),
+          ).map(
+            (state: any) => ({
+              ...state,
+
+              conversionPercentage:
+                state.totalLeads >
+                0
+                  ? Number(
+                      (
+                        (
+                          state.admissionDone /
+                          state.totalLeads
+                        ) *
+                        100
+                      ).toFixed(2),
+                    )
+                  : 0,
+
+              registrationPercentage:
+                state.totalLeads >
+                0
+                  ? Number(
+                      (
+                        (
+                          state.registrationDone /
+                          state.totalLeads
+                        ) *
+                        100
+                      ).toFixed(2),
+                    )
+                  : 0,
+            }),
+          );
+
+        campaign.totalAdmissionDone =
+          states.reduce(
+            (
+              sum,
+              state,
+            ) =>
+              sum +
+              state.admissionDone,
+            0,
+          );
+
+        campaign.totalRegistrationDone =
+          states.reduce(
+            (
+              sum,
+              state,
+            ) =>
+              sum +
+              state.registrationDone,
+            0,
+          );
+
+        campaign.totalRevenue =
+          states.reduce(
+            (
+              sum,
+              state,
+            ) =>
+              sum +
+              state.revenue,
+            0,
+          );
+
+        campaign.states =
+          states.sort(
+            (a, b) =>
+              b.totalLeads -
+              a.totalLeads,
+          );
+
+        delete campaign.statesMap;
+
+        return campaign;
+      },
+    );
+
+  // =========================================================
+  // SORT CAMPAIGNS
+  // =========================================================
+
+  completeReport.sort(
+    (a, b) =>
+      b.totalLeads -
+      a.totalLeads,
+  );
+
+  // =========================================================
+  // CAMPAIGN PAGINATION
+  //
+  // IMPORTANT:
+  // We paginate campaigns ONLY.
+  //
+  // States inside each campaign remain complete.
+  // =========================================================
+
+  const totalCampaigns =
+    completeReport.length;
+
+  const totalPages =
+    Math.ceil(
+      totalCampaigns /
+        limit,
+    );
+
+  const paginatedReport =
+    completeReport.slice(
+      skip,
+      skip + limit,
+    );
+
+  // =========================================================
+  // DEBUG
+  // =========================================================
+
+  console.log(
+    'stateWiseReport pagination',
+    {
+      page,
+
+      limit,
+
+      skip,
+
+      totalCampaigns,
+
+      totalPages,
+
+      returnedCampaigns:
+        paginatedReport.length,
+
+      campaignNames:
+        paginatedReport.map(
+          (item) =>
+            item.campaignName,
+        ),
+    },
+  );
+// =========================================================
+  // SORT CAMPAIGNS
+  // =========================================================
+
+  completeReport.sort(
+    (a, b) =>
+      b.totalLeads -
+      a.totalLeads,
+  );
+
+  // =========================================================
+  // GLOBAL STATS
+  //
+  // IMPORTANT:
+  // Calculate these BEFORE pagination.
+  // Otherwise stats would only represent the current page.
+  // =========================================================
+
+  const totalLeads =
+    completeReport.reduce(
+      (sum, campaign) =>
+        sum +
+        Number(
+          campaign.totalLeads || 0,
+        ),
+      0,
+    );
+
+  const totalAdmissionDone =
+    completeReport.reduce(
+      (sum, campaign) =>
+        sum +
+        Number(
+          campaign.totalAdmissionDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRegistrationDone =
+    completeReport.reduce(
+      (sum, campaign) =>
+        sum +
+        Number(
+          campaign.totalRegistrationDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRevenue =
+    completeReport.reduce(
+      (sum, campaign) =>
+        sum +
+        Number(
+          campaign.totalRevenue || 0,
+        ),
+      0,
+    );
+
+  // =========================================================
+  // CAMPAIGN PAGINATION
+  //
+  // IMPORTANT:
+  // Pagination applies ONLY to campaigns.
+  // Global stats above are NOT paginated.
+  // =========================================================
+
+  // =========================================================
+  // FINAL RESPONSE
+  // =========================================================
+
+   return {
+    startDate,
+
+    endDate,
+
+    // =======================================================
+    // GLOBAL STATS
+    // These represent ALL campaigns, not current page.
+    // =======================================================
+
+    totalLeads,
+
+    totalAdmissionDone,
+
+    totalRegistrationDone,
+
+    totalRevenue,
+
+    // =======================================================
+    // PAGINATION
+    // =======================================================
+
+    page,
+
+    limit,
+
+    totalCampaigns,
+
+    totalPages,
+
+    hasNextPage:
+      page < totalPages,
+
+    hasPreviousPage:
+      page > 1,
+
+    data:
+      paginatedReport,
+  };
+}
+
+
+async stateWiseEmployeeReport(query: any, user: any) {
+  const now = new Date();
+
+  // =========================================================
+  // HELPERS
+  // =========================================================
+
+  const toIdString = (value: any): string => {
+    if (
+      value === null ||
+      value === undefined ||
+      value === ''
+    ) {
+      return '';
+    }
+
+    if (
+      typeof value === 'object' &&
+      value._id !== undefined &&
+      value._id !== null
+    ) {
+      return String(value._id);
+    }
+
+    try {
+      return String(value);
+    } catch {
+      return '';
+    }
+  };
+
+  const validIds = (values: any[]): string[] => {
+    return [
+      ...new Set(
+        (values || [])
+          .map((value: any): string => toIdString(value))
+          .filter(
+            (id: string): id is string =>
+              Boolean(id) &&
+              Types.ObjectId.isValid(id),
+          ),
+      ),
+    ];
+  };
+
+  const normalizeEmail = (
+    value: any,
+  ): string => {
+    return value
+      ? String(value)
+          .trim()
+          .toLowerCase()
+      : '';
+  };
+
+  const normalizePhone = (
+    value: any,
+  ): string => {
+    if (!value) return '';
+
+    return String(value)
+      .trim()
+      .replace(/\D/g, '');
+  };
+
+  const getPhoneVariants = (
+    value: any,
+  ): string[] => {
+    const normalized =
+      normalizePhone(value);
+
+    if (!normalized) {
+      return [];
+    }
+
+    const variants = new Set<string>();
+
+    variants.add(normalized);
+
+    // Last 10 digits helps when one side contains
+    // +91 / country code and the other does not.
+    if (normalized.length >= 10) {
+      variants.add(
+        normalized.slice(-10),
+      );
+    }
+
+    return [
+      ...variants,
+    ];
+  };
+
+  const round2 = (
+    value: number,
+  ): number => {
+    return Number(
+      (Number(value) || 0).toFixed(2),
+    );
+  };
+
+  // =========================================================
+  // DATE RANGE
+  // =========================================================
+
+  const getFilterRange = (
+    filter: any,
+  ) => {
+    const value = String(
+      filter || '',
+    ).toLowerCase();
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (value === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(
+        startDate.getDate() - 6,
+      );
+      startDate.setHours(
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'month') {
+      // Current calendar month: 1st -> today
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (value === 'year') {
+      // Current calendar year: Jan 1 -> today
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+      );
+
+      endDate = new Date(now);
+      endDate.setHours(
+        23,
+        59,
+        59,
+        999,
+      );
+    } else {
+      throw new BadRequestException(
+        `Invalid date filter: ${filter}`,
+      );
+    }
+
+    return {
+      $gte: startDate,
+      $lte: endDate,
+    };
+  };
+
+  const getCustomRange = (
+    fromValue: any,
+    toValue: any,
+  ) => {
+    if (
+      !fromValue ||
+      !toValue
+    ) {
+      throw new BadRequestException(
+        'fromDate and toDate are both required',
+      );
+    }
+
+    const startDate =
+      new Date(fromValue);
+
+    const endDate =
+      new Date(toValue);
+
+    if (
+      Number.isNaN(
+        startDate.getTime(),
+      ) ||
+      Number.isNaN(
+        endDate.getTime(),
+      )
+    ) {
+      throw new BadRequestException(
+        'Invalid custom date range',
+      );
+    }
+
+    startDate.setHours(
+      0,
+      0,
+      0,
+      0,
+    );
+
+    endDate.setHours(
+      23,
+      59,
+      59,
+      999,
+    );
+
+    if (
+      startDate > endDate
+    ) {
+      throw new BadRequestException(
+        'fromDate cannot be greater than toDate',
+      );
+    }
+
+    const diffDays =
+      Math.floor(
+        (
+          endDate.getTime() -
+          startDate.getTime()
+        ) /
+          (1000 *
+            60 *
+            60 *
+            24),
+      ) + 1;
+
+    if (diffDays > 31) {
+      throw new BadRequestException(
+        'Date range cannot be more than 31 days',
+      );
+    }
+
+    return {
+      $gte: startDate,
+      $lte: endDate,
+    };
+  };
+
+  let dateRange: any;
+
+  if (
+    query.fromDate ||
+    query.toDate
+  ) {
+    dateRange =
+      getCustomRange(
+        query.fromDate,
+        query.toDate,
+      );
+  } else {
+    dateRange =
+      getFilterRange(
+        query.dateFilter ||
+          'today',
+      );
+  }
+
+  const startDate =
+    dateRange.$gte;
+
+  const endDate =
+    dateRange.$lte;
+
+  // =========================================================
+  // PAGINATION
+  // =========================================================
+
+  const page = Math.max(
+    1,
+    Number(query.page) || 1,
+  );
+
+  const limit = Math.min(
+    100,
+    Math.max(
+      1,
+      Number(query.limit) || 10,
+    ),
+  );
+
+  const skip =
+    (page - 1) * limit;
+
+  // =========================================================
+  // LEVEL FILTER
+  // =========================================================
+
+  const levelNumber =
+    query.level !==
+      undefined &&
+    query.level !== null &&
+    query.level !== ''
+      ? this.resolveLevel(
+          query.level,
+        )
+      : null;
+
+  if (
+    query.level !==
+      undefined &&
+    levelNumber === null
+  ) {
+    return {
+      startDate,
+      endDate,
+      dateFilter:
+        query.dateFilter ||
+        'today',
+      level: null,
+      team: false,
+      page,
+      limit,
+      totalEmployees: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+      totalLeads: 0,
+      totalRegistrationDone: 0,
+      totalAdmissionDone: 0,
+      totalRevenue: 0,
+      registrationPercentage: 0,
+      conversionPercentage: 0,
+      data: [],
+    };
+  }
+
+  // =========================================================
+  // TEAM FILTER
+  // =========================================================
+
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
+  // =========================================================
+  // ROOT ACTIVE EMPLOYEES
+  //
+  // IMPORTANT:
+  // We start from ACTIVE employees.
+  //
+  // If level is supplied:
+  // only active employees belonging to that level.
+  //
+  // If employeeId/counsellorId is supplied:
+  // only that employee becomes the root.
+  // =========================================================
+
+  const requestedEmployeeId =
+    query.counsellorId ||
+    query.assignedTo ||
+    query.employeeId;
+
+  // =========================================================
+  // ACCESS CONTROL
+  //
+  // ADMIN:
+  //   Can view all active employees.
+  //
+  // BD:
+  //   Can view only himself and his complete hierarchy.
+  // =========================================================
+
+  const loggedInRole =
+    typeof user?.role === 'object'
+      ? String(
+          user?.role?.name ||
+            '',
+        )
+          .trim()
+          .toLowerCase()
+      : String(
+          user?.role ||
+            user?.roleName ||
+            '',
+        )
+          .trim()
+          .toLowerCase();
+
+  const isAdmin =
+    loggedInRole === 'admin';
+
+  const isBd =
+    loggedInRole === 'bd';
+
+  const loggedInUserId =
+    toIdString(
+      user?._id ||
+        user?.userId ||
+        user?.id,
+    );
+
+  const userMatch: any = {
+    status: 'active',
+  };
+
+  if (
+    levelNumber !== null
+  ) {
+    const levelUserIds =
+      await this.getUserIdsByRoleLevel(
+        levelNumber,
+      );
+
+    if (
+      !levelUserIds?.length
+    ) {
+      return {
+        startDate,
+        endDate,
+        dateFilter:
+          query.dateFilter ||
+          'today',
+        level: levelNumber,
+        team: isTeam,
+        page,
+        limit,
+        totalEmployees: 0,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: false,
+        totalLeads: 0,
+        totalRegistrationDone: 0,
+        totalAdmissionDone: 0,
+        totalRevenue: 0,
+        registrationPercentage: 0,
+        conversionPercentage: 0,
+        data: [],
+      };
+    }
+
+    userMatch._id = {
+      $in: levelUserIds,
+    };
+  }
+
+  if (
+    requestedEmployeeId &&
+    Types.ObjectId.isValid(
+      String(
+        requestedEmployeeId,
+      ),
+    )
+  ) {
+    userMatch._id =
+      new Types.ObjectId(
+        String(
+          requestedEmployeeId,
+        ),
+      );
+  }
+
+  // ---------------------------------------------------------
+  // BD ACCESS
+  // ---------------------------------------------------------
+
+  if (
+    isBd &&
+    !isAdmin
+  ) {
+    if (
+      !loggedInUserId ||
+      !Types.ObjectId.isValid(
+        loggedInUserId,
+      )
+    ) {
+      throw new BadRequestException(
+        'Logged-in BD employee ID is invalid',
+      );
+    }
+
+    const bdHierarchy =
+      await this.getUserAndSubordinateIds(
+        loggedInUserId,
+      );
+
+    const bdAllowedIds =
+      new Set<string>(
+        validIds([
+          loggedInUserId,
+          ...(bdHierarchy || []),
+        ]),
+      );
+
+    // If a specific employee is requested,
+    // it must belong to the BD hierarchy.
+    if (
+      requestedEmployeeId
+    ) {
+      const requestedId =
+        toIdString(
+          requestedEmployeeId,
+        );
+
+      if (
+        !requestedId ||
+        !bdAllowedIds.has(
+          requestedId,
+        )
+      ) {
+        throw new BadRequestException(
+          'You are not allowed to view this employee data',
+        );
+      }
+
+      userMatch._id =
+        requestedId;
+    } else {
+      // No employee selected:
+      // BD gets ONLY his own hierarchy.
+      userMatch._id = {
+        $in:
+          Array.from(
+            bdAllowedIds,
+          ),
+      };
+    }
+  }
+
+  const rootUsers =
+    await this.userModel
+      .find(userMatch)
+      .select(
+        '_id name email employeeId role status',
+      )
+      .lean();
+
+  if (!rootUsers.length) {
+    return {
+      startDate,
+      endDate,
+      dateFilter:
+        query.dateFilter ||
+        'today',
+      level: levelNumber,
+      team: isTeam,
+      page,
+      limit,
+      totalEmployees: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+      totalLeads: 0,
+      totalRegistrationDone: 0,
+      totalAdmissionDone: 0,
+      totalRevenue: 0,
+      registrationPercentage: 0,
+      conversionPercentage: 0,
+      data: [],
+    };
+  }
+
+  // =========================================================
+  // BUILD COMPLETE ACTIVE TEAM FOR EACH ROOT
+  //
+  // team=false:
+  //   root itself only
+  //
+  // team=true:
+  //   root + all active descendants
+  //
+  // teamSize:
+  //   descendants only
+  //   NEVER includes root employee
+  // =========================================================
+
+  const teamMap =
+    new Map<
+      string,
+      string[]
+    >();
+
+  const teamSizeMap =
+    new Map<
+      string,
+      number
+    >();
+
+  const employeeLookup =
+    new Map<
+      string,
+      any
+    >();
+
+  rootUsers.forEach(
+    (employee: any) => {
+      employeeLookup.set(
+        employee._id.toString(),
+        employee,
+      );
+    },
+  );
+
+  for (const rootUser of rootUsers) {
+    const rootId =
+      rootUser._id.toString();
+
+    let memberIds: string[] = [
+      rootId,
+    ];
+
+    if (isTeam) {
+      const subordinateIds =
+        await this.getUserAndSubordinateIds(
+          rootId,
+        );
+
+      const uniqueIds: string[] =
+        validIds([
+          rootId,
+          ...(subordinateIds || []),
+        ]);
+
+      // Only ACTIVE employees are allowed
+      const activeMembers =
+        await this.userModel
+          .find({
+            _id: {
+              $in: uniqueIds,
+            },
+            status: 'active',
+          })
+          .select('_id')
+          .lean();
+
+      const activeIds =
+        activeMembers.map(
+          (item: any) =>
+            item._id.toString(),
+        );
+
+      // Root itself should always be present
+      if (
+        !activeIds.includes(
+          rootId,
+        )
+      ) {
+        activeIds.push(
+          rootId,
+        );
+      }
+
+      memberIds = [
+        ...new Set(
+          activeIds,
+        ),
+      ];
+    }
+
+    teamMap.set(
+      rootId,
+      memberIds,
+    );
+
+    // IMPORTANT:
+    // teamSize = descendants only
+    teamSizeMap.set(
+      rootId,
+      Math.max(
+        0,
+        memberIds.length - 1,
+      ),
+    );
+  }
+
+  // =========================================================
+  // ALL EMPLOYEES WHO CAN OWN LEADS
+  // =========================================================
+
+  const allAllowedUserIds = [
+    ...new Set(
+      Array.from(
+        teamMap.values(),
+      )
+        .flat()
+        .map((id) =>
+          String(id),
+        ),
+    ),
+  ];
+
+  // =========================================================
+  // SELECT LEADS
+  //
+  // VERY IMPORTANT:
+  //
+  // Lead selection is ALWAYS based on:
+  //   assignedTo + assignedDate
+  //
+  // team=false:
+  //   root employee's assigned leads
+  //
+  // team=true:
+  //   root + complete active subtree's assigned leads
+  //
+  // We do NOT filter leads by createdAt.
+  // =========================================================
+
+  const leadMatch: any = {
+    normalizedAssignedTo: {
+      $in: allAllowedUserIds,
+    },
+
+    assignedDate: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  };
+
+  if (query.state) {
+    leadMatch.state = {
+      $regex: String(
+        query.state,
+      ),
+      $options: 'i',
+    };
+  }
+
+  if (query.source) {
+    leadMatch.source =
+      query.source;
+  }
+
+  if (query.source_campaign) {
+    leadMatch.source_campaign =
+      query.source_campaign;
+  }
+
+  if (query.status) {
+    leadMatch.status =
+      query.status;
+  }
+
+  if (
+    query.stageId &&
+    Types.ObjectId.isValid(
+      String(
+        query.stageId,
+      ),
+    )
+  ) {
+    leadMatch.stageId =
+      new Types.ObjectId(
+        String(
+          query.stageId,
+        ),
+      );
+  }
+
+  const selectedLeads =
+    await this.leadModel.aggregate([
+      {
+        $addFields: {
+          normalizedAssignedTo: {
+            $convert: {
+              input:
+                '$assignedTo',
+              to: 'string',
+              onError: null,
+              onNull: null,
+            },
+          },
+        },
+      },
+
+      {
+        $match: leadMatch,
+      },
+
+      {
+        $project: {
+          _id: 1,
+          leadId: 1,
+          name: 1,
+          phone: 1,
+          mobile: 1,
+          email: 1,
+          state: 1,
+          source: 1,
+          source_campaign: 1,
+          status: 1,
+          stageId: 1,
+          assignedTo: 1,
+          assignedDate: 1,
+          createdAt: 1,
+        },
+      },
+    ]);
+
+  // =========================================================
+  // DEBUGGING INFORMATION
+  // =========================================================
+
+  console.log(
+    '[stateWiseEmployeeReport] Root employees:',
+    rootUsers.length,
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Root employee IDs:',
+    rootUsers.map(
+      (item: any) =>
+        item._id.toString(),
+    ),
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Team:',
+    isTeam,
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Allowed employees:',
+    allAllowedUserIds.length,
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Selected leads:',
+    selectedLeads.length,
+  );
+
+  // =========================================================
+  // ACTIVE EMPLOYEE INFORMATION
+  //
+  // Fetch ALL employees that can own the selected leads.
+  // This is important because team members may not be rootUsers.
+  // =========================================================
+
+  const activeEmployeeIds: string[] =
+    validIds([
+      ...allAllowedUserIds,
+      ...selectedLeads.map(
+        (lead: any) =>
+          toIdString(lead?.assignedTo),
+      ),
+    ]);
+
+  const activeEmployees =
+    activeEmployeeIds.length
+      ? await this.userModel
+          .find({
+            _id: {
+              $in: activeEmployeeIds,
+            },
+            status: 'active',
+          })
+          .select(
+            '_id name email employeeId role status',
+          )
+          .lean()
+      : [];
+
+  const employeeInfoMap =
+    new Map<string, any>();
+
+  activeEmployees.forEach(
+    (employee: any) => {
+      employeeInfoMap.set(
+        employee._id.toString(),
+        employee,
+      );
+    },
+  );
+
+  // =========================================================
+  // STAGES
+  // =========================================================
+
+  const stageIds =
+    [
+      ...new Set(
+        selectedLeads
+          .map(
+            (lead: any) => {
+              if (
+                !lead.stageId
+              ) {
+                return null;
+              }
+
+              const id =
+                toIdString(
+                  lead.stageId,
+                );
+
+              if (
+                !id ||
+                !Types.ObjectId.isValid(
+                  id,
+                )
+              ) {
+                return null;
+              }
+
+              return id;
+            },
+          )
+          .filter(Boolean),
+      ),
+    ] as string[];
+
+  const stages =
+    stageIds.length
+      ? await this.leadStageModel
+          .find({
+            _id: {
+              $in: stageIds,
+            },
+          })
+          .select(
+            '_id name',
+          )
+          .lean()
+      : [];
+
+  const stageMap =
+    new Map<
+      string,
+      string
+    >();
+
+  stages.forEach(
+    (stage: any) => {
+      stageMap.set(
+        stage._id.toString(),
+        stage.name ||
+          'Unknown',
+      );
+    },
+  );
+
+  // =========================================================
+  // PREPARE LEAD CONTACT MAPS
+  //
+  // We use:
+  //   lead.email
+  //   lead.phone
+  //   lead.mobile
+  //
+  // Orders can match using email OR number.
+  // =========================================================
+
+  const leadByEmail =
+    new Map<
+      string,
+      any[]
+    >();
+
+  const leadByPhone =
+    new Map<
+      string,
+      any[]
+    >();
+
+  selectedLeads.forEach(
+    (lead: any) => {
+      const email =
+        normalizeEmail(
+          lead.email,
+        );
+
+      if (email) {
+        const existing =
+          leadByEmail.get(
+            email,
+          ) || [];
+
+        existing.push(
+          lead,
+        );
+
+        leadByEmail.set(
+          email,
+          existing,
+        );
+      }
+
+      const phoneValues = [
+        lead.phone,
+        lead.mobile,
+      ];
+
+      for (const phone of phoneValues) {
+        const variants =
+          getPhoneVariants(
+            phone,
+          );
+
+        for (const variant of variants) {
+          const existing =
+            leadByPhone.get(
+              variant,
+            ) || [];
+
+          // Avoid adding same lead twice
+          if (
+            !existing.some(
+              (item) =>
+                item._id.toString() ===
+                lead._id.toString(),
+            )
+          ) {
+            existing.push(
+              lead,
+            );
+          }
+
+          leadByPhone.set(
+            variant,
+            existing,
+          );
+        }
+      }
+    },
+  );
+
+  // =========================================================
+  // GET ORDERS OF SELECTED LEADS
+  //
+  // IMPORTANT:
+  //
+  // We do NOT apply order date here.
+  //
+  // Requirement:
+  // 1. Get leads assigned to employees in date range.
+  // 2. Find orders belonging to those leads.
+  //
+  // Matching:
+  //   lead email OR lead phone/mobile
+  //
+  // Revenue:
+  //   LOAN    -> loanDetails.disbursementAmount
+  //   LUMPSUM -> lumpsumDetails.totalReceived
+  // =========================================================
+
+  let orderResults: any[] = [];
+
+  const leadEmails =
+    [
+      ...new Set(
+        selectedLeads
+          .map(
+            (lead: any) =>
+              normalizeEmail(
+                lead.email,
+              ),
+          )
+          .filter(Boolean),
+      ),
+    ];
+
+  const leadPhones =
+    [
+      ...new Set(
+        selectedLeads
+          .flatMap(
+            (lead: any) => [
+              ...getPhoneVariants(
+                lead.phone,
+              ),
+              ...getPhoneVariants(
+                lead.mobile,
+              ),
+            ],
+          )
+          .filter(Boolean),
+      ),
+    ];
+
+  if (
+    leadEmails.length ||
+    leadPhones.length
+  ) {
+    orderResults =
+      await this.orderModel.aggregate([
+        {
+          $addFields: {
+            normalizedEmail: {
+              $toLower: {
+                $trim: {
+                  input: {
+                    $ifNull: [
+                      '$email',
+                      '',
+                    ],
+                  },
+                },
+              },
+            },
+
+            normalizedMobile: {
+              $convert: {
+                input:
+                  '$mobile',
+                to: 'string',
+                onError: '',
+                onNull: '',
+              },
+            },
+
+            normalizedPhone: {
+              $convert: {
+                input:
+                  '$phone',
+                to: 'string',
+                onError: '',
+                onNull: '',
+              },
+            },
+
+            calculatedRevenue: {
+              $switch: {
+                branches: [
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LOAN,
+                      ],
+                    },
+                    then: {
+                      $convert: {
+                        input:
+                          '$loanDetails.disbursementAmount',
+                        to: 'double',
+                        onError: 0,
+                        onNull: 0,
+                      },
+                    },
+                  },
+
+                  {
+                    case: {
+                      $eq: [
+                        '$paymentMode',
+                        PaymentMode.LUMPSUM,
+                      ],
+                    },
+                    then: {
+                      $convert: {
+                        input:
+                          '$lumpsumDetails.totalReceived',
+                        to: 'double',
+                        onError: 0,
+                        onNull: 0,
+                      },
+                    },
+                  },
+                ],
+                default: 0,
+              },
+            },
+          },
+        },
+
+        {
+          $match: {
+            Approved: true,
+
+            $or: [
+              ...(leadEmails.length
+                ? [
+                    {
+                      normalizedEmail: {
+                        $in:
+                          leadEmails,
+                      },
+                    },
+                  ]
+                : []),
+
+              ...(leadPhones.length
+                ? [
+                    {
+                      normalizedMobile: {
+                        $in:
+                          leadPhones,
+                      },
+                    },
+
+                    {
+                      normalizedPhone: {
+                        $in:
+                          leadPhones,
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        },
+
+        {
+          $project: {
+            _id: 1,
+            email: 1,
+            mobile: 1,
+            phone: 1,
+            counsellorId: 1,
+            paymentMode: 1,
+            calculatedRevenue: 1,
+          },
+        },
+      ]);
+  }
+
+  console.log(
+    '[stateWiseEmployeeReport] Selected lead emails:',
+    leadEmails.length,
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Selected lead phones:',
+    leadPhones.length,
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Matching approved orders:',
+    orderResults.length,
+  );
+
+  // =========================================================
+  // MAP ORDER -> LEAD
+  //
+  // IMPORTANT:
+  // Revenue is assigned to the ACTUAL matching lead.
+  //
+  // This fixes the old bug where revenue was only assigned
+  // when employeeLeads.length === 1.
+  // =========================================================
+
+  const revenueByLeadId =
+    new Map<
+      string,
+      number
+    >();
+
+  const matchedOrderIds =
+    new Set<string>();
+
+  orderResults.forEach(
+    (order: any) => {
+      const email =
+        normalizeEmail(
+          order.email,
+        );
+
+      const phoneValues = [
+        order.mobile,
+        order.phone,
+      ];
+
+      let matchedLeads: any[] =
+        [];
+
+      // Prefer email match
+      if (email) {
+        matchedLeads =
+          leadByEmail.get(
+            email,
+          ) || [];
+      }
+
+      // If email did not match,
+      // try phone/mobile.
+      if (
+        !matchedLeads.length
+      ) {
+        for (const phone of phoneValues) {
+          const variants =
+            getPhoneVariants(
+              phone,
+            );
+
+          for (const variant of variants) {
+            const matches =
+              leadByPhone.get(
+                variant,
+              ) || [];
+
+            if (
+              matches.length
+            ) {
+              matchedLeads =
+                matches;
+              break;
+            }
+          }
+
+          if (
+            matchedLeads.length
+          ) {
+            break;
+          }
+        }
+      }
+
+      if (
+        !matchedLeads.length
+      ) {
+        return;
+      }
+
+      const revenue =
+        Number(
+          order.calculatedRevenue,
+        ) || 0;
+
+      // Normally one contact belongs to one lead.
+      // If duplicate leads have the same contact,
+      // assign the order only once to avoid revenue
+      // being duplicated.
+      const matchedLead =
+        matchedLeads[0];
+
+      const leadId =
+        matchedLead._id.toString();
+
+      revenueByLeadId.set(
+        leadId,
+        (
+          revenueByLeadId.get(
+            leadId,
+          ) || 0
+        ) + revenue,
+      );
+
+      if (order._id) {
+        matchedOrderIds.add(
+          order._id.toString(),
+        );
+      }
+    },
+  );
+
+  console.log(
+    '[stateWiseEmployeeReport] Orders mapped to leads:',
+    matchedOrderIds.size,
+  );
+
+  // =========================================================
+  // EMPLOYEE STATS
+  // =========================================================
+
+  const employeeStats =
+    new Map<
+      string,
+      any
+    >();
+
+  const createStateStats =
+    (
+      stateName: string,
+    ) => ({
+      state:
+        stateName ||
+        'Unknown',
+
+      totalLeads: 0,
+
+      pcatScheduled: 0,
+
+      pcatDone: 0,
+
+      registrationDone: 0,
+
+      admissionDone: 0,
+
+      revenue: 0,
+
+      stages: {},
+    });
+
+  const ensureEmployee =
+    (
+      employeeId: string,
+    ) => {
+      if (
+        !employeeStats.has(
+          employeeId,
+        )
+      ) {
+        employeeStats.set(
+          employeeId,
+          {
+            totalLeads: 0,
+
+            pcatScheduled: 0,
+
+            pcatDone: 0,
+
+            registrationDone: 0,
+
+            admissionDone: 0,
+
+            totalRevenue: 0,
+
+            statesMap:
+              new Map<
+                string,
+                any
+              >(),
+          },
+        );
+      }
+
+      return employeeStats.get(
+        employeeId,
+      );
+    };
+
+  // =========================================================
+  // PROCESS EVERY SELECTED LEAD
+  // =========================================================
+
+  selectedLeads.forEach(
+    (lead: any) => {
+      const employeeId =
+        toIdString(
+          lead.assignedTo,
+        );
+
+      if (!employeeId) {
+        return;
+      }
+
+      // Only active employees
+      const employee =
+        employeeInfoMap.get(
+          employeeId,
+        );
+
+      if (!employee) {
+        return;
+      }
+
+      const stats =
+        ensureEmployee(
+          employeeId,
+        );
+
+      const state =
+        lead.state ||
+        'Unknown';
+
+      if (
+        !stats.statesMap.has(
+          state,
+        )
+      ) {
+        stats.statesMap.set(
+          state,
+          createStateStats(
+            state,
+          ),
+        );
+      }
+
+      const stateStats =
+        stats.statesMap.get(
+          state,
+        );
+
+      // -------------------------------------------------------
+      // LEAD COUNT
+      // -------------------------------------------------------
+
+      stats.totalLeads += 1;
+
+      stateStats.totalLeads += 1;
+
+      // -------------------------------------------------------
+      // STAGE
+      // -------------------------------------------------------
+
+      const stageName =
+        lead.stageId
+          ? stageMap.get(
+              toIdString(
+                lead.stageId,
+              ) || '',
+            ) ||
+            'Unknown'
+          : 'Unknown';
+
+      stateStats.stages[
+        stageName
+      ] =
+        (
+          stateStats.stages[
+            stageName
+          ] || 0
+        ) + 1;
+
+      const normalizedStage =
+        String(
+          stageName,
+        )
+          .toLowerCase()
+          .trim()
+          .replace(
+            /\s+/g,
+            ' ',
+          );
+
+      // -------------------------------------------------------
+      // PCAT SCHEDULED
+      // -------------------------------------------------------
+
+      if (
+        normalizedStage ===
+          'pcat schedule' ||
+        normalizedStage ===
+          'pcat scheduled'
+      ) {
+        stats.pcatScheduled += 1;
+
+        stateStats.pcatScheduled +=
+          1;
+      }
+
+      // -------------------------------------------------------
+      // PCAT DONE
+      // -------------------------------------------------------
+
+      if (
+        normalizedStage ===
+          'pcat done'
+      ) {
+        stats.pcatDone += 1;
+
+        stateStats.pcatDone += 1;
+      }
+
+      // -------------------------------------------------------
+      // REGISTRATION DONE
+      // -------------------------------------------------------
+
+      if (
+        normalizedStage ===
+          'registration done'
+      ) {
+        stats.registrationDone +=
+          1;
+
+        stateStats.registrationDone +=
+          1;
+      }
+
+      // -------------------------------------------------------
+      // ADMISSION DONE
+      // -------------------------------------------------------
+
+      if (
+        normalizedStage ===
+          'admission done'
+      ) {
+        stats.admissionDone +=
+          1;
+
+        stateStats.admissionDone +=
+          1;
+      }
+
+      // -------------------------------------------------------
+      // REVENUE FOR THIS EXACT LEAD
+      // -------------------------------------------------------
+
+      const leadId =
+        lead._id.toString();
+
+      const leadRevenue =
+        Number(
+          revenueByLeadId.get(
+            leadId,
+          ) || 0,
+        );
+
+      if (
+        leadRevenue > 0
+      ) {
+        stats.totalRevenue +=
+          leadRevenue;
+
+        stateStats.revenue +=
+          leadRevenue;
+      }
+    },
+  );
+
+  // =========================================================
+  // MAKE SURE EVERY ACTIVE EMPLOYEE EXISTS
+  //
+  // This is important:
+  //
+  // An active employee with 0 leads must still appear.
+  // =========================================================
+
+  activeEmployees.forEach(
+    (employee: any) => {
+      const employeeId =
+        employee._id.toString();
+
+      ensureEmployee(
+        employeeId,
+      );
+    },
+  );
+
+  // =========================================================
+  // BUILD INDIVIDUAL EMPLOYEE REPORT
+  // =========================================================
+
+  const individualEmployeeMap =
+    new Map<
+      string,
+      any
+    >();
+
+  employeeStats.forEach(
+    (
+      stats: any,
+      employeeId: string,
+    ) => {
+      const employee =
+        employeeInfoMap.get(
+          employeeId,
+        );
+
+      if (!employee) {
+        return;
+      }
+
+      const states =
+        Array.from(
+          stats.statesMap.values(),
+        )
+          .map(
+            (state: any) => {
+              const conversionPercentage =
+                state.totalLeads >
+                0
+                  ? round2(
+                      (
+                        state.admissionDone /
+                        state.totalLeads
+                      ) * 100,
+                    )
+                  : 0;
+
+              const registrationConversionPercentage =
+                state.totalLeads >
+                0
+                  ? round2(
+                      (
+                        state.registrationDone /
+                        state.totalLeads
+                      ) * 100,
+                    )
+                  : 0;
+
+              return {
+                ...state,
+
+                revenue:
+                  Number(
+                    state.revenue,
+                  ) || 0,
+
+                conversionPercentage,
+
+                registrationConversionPercentage,
+              };
+            },
+          )
+          .sort(
+            (
+              a: any,
+              b: any,
+            ) =>
+              b.totalLeads -
+              a.totalLeads,
+          );
+
+      const totalRegistrationDone =
+        Number(
+          stats.registrationDone ||
+            0,
+        );
+
+      const totalAdmissionDone =
+        Number(
+          stats.admissionDone ||
+            0,
+        );
+
+      const totalLeads =
+        Number(
+          stats.totalLeads ||
+            0,
+        );
+
+      const totalRevenue =
+        states.reduce(
+          (
+            sum: number,
+            state: any,
+          ) =>
+            sum +
+            (
+              Number(
+                state.revenue,
+              ) || 0
+            ),
+          0,
+        );
+
+      individualEmployeeMap.set(
+        employeeId,
+        {
+          employeeId,
+
+          employeeName:
+            employee.name ||
+            'Unknown',
+
+          employeeEmail:
+            employee.email ||
+            '',
+
+          employeeCode:
+            employee.employeeId ||
+            '',
+
+          totalLeads,
+
+          totalAdmissionDone,
+
+          totalRegistrationDone,
+
+          totalRevenue:
+            round2(
+              totalRevenue,
+            ),
+
+          conversionPercentage:
+            totalLeads > 0
+              ? round2(
+                  (
+                    totalAdmissionDone /
+                    totalLeads
+                  ) * 100,
+                )
+              : 0,
+
+          registrationConversionPercentage:
+            totalLeads > 0
+              ? round2(
+                  (
+                    totalRegistrationDone /
+                    totalLeads
+                  ) * 100,
+                )
+              : 0,
+
+          states,
+        },
+      );
+    },
+  );
+
+  // =========================================================
+  // BUILD FINAL REPORT
+  //
+  // TEAM = FALSE
+  //   Each root employee's own leads
+  //
+  // TEAM = TRUE
+  //   Each root employee gets:
+  //   root + complete active subtree
+  // =========================================================
+
+  let report: any[] = [];
+
+  if (!isTeam) {
+    report =
+      rootUsers.map(
+        (rootUser: any) => {
+          const rootId =
+            rootUser._id.toString();
+
+          const employee =
+            individualEmployeeMap.get(
+              rootId,
+            );
+
+          const stats =
+            employee ||
+            {
+              employeeId:
+                rootId,
+
+              employeeName:
+                rootUser.name ||
+                'Unknown',
+
+              employeeEmail:
+                rootUser.email ||
+                '',
+
+              employeeCode:
+                rootUser.employeeId ||
+                '',
+
+              totalLeads: 0,
+
+              totalAdmissionDone: 0,
+
+              totalRegistrationDone: 0,
+
+              totalRevenue: 0,
+
+              conversionPercentage: 0,
+
+              registrationConversionPercentage: 0,
+
+              states: [],
+            };
+
+          return {
+            ...stats,
+
+            employeeId:
+              rootId,
+
+            team: false,
+
+            teamSize:
+              teamSizeMap.get(
+                rootId,
+              ) || 0,
+          };
+        },
+      );
+  } else {
+    report =
+      rootUsers.map(
+        (rootUser: any) => {
+          const rootId =
+            rootUser._id.toString();
+
+          const memberIds =
+            teamMap.get(
+              rootId,
+            ) || [rootId];
+
+          // ---------------------------------------------------
+          // COMBINED TEAM STATS
+          // ---------------------------------------------------
+
+          let totalLeads = 0;
+
+          let totalAdmissionDone = 0;
+
+          let totalRegistrationDone = 0;
+
+          let totalRevenue = 0;
+
+          const combinedStates =
+            new Map<
+              string,
+              any
+            >();
+
+          memberIds.forEach(
+            (
+              memberId: string,
+            ) => {
+              const member =
+                individualEmployeeMap.get(
+                  memberId,
+                );
+
+              if (!member) {
+                return;
+              }
+
+              totalLeads +=
+                Number(
+                  member.totalLeads ||
+                    0,
+                );
+
+              totalAdmissionDone +=
+                Number(
+                  member.totalAdmissionDone ||
+                    0,
+                );
+
+              totalRegistrationDone +=
+                Number(
+                  member.totalRegistrationDone ||
+                    0,
+                );
+
+              totalRevenue +=
+                Number(
+                  member.totalRevenue ||
+                    0,
+                );
+
+              (
+                member.states ||
+                []
+              ).forEach(
+                (
+                  state: any,
+                ) => {
+                  const stateName =
+                    state.state ||
+                    'Unknown';
+
+                  if (
+                    !combinedStates.has(
+                      stateName,
+                    )
+                  ) {
+                    combinedStates.set(
+                      stateName,
+                      createStateStats(
+                        stateName,
+                      ),
+                    );
+                  }
+
+                  const target =
+                    combinedStates.get(
+                      stateName,
+                    );
+
+                  target.totalLeads +=
+                    Number(
+                      state.totalLeads ||
+                        0,
+                    );
+
+                  target.pcatScheduled +=
+                    Number(
+                      state.pcatScheduled ||
+                        0,
+                    );
+
+                  target.pcatDone +=
+                    Number(
+                      state.pcatDone ||
+                        0,
+                    );
+
+                  target.registrationDone +=
+                    Number(
+                      state.registrationDone ||
+                        0,
+                    );
+
+                  target.admissionDone +=
+                    Number(
+                      state.admissionDone ||
+                        0,
+                    );
+
+                  target.revenue +=
+                    Number(
+                      state.revenue ||
+                        0,
+                    );
+
+                  Object.entries(
+                    state.stages ||
+                      {},
+                  ).forEach(
+                    ([
+                      stageName,
+                      count,
+                    ]) => {
+                      target.stages[
+                        stageName
+                      ] =
+                        (
+                          target.stages[
+                            stageName
+                          ] || 0
+                        ) +
+                        Number(
+                          count,
+                        );
+                    },
+                  );
+                },
+              );
+            },
+          );
+
+          // ---------------------------------------------------
+          // FINAL TEAM STATES
+          // ---------------------------------------------------
+
+          const states =
+            Array.from(
+              combinedStates.values(),
+            )
+              .map(
+                (state: any) => ({
+                  ...state,
+
+                  revenue:
+                    round2(
+                      Number(
+                        state.revenue ||
+                          0,
+                      ),
+                    ),
+
+                  conversionPercentage:
+                    state.totalLeads >
+                    0
+                      ? round2(
+                          (
+                            state.admissionDone /
+                            state.totalLeads
+                          ) * 100,
+                        )
+                      : 0,
+
+                  registrationConversionPercentage:
+                    state.totalLeads >
+                    0
+                      ? round2(
+                          (
+                            state.registrationDone /
+                            state.totalLeads
+                          ) * 100,
+                        )
+                      : 0,
+                }),
+              )
+              .sort(
+                (
+                  a: any,
+                  b: any,
+                ) =>
+                  b.totalLeads -
+                  a.totalLeads,
+              );
+
+          return {
+            employeeId:
+              rootId,
+
+            employeeName:
+              rootUser.name ||
+              'Unknown',
+
+            employeeEmail:
+              rootUser.email ||
+              '',
+
+            employeeCode:
+              rootUser.employeeId ||
+              '',
+
+            totalLeads,
+
+            totalAdmissionDone,
+
+            totalRegistrationDone,
+
+            totalRevenue:
+              round2(
+                totalRevenue,
+              ),
+
+            conversionPercentage:
+              totalLeads > 0
+                ? round2(
+                    (
+                      totalAdmissionDone /
+                      totalLeads
+                    ) * 100,
+                  )
+                : 0,
+
+            registrationConversionPercentage:
+              totalLeads > 0
+                ? round2(
+                    (
+                      totalRegistrationDone /
+                      totalLeads
+                    ) * 100,
+                  )
+                : 0,
+
+            states,
+
+            team: true,
+
+            // Descendants only.
+            // Root employee is NOT counted.
+            teamSize:
+              teamSizeMap.get(
+                rootId,
+              ) || 0,
+          };
+        },
+      );
+  }
+
+  // =========================================================
+  // SORT
+  // =========================================================
+
+  report.sort(
+    (
+      a: any,
+      b: any,
+    ) => {
+      // First by leads
+      const leadDifference =
+        Number(
+          b.totalLeads || 0,
+        ) -
+        Number(
+          a.totalLeads || 0,
+        );
+
+      if (
+        leadDifference !== 0
+      ) {
+        return leadDifference;
+      }
+
+      // Then revenue
+      return (
+        Number(
+          b.totalRevenue || 0,
+        ) -
+        Number(
+          a.totalRevenue || 0,
+        )
+      );
+    },
+  );
+
+  // =========================================================
+  // GLOBAL STATS
+  //
+  // Calculate BEFORE PAGINATION.
+  // =========================================================
+
+  const totalEmployees =
+    report.length;
+
+  const totalLeads =
+    report.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee.totalLeads ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRegistrationDone =
+    report.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee.totalRegistrationDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalAdmissionDone =
+    report.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee.totalAdmissionDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRevenue =
+    report.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee.totalRevenue ||
+            0,
+        ),
+      0,
+    );
+
+  const registrationPercentage =
+    totalLeads > 0
+      ? round2(
+          (
+            totalRegistrationDone /
+            totalLeads
+          ) * 100,
+        )
+      : 0;
+
+  const conversionPercentage =
+    totalLeads > 0
+      ? round2(
+          (
+            totalAdmissionDone /
+            totalLeads
+          ) * 100,
+        )
+      : 0;
+
+  // =========================================================
+  // PAGINATION
+  //
+  // Pagination is ONLY applied here.
+  // Therefore global revenue/lead/conversion totals
+  // are not affected by page number.
+  // =========================================================
+
+  const totalPages =
+    Math.ceil(
+      totalEmployees /
+        limit,
+    );
+
+  const paginatedReport =
+    report.slice(
+      skip,
+      skip + limit,
+    );
+
+  // =========================================================
+  // FINAL RESPONSE
+  // =========================================================
+
+  return {
+    startDate,
+
+    endDate,
+
+    dateFilter:
+      query.dateFilter ||
+      'today',
+
+    fromDate:
+      startDate,
+
+    toDate:
+      endDate,
+
+    level:
+      levelNumber,
+
+    team:
+      isTeam,
+
+    page,
+
+    limit,
+
+    totalEmployees,
+
+    totalPages,
+
+    hasNextPage:
+      page < totalPages,
+
+    hasPreviousPage:
+      page > 1,
+
+    // Global stats
+    totalLeads,
+
+    totalRegistrationDone,
+
+    totalAdmissionDone,
+
+    totalRevenue:
+      round2(
+        totalRevenue,
+      ),
+
+    registrationPercentage,
+
+    conversionPercentage,
+
+    data:
+      paginatedReport,
+  };
+}
+
+async stateWiseEmployeeTeamReport(
+  query: any = {},
+  loggedInUser: any,
+) {
+  // =========================================================
+  // HELPERS
+  // =========================================================
+
+  const toIdString = (
+    value: any,
+  ): string => {
+    if (!value) {
+      return '';
+    }
+
+    if (
+      typeof value === 'object' &&
+      value._id
+    ) {
+      return String(
+        value._id,
+      );
+    }
+
+    if (
+      typeof value === 'object' &&
+      value.id
+    ) {
+      return String(
+        value.id,
+      );
+    }
+
+    try {
+      return String(value);
+    } catch {
+      return '';
+    }
+  };
+
+  const isValidObjectId = (
+    value: any,
+  ): boolean => {
+    const id =
+      toIdString(value);
+
+    return Boolean(
+      id &&
+        Types.ObjectId.isValid(id),
+    );
+  };
+
+  const getRequestedEmployeeId =
+    (): string => {
+      const value =
+        query.employeeId ||
+        query.counsellorId ||
+        query.assignedTo;
+
+      return toIdString(value);
+    };
+
+  // =========================================================
+  // BASIC QUERY VALUES
+  // =========================================================
+
+  const employeeId =
+    getRequestedEmployeeId();
+
+  const isTeam =
+    query.team === true ||
+    query.team === 'true';
+
+  // =========================================================
+  // EMPLOYEE ID IS REQUIRED
+  // =========================================================
+
+  if (!employeeId) {
+    throw new BadRequestException(
+      'employeeId is required',
+    );
+  }
+
+  if (
+    !Types.ObjectId.isValid(
+      employeeId,
+    )
+  ) {
+    throw new BadRequestException(
+      'Invalid employeeId',
+    );
+  }
+
+  // =========================================================
+  // LOGGED-IN USER ROLE
+  //
+  // Admin:
+  //   Can access everything.
+  //
+  // BD:
+  //   Can access himself and his complete hierarchy only.
+  // =========================================================
+
+  const loggedInRole =
+    typeof loggedInUser?.role ===
+    'object'
+      ? String(
+          loggedInUser?.role?.name ||
+            '',
+        )
+          .trim()
+          .toLowerCase()
+      : String(
+          loggedInUser?.role ||
+            loggedInUser?.roleName ||
+            '',
+        )
+          .trim()
+          .toLowerCase();
+
+  const isAdmin =
+    loggedInRole ===
+    'admin';
+
+  const isBd =
+    loggedInRole ===
+    'bd';
+
+  const loggedInUserId =
+    toIdString(
+      loggedInUser?._id ||
+        loggedInUser?.userId ||
+        loggedInUser?.id,
+    );
+
+  console.log(
+    '[stateWiseEmployeeTeamReport] ACCESS',
+    {
+      loggedInRole,
+      isAdmin,
+      isBd,
+      loggedInUserId,
+      employeeId,
+      team: isTeam,
+    },
+  );
+
+  // =========================================================
+  // GET SELECTED EMPLOYEE
+  // =========================================================
+
+  const parentEmployee =
+    await this.userModel
+      .findOne({
+        _id:
+          new Types.ObjectId(
+            employeeId,
+          ),
+        status: 'active',
+      })
+      .populate(
+        'role',
+        'name level',
+      )
+      .select(
+        '_id name email number employeeId role status createdAt',
+      )
+      .lean();
+
+  if (!parentEmployee) {
+    throw new BadRequestException(
+      'Employee not found or inactive',
+    );
+  }
+
+  // =========================================================
+  // BD ACCESS CONTROL
+  //
+  // Admin bypasses this.
+  //
+  // BD can see:
+  //   himself
+  //   any employee under himself
+  // =========================================================
+
+  if (
+    isBd &&
+    !isAdmin
+  ) {
+    if (
+      !loggedInUserId ||
+      !Types.ObjectId.isValid(
+        loggedInUserId,
+      )
+    ) {
+      throw new BadRequestException(
+        'Logged-in BD employee ID is invalid',
+      );
+    }
+
+    const bdSubordinates =
+      await this.getUserAndSubordinateIds(
+        loggedInUserId,
+      );
+
+    const allowedIds =
+      new Set<string>();
+
+    allowedIds.add(
+      loggedInUserId,
+    );
+
+    for (
+      const item of
+        bdSubordinates || []
+    ) {
+      const id =
+        toIdString(item);
+
+      if (
+        id &&
+        Types.ObjectId.isValid(id)
+      ) {
+        allowedIds.add(id);
+      }
+    }
+
+    console.log(
+      '[stateWiseEmployeeTeamReport] BD hierarchy',
+      {
+        loggedInUserId,
+        allowedCount:
+          allowedIds.size,
+        requestedEmployeeId:
+          employeeId,
+      },
+    );
+
+    if (
+      !allowedIds.has(
+        employeeId,
+      )
+    ) {
+      throw new ForbiddenException(
+        'You are not allowed to view this employee hierarchy',
+      );
+    }
+  }
+
+  let levelNumber:
+    | number
+    | null = null;
+
+  if (
+    query.level !==
+      undefined &&
+    query.level !==
+      null &&
+    query.level !== ''
+  ) {
+    levelNumber =
+      this.resolveLevel(
+        query.level,
+      );
+
+    if (
+      levelNumber === null
+    ) {
+      throw new BadRequestException(
+        'Invalid level',
+      );
+    }
+
+    const levelUserIds =
+      await this.getUserIdsByRoleLevel(
+        levelNumber,
+      );
+
+    const levelIds =
+      new Set<string>();
+
+    for (
+      const item of
+        levelUserIds || []
+    ) {
+      const id =
+        toIdString(item);
+
+      if (
+        id &&
+        Types.ObjectId.isValid(id)
+      ) {
+        levelIds.add(id);
+      }
+    }
+
+    if (
+      !levelIds.has(
+        employeeId,
+      )
+    ) {
+      throw new BadRequestException(
+        'Selected employee does not belong to the requested level',
+      );
+    }
+  }
+
+  // =========================================================
+  // GET DIRECT TEAM
+  //
+  // IMPORTANT:
+  //
+  // getUsersUnder() is used only for direct children.
+  //
+  // We do NOT use getUserAndSubordinateIds() here because
+  // this API should return only one hierarchy level.
+  // =========================================================
+
+  let rawDirectTeam: any[] =
+    [];
+
+  if (isTeam) {
+    rawDirectTeam =
+      await this.userLogic.getUsersUnder(
+        parentEmployee,
+      );
+  }
+
+  console.log(
+    '[stateWiseEmployeeTeamReport] RAW DIRECT TEAM',
+    {
+      parentId: employeeId,
+      count:
+        rawDirectTeam?.length || 0,
+    },
+  );
+
+  // =========================================================
+  // DIRECT TEAM IDS
+  //
+  // Remove:
+  //   - invalid IDs
+  //   - parent itself
+  //   - duplicates
+  // =========================================================
+
+  const directTeamIds =
+    [
+      ...new Set(
+        (
+          rawDirectTeam || []
+        )
+          .map(
+            (employee: any) =>
+              toIdString(
+                employee?._id ||
+                  employee,
+              ),
+          )
+          .filter(
+            (
+              id: string,
+            ) =>
+              Boolean(id) &&
+              Types.ObjectId.isValid(
+                id,
+              ) &&
+              id !== employeeId,
+          ),
+      ),
+    ];
+
+  console.log(
+    '[stateWiseEmployeeTeamReport] DIRECT TEAM IDS',
+    {
+      parentId: employeeId,
+      directTeamIds,
+      count:
+        directTeamIds.length,
+    },
+  );
+
+  // =========================================================
+  // GET ONLY ACTIVE DIRECT EMPLOYEES
+  // =========================================================
+
+  const directEmployees =
+    directTeamIds.length
+      ? await this.userModel
+          .find({
+            _id: {
+              $in:
+                directTeamIds.map(
+                  (
+                    id,
+                  ) =>
+                    new Types.ObjectId(
+                      id,
+                    ),
+                ),
+            },
+            status: 'active',
+          })
+          .populate(
+            'role',
+            'name level',
+          )
+          .select(
+            '_id name email number employeeId role status createdAt',
+          )
+          .lean()
+      : [];
+
+  // =========================================================
+  // REMOVE ANY ACCIDENTAL PARENT DUPLICATE
+  // =========================================================
+
+  const cleanDirectEmployees =
+    directEmployees.filter(
+      (employee: any) =>
+        toIdString(
+          employee?._id,
+        ) !== employeeId,
+    );
+
+  // =========================================================
+  // SORT DIRECT EMPLOYEES
+  //
+  // Name initially.
+  // We will sort again after metrics are loaded.
+  // =========================================================
+
+  cleanDirectEmployees.sort(
+    (
+      a: any,
+      b: any,
+    ) =>
+      String(
+        a?.name || '',
+      ).localeCompare(
+        String(
+          b?.name || '',
+        ),
+      ),
+  );
+
+  console.log(
+    '[stateWiseEmployeeTeamReport] ACTIVE DIRECT TEAM',
+    {
+      parentId: employeeId,
+      count:
+        cleanDirectEmployees.length,
+      employees:
+        cleanDirectEmployees.map(
+          (employee: any) => ({
+            id:
+              toIdString(
+                employee?._id,
+              ),
+            name:
+              employee?.name,
+          }),
+        ),
+    },
+  );
+
+  let parentTeamSize = 0;
+
+  if (isTeam) {
+    const subordinateIds =
+      await this.getUserAndSubordinateIds(
+        employeeId,
+      );
+
+    const uniqueIds =
+      new Set<string>();
+
+    for (
+      const item of
+        subordinateIds || []
+    ) {
+      const id =
+        toIdString(item);
+
+      if (
+        id &&
+        Types.ObjectId.isValid(id) &&
+        id !== employeeId
+      ) {
+        uniqueIds.add(id);
+      }
+    }
+
+    // Count only ACTIVE descendants.
+    if (
+      uniqueIds.size
+    ) {
+      parentTeamSize =
+        await this.userModel.countDocuments(
+          {
+            _id: {
+              $in:
+                Array.from(
+                  uniqueIds,
+                ).map(
+                  (
+                    id,
+                  ) =>
+                    new Types.ObjectId(
+                      id,
+                    ),
+                ),
+            },
+            status: 'active',
+          },
+        );
+    }
+  }
+
+  const buildMetricQuery = (
+    targetEmployeeId: string,
+    includeTeam: boolean,
+  ) => {
+    const metricQuery: any = {
+      employeeId:
+        targetEmployeeId,
+
+      team:
+        includeTeam,
+    };
+
+    // ---------------------------------------------------------
+    // DATE FILTER
+    // ---------------------------------------------------------
+
+    if (
+      query.dateFilter
+    ) {
+      metricQuery.dateFilter =
+        query.dateFilter;
+    }
+
+    if (
+      query.fromDate
+    ) {
+      metricQuery.fromDate =
+        query.fromDate;
+    }
+
+    if (
+      query.toDate
+    ) {
+      metricQuery.toDate =
+        query.toDate;
+    }
+
+    // ---------------------------------------------------------
+    // LEAD FILTERS
+    //
+    // Keep these filters consistent with the main report.
+    // ---------------------------------------------------------
+
+    if (
+      query.state
+    ) {
+      metricQuery.state =
+        query.state;
+    }
+
+    if (
+      query.source
+    ) {
+      metricQuery.source =
+        query.source;
+    }
+
+    if (
+      query.source_campaign
+    ) {
+      metricQuery.source_campaign =
+        query.source_campaign;
+    }
+
+    if (
+      query.status
+    ) {
+      metricQuery.status =
+        query.status;
+    }
+
+    if (
+      query.stageId
+    ) {
+      metricQuery.stageId =
+        query.stageId;
+    }
+
+    return metricQuery;
+  };
+
+  let parentMetricReport: any =
+    null;
+
+  try {
+    const result =
+      await this.stateWiseEmployeeReport(
+        buildMetricQuery(
+          employeeId,
+          true,
+        ),
+        loggedInUser,
+      );
+
+    if (
+      result?.data?.length
+    ) {
+      parentMetricReport =
+        result.data[0];
+    }
+  } catch (error: any) {
+    console.error(
+      '[stateWiseEmployeeTeamReport] Parent metric error',
+      {
+        employeeId,
+        error:
+          error?.message ||
+          error,
+      },
+    );
+
+    throw error;
+  }
+
+  if (!isTeam) {
+    return {
+      success: true,
+
+      startDate:
+        parentMetricReport?.startDate ||
+        null,
+
+      endDate:
+        parentMetricReport?.endDate ||
+        null,
+
+      dateFilter:
+        query.dateFilter ||
+        'today',
+
+      level:
+        levelNumber,
+
+      team: false,
+
+      employeeId,
+
+      parentEmployee: {
+        ...(parentMetricReport || {}),
+
+        employeeId,
+
+        employeeName:
+          parentEmployee?.name ||
+          parentMetricReport?.employeeName ||
+          'Unknown',
+
+        employeeEmail:
+          parentEmployee?.email ||
+          parentMetricReport?.employeeEmail ||
+          null,
+
+        employeeNumber:
+          parentEmployee?.number ||
+          null,
+
+        employeeCode:
+          parentEmployee?.employeeId ||
+          parentMetricReport?.employeeCode ||
+          null,
+
+        team: false,
+
+        teamSize: 0,
+
+        hasTeam:
+          false,
+      },
+
+      data: [],
+
+      totalEmployees: 0,
+    };
+  }
+
+  // =========================================================
+  // GET METRICS FOR EVERY DIRECT EMPLOYEE
+  //
+  // IMPORTANT:
+  //
+  // Each child is requested with team=true.
+  //
+  // Therefore:
+  //
+  // B report =
+  // B + B's complete descendants
+  //
+  // C report =
+  // C + C's complete descendants
+  //
+  // This gives correct drill-down numbers without putting
+  // deeper employees directly inside A's `data`.
+  // =========================================================
+
+  const directReports =
+    await Promise.all(
+      cleanDirectEmployees.map(
+        async (
+          employee: any,
+        ) => {
+          const childId =
+            toIdString(
+              employee?._id,
+            );
+
+          if (
+            !childId ||
+            childId ===
+              employeeId
+          ) {
+            return null;
+          }
+
+          try {
+            const result =
+              await this.stateWiseEmployeeReport(
+                buildMetricQuery(
+                  childId,
+                  true,
+                ),
+                loggedInUser,
+              );
+
+            const metric =
+              result?.data?.[0] ||
+              {};
+
+            // -------------------------------------------------
+            // GET CHILD COMPLETE TEAM SIZE
+            // -------------------------------------------------
+
+            const childSubordinateIds =
+              await this.getUserAndSubordinateIds(
+                childId,
+              );
+
+            const childDescendantIds =
+              new Set<string>();
+
+            for (
+              const item of
+                childSubordinateIds ||
+                []
+            ) {
+              const id =
+                toIdString(item);
+
+              if (
+                id &&
+                Types.ObjectId.isValid(
+                  id,
+                ) &&
+                id !== childId
+              ) {
+                childDescendantIds.add(
+                  id,
+                );
+              }
+            }
+
+            let childTeamSize =
+              0;
+
+            if (
+              childDescendantIds.size
+            ) {
+              childTeamSize =
+                await this.userModel.countDocuments(
+                  {
+                    _id: {
+                      $in:
+                        Array.from(
+                          childDescendantIds,
+                        ).map(
+                          (
+                            id,
+                          ) =>
+                            new Types.ObjectId(
+                              id,
+                            ),
+                        ),
+                    },
+                    status:
+                      'active',
+                  },
+                );
+            }
+
+            return {
+              ...metric,
+
+              employeeId:
+                childId,
+
+              employeeName:
+                employee?.name ||
+                metric?.employeeName ||
+                'Unknown',
+
+              employeeEmail:
+                employee?.email ||
+                metric?.employeeEmail ||
+                null,
+
+              employeeNumber:
+                employee?.number ||
+                null,
+
+              employeeCode:
+                employee?.employeeId ||
+                metric?.employeeCode ||
+                null,
+
+              designation:
+                typeof employee?.role ===
+                'object'
+                  ? employee?.role
+                      ?.name ||
+                    null
+                  : null,
+
+              level:
+                typeof employee?.role ===
+                'object'
+                  ? employee?.role
+                      ?.level ??
+                    null
+                  : null,
+
+              team: true,
+
+              teamSize:
+                childTeamSize,
+
+              hasTeam:
+                childTeamSize > 0,
+            };
+          } catch (error: any) {
+            console.error(
+              '[stateWiseEmployeeTeamReport] Child metric error',
+              {
+                parentId:
+                  employeeId,
+                childId,
+                error:
+                  error?.message ||
+                  error,
+              },
+            );
+
+            // Do not break the entire hierarchy because one
+            // employee has a metric problem.
+            return {
+              employeeId:
+                childId,
+
+              employeeName:
+                employee?.name ||
+                'Unknown',
+
+              employeeEmail:
+                employee?.email ||
+                null,
+
+              employeeNumber:
+                employee?.number ||
+                null,
+
+              employeeCode:
+                employee?.employeeId ||
+                null,
+
+              designation:
+                typeof employee?.role ===
+                'object'
+                  ? employee?.role
+                      ?.name ||
+                    null
+                  : null,
+
+              level:
+                typeof employee?.role ===
+                'object'
+                  ? employee?.role
+                      ?.level ??
+                    null
+                  : null,
+
+              totalLeads: 0,
+
+              totalRegistrationDone:
+                0,
+
+              totalAdmissionDone:
+                0,
+
+              totalRevenue:
+                0,
+
+              registrationConversionPercentage:
+                0,
+
+              conversionPercentage:
+                0,
+
+              states: [],
+
+              team: true,
+
+              teamSize: 0,
+
+              hasTeam: false,
+
+              metricError: true,
+            };
+          }
+        },
+      ),
+    );
+
+  // =========================================================
+  // REMOVE NULLS
+  // =========================================================
+
+  const cleanDirectReports =
+    directReports.filter(
+      (
+        employee,
+      ): employee is any =>
+        Boolean(employee),
+    );
+
+  // =========================================================
+  // SORT
+  //
+  // 1. Leads DESC
+  // 2. Revenue DESC
+  // 3. Name ASC
+  // =========================================================
+
+  cleanDirectReports.sort(
+    (
+      a: any,
+      b: any,
+    ) => {
+      const leadDifference =
+        Number(
+          b?.totalLeads || 0,
+        ) -
+        Number(
+          a?.totalLeads || 0,
+        );
+
+      if (
+        leadDifference !==
+        0
+      ) {
+        return leadDifference;
+      }
+
+      const revenueDifference =
+        Number(
+          b?.totalRevenue || 0,
+        ) -
+        Number(
+          a?.totalRevenue || 0,
+        );
+
+      if (
+        revenueDifference !==
+        0
+      ) {
+        return revenueDifference;
+      }
+
+      return String(
+        a?.employeeName ||
+          '',
+      ).localeCompare(
+        String(
+          b?.employeeName ||
+            '',
+        ),
+      );
+    },
+  );
+
+  // =========================================================
+  // PARENT RESPONSE
+  // =========================================================
+
+  const parentReport = {
+    ...(parentMetricReport || {}),
+
+    employeeId,
+
+    employeeName:
+      parentEmployee?.name ||
+      parentMetricReport?.employeeName ||
+      'Unknown',
+
+    employeeEmail:
+      parentEmployee?.email ||
+      parentMetricReport?.employeeEmail ||
+      null,
+
+    employeeNumber:
+      parentEmployee?.number ||
+      null,
+
+    employeeCode:
+      parentEmployee?.employeeId ||
+      parentMetricReport?.employeeCode ||
+      null,
+
+    designation:
+  (parentEmployee.role as any)?.name ?? null,
+
+level:
+  (parentEmployee.role as any)?.level ?? null,
+
+    team: true,
+
+    // ALL descendants, not just direct children.
+    teamSize:
+      parentTeamSize,
+
+    hasTeam:
+      parentTeamSize > 0,
+  };
+
+  // =========================================================
+  // GLOBAL TOTALS OF DIRECT EMPLOYEES
+  //
+  // These totals intentionally use ONLY directReports.
+  //
+  // We do not sum the parent because parent already contains
+  // the whole subtree and would double-count the team.
+  // =========================================================
+
+  const totalEmployees =
+    cleanDirectReports.length;
+
+  const totalLeads =
+    cleanDirectReports.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee?.totalLeads ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRegistrationDone =
+    cleanDirectReports.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee?.totalRegistrationDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalAdmissionDone =
+    cleanDirectReports.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee?.totalAdmissionDone ||
+            0,
+        ),
+      0,
+    );
+
+  const totalRevenue =
+    cleanDirectReports.reduce(
+      (
+        sum: number,
+        employee: any,
+      ) =>
+        sum +
+        Number(
+          employee?.totalRevenue ||
+            0,
+        ),
+      0,
+    );
+
+  const registrationPercentage =
+    totalLeads > 0
+      ? Number(
+          (
+            (
+              totalRegistrationDone /
+              totalLeads
+            ) *
+            100
+          ).toFixed(2),
+        )
+      : 0;
+
+  const conversionPercentage =
+    totalLeads > 0
+      ? Number(
+          (
+            (
+              totalAdmissionDone /
+              totalLeads
+            ) *
+            100
+          ).toFixed(2),
+        )
+      : 0;
+
+  // =========================================================
+  // FINAL RESPONSE
+  // =========================================================
+
+  return {
+    success: true,
+
+    startDate:
+      parentMetricReport?.startDate ||
+      null,
+
+    endDate:
+      parentMetricReport?.endDate ||
+      null,
+
+    fromDate:
+      parentMetricReport?.startDate ||
+      null,
+
+    toDate:
+      parentMetricReport?.endDate ||
+      null,
+
+    dateFilter:
+      query.dateFilter ||
+      'today',
+
+    level:
+      levelNumber,
+
+    team: true,
+
+    employeeId,
+
+    // =======================================================
+    // SELECTED EMPLOYEE
+    // =======================================================
+
+    parentEmployee:
+      parentReport,
+
+    // =======================================================
+    // ONLY DIRECT EMPLOYEES
+    //
+    // Parent is NEVER included here.
+    // Grandchildren are NEVER included directly here.
+    // =======================================================
+
+    data:
+      cleanDirectReports,
+
+    // =======================================================
+    // TEAM SUMMARY
+    // =======================================================
+
+    totalEmployees,
+
+    totalLeads,
+
+    totalRegistrationDone,
+
+    totalAdmissionDone,
+
+    totalRevenue:
+      Number(
+        totalRevenue.toFixed(2),
+      ),
+
+    registrationPercentage,
+
+    conversionPercentage,
+
+    teamSize:
+      parentTeamSize,
+
+    hasTeam:
+      parentTeamSize > 0,
+
+    // =======================================================
+    // DEBUG INFO
+    // =======================================================
+
+    debug: {
+      loggedInRole,
+
+      isAdmin,
+
+      isBd,
+
+      loggedInUserId,
+
+      selectedEmployeeId:
+        employeeId,
+
+      directTeamCount:
+        cleanDirectEmployees.length,
+
+      directReportCount:
+        cleanDirectReports.length,
+
+      totalHierarchySize:
+        parentTeamSize,
+
+      dateFilter:
+        query.dateFilter ||
+        'today',
+
+      level:
+        levelNumber,
+
+      team:
+        true,
+    },
+  };
+}
+
+
+
   async findOne(id: string, user: any) {
     const lead = await this.leadData.findById(id);
     if (!lead) throw new NotFoundException('Lead not found');

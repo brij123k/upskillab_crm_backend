@@ -109,6 +109,52 @@ export class LeadController {
       return this.logic.allEmployeesStagesReport(query, req.user);
   }
 
+  @Get('employee-team/:employeeId')
+ @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
+@ApiOperation({
+  summary:
+    'Get one employee and direct team members stage report',
+})
+async employeeTeamStagesReport(
+  @Param('employeeId') employeeId: string,
+  @Query() query: any,
+  @Req() req: any,
+) {
+  return this.logic.employeeTeamStagesReport(
+    employeeId,
+    query,
+    req.user,
+  );
+}
+
+@Get('employee-stage-leads/:employeeId')
+ @UseGuards(JwtAuthGuard, RoleGuard,PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.READ,
+    )
+@ApiOperation({
+  summary:
+    'Get actual leads of one employee by stage',
+})
+async employeeStageLeadsReport(
+  @Param('employeeId') employeeId: string,
+  @Query() query: any,
+  @Req() req: any,
+) {
+  return this.logic.employeeStageLeadsReport(
+    employeeId,
+    query,
+    req.user,
+  );
+}
+
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
     @RequirePermission(
@@ -119,6 +165,18 @@ export class LeadController {
     poolWiseDataReport(@Query() query: any) {
         return this.logic.poolWiseDataReport(query);
     }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.Orders.MODULE,
+  PERMISSIONS.Orders.ACTIONS.READ,
+)
+@Get('report/pool-wise-leads')
+poolWiseLeadsReport(@Query() query: any) {
+  return this.logic.poolWiseLeadsReport(query);
+}
+
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
 @Roles('Admin', 'bd')
@@ -147,6 +205,31 @@ stateWiseEmployeeReport(
   @Req() req: any,
 ) {
   return this.logic.stateWiseEmployeeReport(
+    query,
+    req.user,
+  );
+}
+
+@UseGuards(
+  JwtAuthGuard,
+  RoleGuard,
+  PermissionGuard,
+)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.LEAD.MODULE,
+  PERMISSIONS.LEAD.ACTIONS.READ,
+)
+@Get('report/state-wise-employee/team')
+@ApiOperation({
+  summary:
+    'Get selected employee hierarchy with direct team details',
+})
+stateWiseEmployeeTeamReport(
+  @Query() query: any,
+  @Req() req: any,
+) {
+  return this.logic.stateWiseEmployeeTeamReport(
     query,
     req.user,
   );
