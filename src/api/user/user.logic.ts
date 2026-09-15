@@ -603,6 +603,46 @@ export class UserLogic {
     return users;
   }
 
+async getDirectUsersUnder(
+  user: any,
+  status: string | string[] = 'active',
+) {
+  if (
+    user?.roleName?.toLowerCase() === 'admin' ||
+    user?.role?.name?.toLowerCase() === 'admin'
+  ) {
+    return this.userData.getAllUsers(status);
+  }
+
+  const userId = user._id || user.userId;
+
+  // Get current user's profile
+  const profile = await this.profileData.findByUserId(userId);
+
+  if (!profile) {
+    throw new NotFoundException('Profile not found');
+  }
+
+  // Find ONLY direct employees
+  const directSubordinates =
+    await this.userData.findDirectSubordinates(
+      userId,
+      profile.departmentId?.toString(),
+    );
+
+  if (!directSubordinates.length) {
+    return [];
+  }
+
+  // Extract direct employee IDs
+  const userIds = directSubordinates.map((p) =>
+    p.userId.toString(),
+  );
+
+  // Get user details with status filtering
+  return this.userData.findByIds(userIds, status);
+}
+
   async getUsersAbove(userId: string, status?: string | string[]) {
     if (!userId) {
       throw new BadRequestException('userId is required');

@@ -185,5 +185,16 @@ toggleBlock(userId: string, isBlocked: boolean) {
   return result;
 }
 
+async findDirectSubordinates(seniorUserId: string, departmentId?: string) {
+  const query: any = {
+    reportingSeniorId: new Types.ObjectId(seniorUserId),
+  };
+
+  if (departmentId) {
+    query.departmentId = new Types.ObjectId(departmentId);
+  }
+
+  return this.profileModel.find(query);
+}
 
 }

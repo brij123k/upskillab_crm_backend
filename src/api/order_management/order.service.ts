@@ -95,7 +95,7 @@ export class OrderService {
 
   private async getUserAndSubordinateIds(userId: string): Promise<string[]> {
     try {
-      const users = await this.userLogic.getUsersUnder({
+      const users = await this.userLogic.getDirectUsersUnder({
         userId,
         roleName: 'user',
       });
@@ -796,14 +796,14 @@ async consultantPerformanceReport(query: any) {
     const rootId =
       user._id.toString();
 
-    if (!teamFilter) {
-      teamMap.set(
-        rootId,
-        [rootId],
-      );
+    // if (!teamFilter) {
+    //   teamMap.set(
+    //     rootId,
+    //     [rootId],
+    //   );
 
-      continue;
-    }
+    //   continue;
+    // }
 
     const subordinateIds =
       await this.getUserAndSubordinateIds(
@@ -4419,10 +4419,10 @@ async employeePoolUtilizationReport(query: any) {
     const rootId =
       rootUser._id.toString();
 
-    if (!teamFilter) {
-      teamMap.set(rootId, [rootId]);
-      continue;
-    }
+    // if (!teamFilter) {
+    //   teamMap.set(rootId, [rootId]);
+    //   continue;
+    // }
 
     const subordinateIds =
       await this.getUserAndSubordinateIds(
@@ -5328,12 +5328,10 @@ async employeePoolUtilizationTeamReport(query: any) {
 
   let directTeam: any[] = [];
 
-  if (teamFilter) {
     directTeam =
-      await this.userLogic.getUsersUnder(
+      await this.userLogic.getDirectUsersUnder(
         selectedEmployee,
       );
-  }
 
   console.log(
     'employeePoolUtilizationTeamReport',
@@ -5412,22 +5410,6 @@ const rawUsers = (
   for (const user of visibleUsers) {
     const userId =
       user._id.toString();
-
-    // team=false
-    // employee only
-    if (!teamFilter) {
-      teamMap.set(
-        userId,
-        [userId],
-      );
-
-      teamSizeMap.set(
-        userId,
-        0,
-      );
-
-      continue;
-    }
 
     // Complete subtree for metrics
     const subordinateIds =
@@ -8238,30 +8220,6 @@ async employeePoolRevenueReport(query: any) {
       rootUser,
     );
 
-    // ----------------------------------------------------------
-    // TEAM FALSE
-    // ----------------------------------------------------------
-
-    if (!teamFilter) {
-      allAllowedUserIds.add(rootId);
-
-      ownerByUserId.set(
-        rootId,
-        rootId,
-      );
-
-      teamSizeByEmployeeId.set(
-        rootId,
-        0,
-      );
-
-      continue;
-    }
-
-    // ----------------------------------------------------------
-    // TEAM TRUE
-    // ----------------------------------------------------------
-
     const subtreeIds =
       await this.getUserAndSubordinateIds(
         rootId,
@@ -8281,7 +8239,7 @@ async employeePoolRevenueReport(query: any) {
     // Team size = descendants only
     teamSizeByEmployeeId.set(
       rootId,
-      uniqueSubtreeIds.length,
+      uniqueSubtreeIds.length+1,
     );
 
     // Root + complete subtree
@@ -9088,51 +9046,16 @@ async employeePoolRevenueTeamReport(query: any) {
   // ============================================================
 
   const directTeam =
-    await this.userLogic.getUsersUnder(
+    await this.userLogic.getDirectUsersUnder(
       selectedEmployee,
     );
-
-  console.log(
-    'employeePoolRevenueTeamReport',
-    {
-      selectedEmployeeId,
-      directTeamCount:
-        directTeam?.length || 0,
-      directTeam,
-    },
-  );
-
-  // ============================================================
-  // IMPORTANT
-  //
-  // INCLUDE SELECTED EMPLOYEE HIMSELF
-  // + DIRECT TEAM MEMBERS
-  //
-  // Response will be:
-  //
-  // A
-  // B
-  // C
-  // D
-  //
-  // Not:
-  //
-  // B
-  // C
-  // D
-  // ============================================================
-
-  const rawTeamUsers = [
-    selectedEmployee,
-    ...(directTeam || []),
-  ];
 
   // ============================================================
   // NORMALIZE USERS
   // ============================================================
 
   const teamUsers =
-    rawTeamUsers
+    directTeam
       .map((member: any) => {
         const id =
           member?._id?.toString?.() ||

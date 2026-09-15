@@ -1296,7 +1296,7 @@ async allEmployeesStagesReport(query: any, user: any) {
    */
   const teamMap = new Map<string, string[]>();
 
-  if (isTeam) {
+  // if (isTeam) {
     for (const employeeId of baseUserIds) {
       const employee = await this.userModel
         .findById(employeeId)
@@ -1307,7 +1307,7 @@ async allEmployeesStagesReport(query: any, user: any) {
       }
 
       const underUsers =
-        await this.userLogic.getUsersUnder(
+        await this.userLogic.getDirectUsersUnder(
           employee,
         );
 
@@ -1323,11 +1323,11 @@ async allEmployeesStagesReport(query: any, user: any) {
         [...new Set(memberIds)],
       );
     }
-  } else {
-    for (const employeeId of baseUserIds) {
-      teamMap.set(employeeId, [employeeId]);
-    }
-  }
+  // } else {
+  //   for (const employeeId of baseUserIds) {
+  //     teamMap.set(employeeId, [employeeId]);
+  //   }
+  // }
 
   // Get all users required for the report
   const allUserIds = [
@@ -1609,519 +1609,709 @@ async allEmployeesStagesReport(query: any, user: any) {
 }
 
 async employeeTeamStagesReport(
-employeeId: string,
-query: any,
-user: any,
+  employeeId: string,
+  query: any,
+  user: any,
 ) {
-const match: any = {};
+  const match: any = {};
 
-if (query.assignedDate) {
-const singleDate = new Date(query.assignedDate);
+  // =========================================================
+  // DATE FILTER
+  // =========================================================
 
-if (!Number.isNaN(singleDate.getTime())) {
-  const startDate = new Date(singleDate);
-  const endDate = new Date(singleDate);
+  if (query.assignedDate) {
+    const singleDate = new Date(query.assignedDate);
 
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
+    if (!Number.isNaN(singleDate.getTime())) {
+      const startDate = new Date(singleDate);
+      const endDate = new Date(singleDate);
 
-  match.assignedDate = {
-    $gte: startDate,
-    $lte: endDate,
-  };
-}
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
 
-} else if (query.assignedDateFilter) {
-const now = new Date();
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  } else if (query.assignedDateFilter) {
+    const now = new Date();
 
-let startDate: Date | null = null;
-let endDate: Date | null = null;
+    let startDate: Date | null = null;
+    let endDate: Date | null = null;
 
-const dateFilter = query.assignedDateFilter
-  .toString()
-  .toLowerCase();
+    const dateFilter = query.assignedDateFilter
+      .toString()
+      .toLowerCase();
 
-if (dateFilter === 'today') {
-  startDate = new Date(now);
-  startDate.setHours(0, 0, 0, 0);
+    if (dateFilter === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
 
-  endDate = new Date(now);
-  endDate.setHours(23, 59, 59, 999);
-} else if (dateFilter === 'week') {
-  startDate = new Date(now);
-  startDate.setDate(startDate.getDate() - 6);
-  startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (dateFilter === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
 
-  endDate = new Date(now);
-  endDate.setHours(23, 59, 59, 999);
-} else if (dateFilter === 'month') {
-  startDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
-  );
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (dateFilter === 'month') {
+      startDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        1,
+      );
 
-  endDate = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
-} else if (dateFilter === 'year') {
-  startDate = new Date(
-    now.getFullYear(),
-    0,
-    1,
-  );
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else if (dateFilter === 'year') {
+      startDate = new Date(
+        now.getFullYear(),
+        0,
+        1,
+      );
 
-  endDate = new Date(
-    now.getFullYear(),
-    11,
-    31,
-    23,
-    59,
-    59,
-    999,
-  );
-}
+      endDate = new Date(
+        now.getFullYear(),
+        11,
+        31,
+        23,
+        59,
+        59,
+        999,
+      );
+    }
 
-if (startDate && endDate) {
-  match.assignedDate = {
-    $gte: startDate,
-    $lte: endDate,
-  };
-}
+    if (startDate && endDate) {
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  } else if (
+    query.assignedDateFrom &&
+    query.assignedDateTo
+  ) {
+    const from = new Date(query.assignedDateFrom);
+    const to = new Date(query.assignedDateTo);
 
-} else if (
-query.assignedDateFrom &&
-query.assignedDateTo
-) {
-const from = new Date(query.assignedDateFrom);
-const to = new Date(query.assignedDateTo);
+    if (
+      !Number.isNaN(from.getTime()) &&
+      !Number.isNaN(to.getTime())
+    ) {
+      const startDate = new Date(from);
+      const endDate = new Date(to);
 
-if (
-  !Number.isNaN(from.getTime()) &&
-  !Number.isNaN(to.getTime())
-) {
-  const startDate = new Date(from);
-  const endDate = new Date(to);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
 
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
+      match.assignedDate = {
+        $gte: startDate,
+        $lte: endDate,
+      };
+    }
+  }
 
-  match.assignedDate = {
-    $gte: startDate,
-    $lte: endDate,
-  };
-}
+  // =========================================================
+  // GET SELECTED EMPLOYEE
+  // =========================================================
 
-}
+  const selectedEmployee =
+    await this.userModel
+      .findById(employeeId)
+      .select(
+        '_id name email number employeeId level roleLevel role status',
+      )
+      .lean();
 
-const selectedEmployee =
-await this.userModel
-.findById(employeeId)
-.select(
-'_id name email number employeeId level roleLevel role status',
-)
-.lean();
+  if (!selectedEmployee) {
+    return {
+      employee: null,
+      totalDirectEmployees: 0,
+      employees: [],
+    };
+  }
 
-if (!selectedEmployee) {
-return {
-employee: null,
-totalDirectEmployees: 0,
-employees: [],
-};
-}
+  // =========================================================
+  // CURRENT USER
+  // =========================================================
 
-const currentUserId =
-user.userId?.toString();
+  const currentUserId =
+    user.userId?.toString();
 
-const currentUser =
-await this.userModel
-.findById(currentUserId)
-.lean();
+  const currentUser =
+    await this.userModel
+      .findById(currentUserId)
+      .lean();
 
-if (!currentUser) {
-return {
-employee: null,
-totalDirectEmployees: 0,
-employees: [],
-};
-}
+  if (!currentUser) {
+    return {
+      employee: null,
+      totalDirectEmployees: 0,
+      employees: [],
+    };
+  }
 
+  // =========================================================
+  // ADMIN ACCESS
+  // =========================================================
 
-const isAdmin =
-user.isSuperAdmin ||
-user.role === 'Admin';
+  const isAdmin =
+    user.isSuperAdmin ||
+    user.role === 'Admin';
 
-if (!isAdmin) {
-const currentUserUnderUsers =
-await this.userLogic.getUsersUnder(
-currentUser,
-);
+  // =========================================================
+  // NON ADMIN ACCESS
+  // =========================================================
 
-const accessibleUserIds = new Set(
-  [
-    currentUserId,
-    ...currentUserUnderUsers.map(
-      (u: any) =>
-        u._id.toString(),
-    ),
-  ],
-);
+  if (!isAdmin) {
+    const currentUserUnderUsers =
+      await this.userLogic.getDirectUsersUnder(
+        currentUser,
+      );
 
-if (
-  !accessibleUserIds.has(
+    const accessibleUserIds = new Set(
+      [
+        currentUserId,
+        ...currentUserUnderUsers.map(
+          (u: any) =>
+            u._id.toString(),
+        ),
+      ],
+    );
+
+    if (
+      !accessibleUserIds.has(
+        employeeId.toString(),
+      )
+    ) {
+      return {
+        employee: null,
+        totalDirectEmployees: 0,
+        employees: [],
+      };
+    }
+  }
+
+  // =========================================================
+  // GET SELECTED EMPLOYEE DIRECT MEMBERS
+  // =========================================================
+
+  const directMembers =
+    await this.userLogic.getDirectUsersUnder(
+      selectedEmployee,
+    );
+
+  const directMemberMap =
+    new Map<string, any>();
+
+  directMembers.forEach((member: any) => {
+    const memberId =
+      member._id?.toString();
+
+    if (
+      memberId &&
+      memberId !== employeeId.toString()
+    ) {
+      directMemberMap.set(
+        memberId,
+        member,
+      );
+    }
+  });
+
+  const uniqueDirectMembers =
+    Array.from(
+      directMemberMap.values(),
+    );
+
+  // =========================================================
+  // BUILD TEAM MAP
+  //
+  // Selected Employee
+  //     ↓
+  // Direct Members
+  //
+  // And for every direct member:
+  //
+  // Direct Member
+  //     ↓
+  // Their Direct Members
+  // =========================================================
+
+  const teamMap =
+    new Map<string, any[]>();
+
+  // Selected employee's team
+  teamMap.set(
     employeeId.toString(),
-  )
-) {
-  return {
-    employee: null,
-    totalDirectEmployees: 0,
-    employees: [],
-  };
-}
-}
-const directMembers =
-await this.userLogic.getUsersUnder(
-selectedEmployee,
-);
-
-const directMemberMap =
-new Map<string, any>();
-
-directMembers.forEach((member: any) => {
-const memberId =
-member._id?.toString();
-
-if (
-  memberId &&
-  memberId !== employeeId.toString()
-) {
-  directMemberMap.set(
-    memberId,
-    member,
+    uniqueDirectMembers,
   );
-}
 
-});
+  // Get team for every direct employee
+  await Promise.all(
+    uniqueDirectMembers.map(
+      async (member: any) => {
+        const memberId =
+          member._id.toString();
 
-const uniqueDirectMembers =
-Array.from(
-directMemberMap.values(),
-);
+        const memberUnderUsers =
+          await this.userLogic.getDirectUsersUnder(
+            member,
+          );
 
-const directMemberIds =
-uniqueDirectMembers.map((member: any) =>
-member._id.toString(),
-);
+        const uniqueMemberUnderUsersMap =
+          new Map<string, any>();
 
-const allRequiredIds = [
-employeeId.toString(),
-...directMemberIds,
-];
+        memberUnderUsers.forEach(
+          (underUser: any) => {
+            const underUserId =
+              underUser._id?.toString();
 
-const employeeLeadResults =
-await this.leadModel.aggregate([
-{
-$match: {
-...match,
-assignedTo: {
-$in: allRequiredIds,
-},
-},
-},
-{
-$addFields: {
-assignedUserId: {
-$cond: [
-{
-$ifNull: [
-'$assignedTo',
-false,
-],
-},
-{
-$toString:
-'$assignedTo',
-},
-null,
-],
-},
-},
-},
-{
-$lookup: {
-from: 'leadstages',
-localField: 'stageId',
-foreignField: '_id',
-as: 'stage',
-},
-},
-{
-$unwind: {
-path: '$stage',
-preserveNullAndEmptyArrays: true,
-},
-},
-{
-$group: {
-_id: {
-assignedUserId:
-'$assignedUserId',
+            if (
+              underUserId &&
+              underUserId !== memberId
+            ) {
+              uniqueMemberUnderUsersMap.set(
+                underUserId,
+                underUser,
+              );
+            }
+          },
+        );
 
-        stageName: {
-          $ifNull: [
-            '$stage.name',
-            'Unknown',
-          ],
+        teamMap.set(
+          memberId,
+          Array.from(
+            uniqueMemberUnderUsersMap.values(),
+          ),
+        );
+      },
+    ),
+  );
+
+  // =========================================================
+  // GET ALL USERS REQUIRED FOR LEAD DATA
+  // =========================================================
+
+  const allRequiredIds =
+    new Set<string>();
+
+  // Selected employee
+  allRequiredIds.add(
+    employeeId.toString(),
+  );
+
+  // Selected employee direct members
+  uniqueDirectMembers.forEach(
+    (member: any) => {
+      allRequiredIds.add(
+        member._id.toString(),
+      );
+    },
+  );
+
+  // Direct members' teams
+  teamMap.forEach(
+    (members: any[], parentId: string) => {
+      allRequiredIds.add(parentId);
+
+      members.forEach(
+        (member: any) => {
+          if (member?._id) {
+            allRequiredIds.add(
+              member._id.toString(),
+            );
+          }
+        },
+      );
+    },
+  );
+
+  const allRequiredUserIds =
+    Array.from(allRequiredIds);
+
+  // =========================================================
+  // GET LEAD DATA
+  // =========================================================
+
+  const employeeLeadResults =
+    await this.leadModel.aggregate([
+      {
+        $match: {
+          ...match,
+          assignedTo: {
+            $in: allRequiredUserIds,
+          },
         },
       },
 
-      count: {
-        $sum: 1,
+      {
+        $addFields: {
+          assignedUserId: {
+            $cond: [
+              {
+                $ifNull: [
+                  '$assignedTo',
+                  false,
+                ],
+              },
+              {
+                $toString:
+                  '$assignedTo',
+              },
+              null,
+            ],
+          },
+        },
       },
+
+      {
+        $lookup: {
+          from: 'leadstages',
+          localField: 'stageId',
+          foreignField: '_id',
+          as: 'stage',
+        },
+      },
+
+      {
+        $unwind: {
+          path: '$stage',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+
+      {
+        $group: {
+          _id: {
+            assignedUserId:
+              '$assignedUserId',
+
+            stageName: {
+              $ifNull: [
+                '$stage.name',
+                'Unknown',
+              ],
+            },
+          },
+
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+    ]);
+
+  // =========================================================
+  // USER -> STAGE MAP
+  // =========================================================
+
+  const userStageMap =
+    new Map<
+      string,
+      Map<string, number>
+    >();
+
+  employeeLeadResults.forEach(
+    (item: any) => {
+      const userId =
+        item._id.assignedUserId;
+
+      if (!userId) {
+        return;
+      }
+
+      if (
+        !userStageMap.has(userId)
+      ) {
+        userStageMap.set(
+          userId,
+          new Map<string, number>(),
+        );
+      }
+
+      userStageMap
+        .get(userId)!
+        .set(
+          item._id.stageName,
+          item.count,
+        );
     },
-  },
-]);
+  );
 
-/*
+  // =========================================================
+  // BUILD OWN LEAD REPORT
+  // =========================================================
 
-==========================================
-CREATE USER -> STAGE MAP
-==========================================
-*/
+  const buildOwnLeadReport = (
+    employee: any,
+  ) => {
+    const id =
+      employee._id.toString();
 
-const userStageMap =
-new Map<
-string,
-Map<string, number>
->();
+    const stageMap =
+      userStageMap.get(id);
 
-employeeLeadResults.forEach(
-(item: any) => {
-const userId =
-item._id.assignedUserId;
+    let totalLead = 0;
 
-  if (!userId) {
-    return;
-  }
+    const stages = stageMap
+      ? Array.from(
+          stageMap.entries(),
+        )
+          .map(
+            ([leadStage, count]) => {
+              totalLead += count;
 
-  if (
-    !userStageMap.has(userId)
-  ) {
-    userStageMap.set(
-      userId,
-      new Map<string, number>(),
+              return {
+                leadStage,
+                count,
+              };
+            },
+          )
+          .sort((a, b) =>
+            a.leadStage.localeCompare(
+              b.leadStage,
+            ),
+          )
+      : [];
+
+    return {
+      employeeId: id,
+
+      employeeName:
+        employee.name || 'Unknown',
+
+      employeeEmail:
+        employee.email || null,
+
+      employeeNumber:
+        employee.number || null,
+
+      employeeEmployeeId:
+        employee.employeeId || null,
+
+      employeeLevel:
+        employee.level ??
+        employee.roleLevel ??
+        null,
+
+      totalLead,
+
+      stages,
+    };
+  };
+
+  // =========================================================
+  // BUILD COMBINED EMPLOYEE REPORT
+  //
+  // OWN DATA
+  // +
+  // DIRECT TEAM DATA
+  // =========================================================
+
+  const buildCombinedEmployeeReport = (
+    employee: any,
+    teamMembers: any[],
+  ) => {
+    const employeeIdString =
+      employee._id.toString();
+
+    // No team -> own data only
+    if (teamMembers.length === 0) {
+      return {
+        ...buildOwnLeadReport(
+          employee,
+        ),
+
+        teamSize: 0,
+        hasTeam: false,
+      };
+    }
+
+    const combinedStages =
+      new Map<string, number>();
+
+    let totalLead = 0;
+
+    const combinedIds = [
+      employeeIdString,
+
+      ...teamMembers.map(
+        (member: any) =>
+          member._id.toString(),
+      ),
+    ];
+
+    // Combine employee + team leads
+    combinedIds.forEach(
+      (memberId) => {
+        const stageMap =
+          userStageMap.get(memberId);
+
+        if (!stageMap) {
+          return;
+        }
+
+        stageMap.forEach(
+          (count, stageName) => {
+            combinedStages.set(
+              stageName,
+              (combinedStages.get(
+                stageName,
+              ) || 0) + count,
+            );
+
+            totalLead += count;
+          },
+        );
+      },
     );
-  }
 
-  userStageMap
-    .get(userId)!
-    .set(
-      item._id.stageName,
-      item.count,
-    );
-},
-
-);
-
-/*
-
-==========================================
-HELPER:
-BUILD OWN LEAD REPORT
-
-
-Only own leads.
-Team leads are NOT added.
-==========================================
-*/
-
-const buildOwnLeadReport = (
-employee: any,
-) => {
-const id =
-employee._id.toString();
-
-const stageMap =
-  userStageMap.get(id);
-
-let totalLead = 0;
-
-const stages = stageMap
-  ? Array.from(
-      stageMap.entries(),
-    )
-      .map(
-        ([leadStage, count]) => {
-          totalLead += count;
-
-          return {
+    const stages =
+      Array.from(
+        combinedStages.entries(),
+      )
+        .map(
+          ([leadStage, count]) => ({
             leadStage,
             count,
-          };
+          }),
+        )
+        .sort((a, b) =>
+          a.leadStage.localeCompare(
+            b.leadStage,
+          ),
+        );
+
+    return {
+      employeeId:
+        employeeIdString,
+
+      employeeName:
+        employee.name || 'Unknown',
+
+      employeeEmail:
+        employee.email || null,
+
+      employeeNumber:
+        employee.number || null,
+
+      employeeEmployeeId:
+        employee.employeeId || null,
+
+      employeeLevel:
+        employee.level ??
+        employee.roleLevel ??
+        null,
+
+      totalLead,
+
+      stages,
+
+      teamSize:
+        teamMembers.length,
+
+      hasTeam: true,
+    };
+  };
+
+  // =========================================================
+  // SELECTED EMPLOYEE
+  //
+  // OWN + DIRECT TEAM
+  // =========================================================
+
+  const employeeReport =
+    buildCombinedEmployeeReport(
+      selectedEmployee,
+      uniqueDirectMembers,
+    );
+
+  // =========================================================
+  // BUILD DIRECT MEMBERS REPORT
+  //
+  // IMPORTANT:
+  //
+  // Previously:
+  //
+  // buildOwnLeadReport(member)
+  //
+  // Now:
+  //
+  // buildCombinedEmployeeReport(
+  //   member,
+  //   member's team
+  // )
+  //
+  // So each employee also returns
+  // combined data.
+  // =========================================================
+
+  const employees =
+    await Promise.all(
+      uniqueDirectMembers.map(
+        async (member: any) => {
+          const memberId =
+            member._id.toString();
+
+          const memberTeam =
+            teamMap.get(memberId) || [];
+
+          return buildCombinedEmployeeReport(
+            member,
+            memberTeam,
+          );
         },
-      )
-      .sort((a, b) =>
-        a.leadStage.localeCompare(
-          b.leadStage,
-        ),
-      )
-  : [];
+      ),
+    );
 
-return {
-  employeeId: id,
+  // =========================================================
+  // SORT MEMBERS
+  // =========================================================
 
-  employeeName:
-    employee.name || 'Unknown',
+  employees.sort(
+    (a: any, b: any) =>
+      b.totalLead - a.totalLead,
+  );
 
-  employeeEmail:
-    employee.email || null,
+  // =========================================================
+  // FINAL RESPONSE
+  // =========================================================
 
-  employeeNumber:
-    employee.number || null,
-
-  employeeEmployeeId:
-    employee.employeeId || null,
-
-  employeeLevel:
-    employee.level ??
-    employee.roleLevel ??
-    null,
-
-  totalLead,
-
-  stages,
-};
-
-};
-
-/*
-
-==========================================
-SELECTED EMPLOYEE OWN REPORT
-==========================================
-*/
-
-const employeeReport =
-buildOwnLeadReport(
-selectedEmployee,
-);
-
-/*
-
-==========================================
-BUILD DIRECT MEMBERS REPORT
-
-
-Each member returns:
-
-
-own lead data
-
-
-teamSize
-
-
-hasTeam
-
-
-Nested employees are NOT returned.
-==========================================
-*/
-
-const employees =
-await Promise.all(
-uniqueDirectMembers.map(
-async (member: any) => {
-const memberReport =
-buildOwnLeadReport(member);
-
-      /*
-       * Get all users below this member
-       * only for counting team size.
-       */
-
-      const memberUnderUsers =
-        await this.userLogic.getUsersUnder(
-          member,
-        );
-
-      const uniqueUnderUserIds =
-        new Set(
-          memberUnderUsers
-            .map((u: any) =>
-              u._id?.toString(),
-            )
-            .filter(Boolean)
-            .filter(
-              (id: string) =>
-                id !==
-                member._id.toString(),
-            ),
-        );
-
-      return {
-        ...memberReport,
-
-        teamSize:
-          uniqueUnderUserIds.size,
-
-        hasTeam:
-          uniqueUnderUserIds.size > 0,
-      };
+  return {
+    employee: {
+      ...employeeReport,
     },
-  ),
-);
 
-/*
+    totalDirectEmployees:
+      employees.length,
 
-==========================================
-SORT MEMBERS
-==========================================
-*/
+    employees,
 
-employees.sort(
-(a: any, b: any) =>
-b.totalLead - a.totalLead,
-);
+    filters: {
+      assignedDate:
+        query.assignedDate || null,
 
-/*
+      assignedDateFilter:
+        query.assignedDateFilter || null,
 
-==========================================
-RESPONSE
-==========================================
-*/
+      assignedDateFrom:
+        query.assignedDateFrom || null,
 
-return {
-employee: {
-...employeeReport,
-},
-
-totalDirectEmployees:
-  employees.length,
-
-employees,
-
-filters: {
-  assignedDate:
-    query.assignedDate || null,
-
-  assignedDateFilter:
-    query.assignedDateFilter || null,
-
-  assignedDateFrom:
-    query.assignedDateFrom || null,
-
-  assignedDateTo:
-    query.assignedDateTo || null,
-},
-
-};
+      assignedDateTo:
+        query.assignedDateTo || null,
+    },
+  };
 }
 
 async employeeStageLeadsReport(
@@ -2330,7 +2520,7 @@ async employeeStageLeadsReport(
 
   if (!isAdmin) {
     const underUsers =
-      await this.userLogic.getUsersUnder(
+      await this.userLogic.getDirectUsersUnder(
         currentUser,
       );
 
@@ -2380,9 +2570,9 @@ async employeeStageLeadsReport(
     employeeId.toString(),
   ];
 
-  if (isTeam) {
+  // if (isTeam) {
     const underUsers =
-      await this.userLogic.getUsersUnder(
+      await this.userLogic.getDirectUsersUnder(
         employee,
       );
 
@@ -2398,7 +2588,7 @@ async employeeStageLeadsReport(
     employeeIds = [
       ...new Set(employeeIds),
     ];
-  }
+  // }
 
   /*
    * ==========================================
