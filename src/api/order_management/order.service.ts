@@ -809,77 +809,103 @@ async consultantPerformanceReport(query: any) {
   const teamMap =
     new Map<string, string[]>();
 
-  for (const user of rootUsers) {
-    const rootId =
-      user._id.toString();
+  const directTeamMap =
+  new Map<string, string[]>();
 
-    // if (!teamFilter) {
-    //   teamMap.set(
-    //     rootId,
-    //     [rootId],
-    //   );
+for (const user of rootUsers) {
+  const rootId =
+    user._id.toString();
 
-    //   continue;
-    // }
+  // =========================================================
+  // FULL HIERARCHY
+  // Used for ALL calculations
+  // root employee + all recursive subordinates
+  // =========================================================
 
-    const subordinateIds =
-      await this.getUserAndSubordinateIds(
-        rootId,
-      );
-
-    const allIds = [
+  const subordinateIds =
+    await this.getUserAndSubordinateIds(
       rootId,
-      ...subordinateIds.map(
-        (id: any) =>
-          id.toString(),
-      ),
-    ];
-
-    const uniqueIds = [
-      ...new Set(allIds),
-    ];
-
-    const activeUsers =
-      await this.userModel
-        .find({
-          _id: {
-            $in: uniqueIds,
-          },
-          status: 'active',
-        })
-        .select('_id')
-        .lean();
-
-    const activeIds =
-      activeUsers.map(
-        (user) =>
-          user._id.toString(),
-      );
-
-    if (
-      !activeIds.includes(rootId)
-    ) {
-      activeIds.push(rootId);
-    }
-
-    teamMap.set(
-      rootId,
-      [...new Set(activeIds)],
     );
-  }
 
-  const allAllowedUserIds = [
-    ...new Set(
-      Array.from(
-        teamMap.values(),
-      ).flat(),
+  const allIds = [
+    rootId,
+    ...subordinateIds.map(
+      (id: any) =>
+        id.toString(),
     ),
   ];
 
-  if (!allAllowedUserIds.length) {
-    return [];
+  const uniqueIds = [
+    ...new Set(allIds),
+  ];
+
+  const activeUsers =
+    await this.userModel
+      .find({
+        _id: {
+          $in: uniqueIds,
+        },
+        status: 'active',
+      })
+      .select('_id')
+      .lean();
+
+  const activeIds =
+    activeUsers.map(
+      (employee) =>
+        employee._id.toString(),
+    );
+
+  // Always include root employee
+  if (!activeIds.includes(rootId)) {
+    activeIds.push(rootId);
   }
 
+  teamMap.set(
+    rootId,
+    [...new Set(activeIds)],
+  );
+
+  // =========================================================
+  // DIRECT TEAM ONLY
+  // Used ONLY for teamSize
+  // =========================================================
+
+  const directSubordinateIds =
+    await this.getUserAndDirectSubordinateIds(
+      rootId,
+    );
+
+  const directIds = [
+    ...new Set(
+      directSubordinateIds
+        .map(
+          (id: any) =>
+            id.toString(),
+        )
+        .filter(
+          (id) => id !== rootId,
+        ),
+    ),
+  ];
+
+  directTeamMap.set(
+    rootId,
+    directIds,
+  );
+}
+
+const allAllowedUserIds = [
+  ...new Set(
+    Array.from(
+      teamMap.values(),
+    ).flat(),
+  ),
+];
+
+if (!allAllowedUserIds.length) {
+  return [];
+}
   // =========================================================
   // ADMISSION DONE STAGE
   // =========================================================
@@ -1541,180 +1567,254 @@ async consultantPerformanceReport(query: any) {
   // RESPONSE
   // =========================================================
 
-  const report =
-    rootUsers
-      .map((user) => {
-        const rootId =
-          user._id.toString();
+  // =========================================================
+// RESPONSE
+// =========================================================
 
-        const memberIds =
-          teamMap.get(rootId) ||
-          [rootId];
+const report =
+  rootUsers
+    .map((user) => {
+      const rootId =
+        user._id.toString();
 
-        const item =
-          memberIds.reduce(
-            (acc, memberId) => {
-              const memberStats =
-                statsByConsultant.get(
-                  memberId,
-                );
+      // ALWAYS use complete hierarchy.
+      // teamFilter does NOT affect calculation.
+      const memberIds =
+        teamMap.get(rootId) ||
+        [rootId];
 
-              if (!memberStats) {
-                return acc;
-              }
+      // Direct team ONLY for teamSize
+      const directMemberIds =
+        directTeamMap.get(rootId) ||
+        [];
 
-              acc.totalLeadAssigned +=
-                memberStats.totalLeadAssigned || 0;
+      const item =
+        memberIds.reduce(
+          (acc, memberId) => {
+            const memberStats =
+              statsByConsultant.get(
+                memberId,
+              );
 
-              acc.registrationDone +=
-                memberStats.registrationDone || 0;
-
-              acc.admDone +=
-                memberStats.admDone || 0;
-
-              acc.bookedRevenue +=
-                memberStats.bookedRevenue || 0;
-
-              acc.realisedRevenue +=
-                memberStats.realisedRevenue || 0;
-
-              acc.unrealisedRevenue +=
-                memberStats.unrealisedRevenue || 0;
-
-              acc.tillDateRealisedInLastMonth +=
-                memberStats.tillDateRealisedInLastMonth ||
-                0;
-
-              if (
-                memberStats.lastSalePunchDate &&
-                (
-                  !acc.lastSalePunchDate ||
-                  new Date(
-                    memberStats.lastSalePunchDate,
-                  ) >
-                    new Date(
-                      acc.lastSalePunchDate,
-                    )
-                )
-              ) {
-                acc.lastSalePunchDate =
-                  memberStats.lastSalePunchDate;
-
-                acc.lastRevenuePunched =
-                  memberStats.lastRevenuePunched || 0;
-              }
-
+            if (!memberStats) {
               return acc;
-            },
-            {
-              totalLeadAssigned: 0,
-              registrationDone: 0,
-              admDone: 0,
-              bookedRevenue: 0,
-              realisedRevenue: 0,
-              unrealisedRevenue: 0,
-              tillDateRealisedInLastMonth: 0,
-              lastSalePunchDate: null,
-              lastRevenuePunched: 0,
-            },
-          );
+            }
 
-        const lastSalePunchDate =
-          item.lastSalePunchDate
-            ? new Date(
-                item.lastSalePunchDate,
+            acc.totalLeadAssigned +=
+              memberStats.totalLeadAssigned || 0;
+
+            acc.registrationDone +=
+              memberStats.registrationDone || 0;
+
+            acc.admDone +=
+              memberStats.admDone || 0;
+
+            acc.bookedRevenue +=
+              Number(
+                memberStats.bookedRevenue || 0,
+              );
+
+            acc.realisedRevenue +=
+              Number(
+                memberStats.realisedRevenue || 0,
+              );
+
+            acc.unrealisedRevenue +=
+              Number(
+                memberStats.unrealisedRevenue || 0,
+              );
+
+            acc.tillDateRealisedInLastMonth +=
+              Number(
+                memberStats.tillDateRealisedInLastMonth || 0,
+              );
+
+            if (
+              memberStats.lastSalePunchDate &&
+              (
+                !acc.lastSalePunchDate ||
+                new Date(
+                  memberStats.lastSalePunchDate,
+                ) >
+                  new Date(
+                    acc.lastSalePunchDate,
+                  )
               )
-            : null;
+            ) {
+              acc.lastSalePunchDate =
+                memberStats.lastSalePunchDate;
 
-        const numberOfDaysOnZero =
-          lastSalePunchDate
-            ? Math.max(
-                0,
-                Math.floor(
-                  (
-                    now.getTime() -
-                    lastSalePunchDate.getTime()
-                  ) /
-                    (1000 * 60 * 60 * 24),
-                ),
-              )
-            : null;
+              acc.lastRevenuePunched =
+                Number(
+                  memberStats.lastRevenuePunched || 0,
+                );
+            }
 
-        const monthlyRevenueTarget =
-          null;
+            return acc;
+          },
+          {
+            totalLeadAssigned: 0,
+            registrationDone: 0,
+            admDone: 0,
+            bookedRevenue: 0,
+            realisedRevenue: 0,
+            unrealisedRevenue: 0,
+            tillDateRealisedInLastMonth: 0,
+            lastSalePunchDate: null,
+            lastRevenuePunched: 0,
+          },
+        );
 
-        const achievementPercentage =
-          monthlyRevenueTarget
-            ? Number(
+      const lastSalePunchDate =
+        item.lastSalePunchDate
+          ? new Date(
+              item.lastSalePunchDate,
+            )
+          : null;
+
+      const numberOfDaysOnZero =
+        lastSalePunchDate
+          ? Math.max(
+              0,
+              Math.floor(
                 (
-                  (
-                    item.realisedRevenue /
-                    monthlyRevenueTarget
-                  ) *
-                  100
-                ).toFixed(2),
-              )
-            : null;
+                  now.getTime() -
+                  lastSalePunchDate.getTime()
+                ) /
+                  (1000 * 60 * 60 * 24),
+              ),
+            )
+          : null;
 
-        return {
-          consultantId: rootId,
+      const monthlyRevenueTarget =
+        null;
 
-          consultantName:
-            user.name || 'Unknown',
+      const achievementPercentage =
+        monthlyRevenueTarget
+          ? Number(
+              (
+                (
+                  item.realisedRevenue /
+                  monthlyRevenueTarget
+                ) *
+                100
+              ).toFixed(2),
+            )
+          : null;
 
-          consultantEmail:
-            user.email || null,
+      return {
+        consultantId:
+          rootId,
 
-          employeeId:
-            user.employeeId || null,
+        consultantName:
+          user.name || 'Unknown',
 
-          totalLeadAssigned:
-            item.totalLeadAssigned,
+        consultantEmail:
+          user.email || null,
 
-          monthlyRevenueTarget,
+        employeeId:
+          user.employeeId || null,
 
-          registrationDone:
-            item.registrationDone,
+        // =====================================================
+        // LEADS
+        // =====================================================
 
-          // NOW COMPLETELY INDEPENDENT OF ORDERS
-          admDone:
-            item.admDone,
+        totalLeadAssigned:
+          item.totalLeadAssigned,
 
-          bookedRevenue:
-            item.bookedRevenue,
+        // =====================================================
+        // TARGET
+        // =====================================================
 
-          unrealisedRevenue:
-            item.unrealisedRevenue,
+        monthlyRevenueTarget,
 
-          realisedRevenue:
-            item.realisedRevenue,
+        // =====================================================
+        // ADMISSION DONE
+        // Calculated from LEAD stage
+        // =====================================================
 
-          achievementPercentage,
+        registrationDone:
+          item.registrationDone,
 
-          tillDateRealisedInLastMonth:
-            item.tillDateRealisedInLastMonth,
+        admDone:
+          item.admDone,
 
-          lastSalePunchDate,
+        // =====================================================
+        // REVENUE
+        // Employee totalRevenue = complete hierarchy revenue
+        // =====================================================
 
-          lastRevenuePunched:
-            item.lastRevenuePunched,
+        totalRevenue:
+          Number(
+            item.realisedRevenue || 0,
+          ),
 
-          numberOfDaysOnZero,
+        bookedRevenue:
+          Number(
+            item.bookedRevenue || 0,
+          ),
 
-          team:
-            teamFilter,
+        unrealisedRevenue:
+          Number(
+            item.unrealisedRevenue || 0,
+          ),
 
-          teamSize:
-            memberIds.length,
-        };
-      })
-      .sort((a, b) =>
+        realisedRevenue:
+          Number(
+            item.realisedRevenue || 0,
+          ),
+
+        achievementPercentage,
+
+        tillDateRealisedInLastMonth:
+          Number(
+            item.tillDateRealisedInLastMonth || 0,
+          ),
+
+        lastSalePunchDate,
+
+        lastRevenuePunched:
+          Number(
+            item.lastRevenuePunched || 0,
+          ),
+
+        numberOfDaysOnZero,
+
+        // =====================================================
+        // TEAM
+        // IMPORTANT:
+        // team is ONLY returned as the frontend flag.
+        // It does NOT control the calculation.
+        // =====================================================
+
+        team:
+          teamFilter,
+
+        // Direct employees only
+        teamSize:
+          directMemberIds.length + 1,
+      };
+    })
+    .sort(
+      (a, b) =>
         a.consultantName.localeCompare(
           b.consultantName,
         ),
-      );
-
-  return report;
+    );
+    const totalRevenue =
+  report.reduce(
+    (total, employee) =>
+      total +
+      Number(
+        employee.totalRevenue || 0,
+      ),
+    0,
+  );
+  return {
+  totalRevenue,
+  team: teamFilter,
+  employees: report,
+};
 }
 async consultantPerformanceTeamReport(query: any) {
     const now = new Date();
@@ -2031,13 +2131,10 @@ async consultantPerformanceTeamReport(query: any) {
     // =========================================================
 
     let directTeam: any[] = [];
-
-    if (teamFilter) {
         directTeam =
-            await this.userLogic.getUsersUnder(
+            await this.userLogic.getDirectUsersUnder(
                 selectedEmployee,
             );
-    }
 
     // =========================================================
     // VERY IMPORTANT
@@ -6068,7 +6165,9 @@ const rolesById =
         // -----------------------------------------------------
         // FINAL EMPLOYEE
         // -----------------------------------------------------
-
+const teamSize=teamSizeMap.get(
+              userId,
+            ) || 0;
         return {
           employeeId:
             userId,
@@ -6137,10 +6236,7 @@ const rolesById =
 
           // IMPORTANT:
           // descendants only
-          teamSize:
-            teamSizeMap.get(
-              userId,
-            ) || 0,
+          teamSize:teamSize +1,
 
           hasTeam:
             (
@@ -6159,7 +6255,9 @@ const rolesById =
   // =========================================================
   // RESPONSE
   // =========================================================
-
+const teamSize=teamSizeMap.get(
+          selectedEmployeeId,
+        ) || 0;
   return {
     assignedStartDate,
     assignedEndDate,
@@ -6201,10 +6299,7 @@ const rolesById =
         selectedEmployee.employeeId ||
         null,
 
-      teamSize:
-        teamSizeMap.get(
-          selectedEmployeeId,
-        ) || 0,
+      teamSize:teamSize + 1,
 
       hasTeam:
         (

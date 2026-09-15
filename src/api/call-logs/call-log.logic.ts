@@ -193,6 +193,24 @@ private async getUserAndSubordinateIds(userId: string): Promise<string[]> {
     }
   }
 
+  private async getUserDirectAndSubordinateIds(userId: string): Promise<string[]> {
+    try {
+      const users = await this.userLogic.getDirectUsersUnder({
+        userId,
+        roleName: 'user',
+      });
+
+      const ids = users
+        .map((user: any) => user?._id?.toString?.())
+        .filter(Boolean);
+
+      ids.push(userId);
+      return [...new Set(ids)];
+    } catch {
+      return [userId];
+    }
+  }
+
   async create(dto: any, currentUserId: string) {
     const { remark, ...callLogData } = dto;
      const callLog = await this.callLogData.create({
@@ -743,94 +761,103 @@ async employeePoolDailyUtilizationReport(query: any) {
   // =========================================================
 
   const teamMap =
-    new Map<
-      string,
-      string[]
-    >();
+  new Map<string, string[]>();
 
-  for (
-    const user of rootUsers
-  ) {
-    const rootId =
-      user._id.toString();
+const directTeamMap =
+  new Map<string, string[]>();
 
-    if (!isTeam) {
-      teamMap.set(
-        rootId,
-        [rootId],
-      );
+for (const user of rootUsers) {
+  const rootId =
+    user._id.toString();
 
-      continue;
-    }
+  // =======================================================
+  // FULL HIERARCHY
+  // Used for ALL daily metrics
+  // =======================================================
 
-    const subordinateIds =
-      await this.getUserAndSubordinateIds(
-        rootId,
-      );
-
-    const allIds = [
+  const subordinateIds =
+    await this.getUserAndSubordinateIds(
       rootId,
-      ...subordinateIds.map(
-        (id: any) =>
-          id.toString(),
-      ),
-    ];
-
-    const uniqueIds = [
-      ...new Set(allIds),
-    ];
-
-    const activeUsers =
-      await this.userModel
-        .find({
-          _id: {
-            $in: uniqueIds.map(
-              (id) =>
-                new Types.ObjectId(
-                  id,
-                ),
-            ),
-          },
-
-          status: 'active',
-        })
-        .select('_id')
-        .lean();
-
-    const activeIds =
-      activeUsers.map(
-        (user) =>
-          user._id.toString(),
-      );
-
-    // Always include root user
-    if (
-      !activeIds.includes(
-        rootId,
-      )
-    ) {
-      activeIds.push(
-        rootId,
-      );
-    }
-
-    teamMap.set(
-      rootId,
-      [
-        ...new Set(
-          activeIds,
-        ),
-      ],
     );
-  }
 
-  const allAllowedUserIds = [
-    ...new Set(
-      Array.from(
-        teamMap.values(),
-      ).flat(),
+  const allIds = [
+    rootId,
+    ...subordinateIds.map(
+      (id: any) =>
+        id.toString(),
     ),
   ];
+
+  const uniqueIds = [
+    ...new Set(allIds),
+  ];
+
+  const activeUsers =
+    await this.userModel
+      .find({
+        _id: {
+          $in: uniqueIds.map(
+            (id) =>
+              new Types.ObjectId(id),
+          ),
+        },
+        status: 'active',
+      })
+      .select('_id')
+      .lean();
+
+  const activeIds =
+    activeUsers.map(
+      (employee) =>
+        employee._id.toString(),
+    );
+
+  // Always include root employee
+  if (!activeIds.includes(rootId)) {
+    activeIds.push(rootId);
+  }
+
+  teamMap.set(
+    rootId,
+    [...new Set(activeIds)],
+  );
+
+  // =======================================================
+  // DIRECT TEAM
+  // Used ONLY for teamSize
+  // =======================================================
+
+  const directSubordinateIds =
+    await this.getUserDirectAndSubordinateIds(
+      rootId,
+    );
+
+  const directIds = [
+    ...new Set(
+      directSubordinateIds
+        .map(
+          (id: any) =>
+            id.toString(),
+        )
+        .filter(
+          (id) => id !== rootId,
+        ),
+    ),
+  ];
+
+  directTeamMap.set(
+    rootId,
+    directIds,
+  );
+}
+
+const allAllowedUserIds = [
+  ...new Set(
+    Array.from(
+      teamMap.values(),
+    ).flat(),
+  ),
+];
 
   const buildAllowedMatch = (
     fieldPath: string,
@@ -1544,9 +1571,14 @@ async employeePoolDailyUtilizationReport(query: any) {
           user._id.toString();
 
         const memberIds =
-          teamMap.get(
-            rootId,
-          ) || [rootId];
+  teamMap.get(
+    rootId,
+  ) || [rootId];
+
+const directMemberIds =
+  directTeamMap.get(
+    rootId,
+  ) || [];
 
         const metrics =
           dateStrings.map(
@@ -1626,8 +1658,7 @@ async employeePoolDailyUtilizationReport(query: any) {
           team:
             isTeam,
 
-          teamSize:
-            memberIds.length,
+          teamSize:directMemberIds.length +1 ,
 
           dailyMetrics:
             metrics,
@@ -1888,12 +1919,10 @@ async employeePoolDailyUtilizationTeamReport(
   let directTeam: any[] =
     [];
 
-  if (isTeam) {
     directTeam =
-      await this.userLogic.getUsersUnder(
+      await this.userLogic.getDirectUsersUnder(
         selectedEmployee,
       );
-  }
 
   // =========================================================
   // IMPORTANT
@@ -3071,6 +3100,9 @@ async employeePoolDailyUtilizationTeamReport(
           },
         );
 
+        const teamSize = teamSizeMap.get(
+            userId,
+          ) || 0;
       return {
         employeeId:
           userId,
@@ -3105,10 +3137,7 @@ async employeePoolDailyUtilizationTeamReport(
           isTeam,
 
         // Descendants only
-        teamSize:
-          teamSizeMap.get(
-            userId,
-          ) || 0,
+        teamSize:teamSize +1,
 
         hasTeam:
           (
@@ -3331,7 +3360,6 @@ async employeePoolDailyUtilizationCalls(
   let allowedUserIds: string[] =
     [selectedEmployeeId];
 
-  if (teamFilter) {
     const subordinateIds =
       await this.getUserAndSubordinateIds(
         selectedEmployeeId,
@@ -3391,7 +3419,7 @@ async employeePoolDailyUtilizationCalls(
         selectedEmployeeId,
       );
     }
-  }
+
 
   allowedUserIds = [
     ...new Set(
@@ -3403,34 +3431,6 @@ async employeePoolDailyUtilizationCalls(
       ),
     ),
   ];
-
-  console.log(
-    'employeePoolDailyUtilizationCalls',
-    {
-      selectedEmployeeId,
-      date,
-      startDate,
-      endDate,
-      teamFilter,
-      allowedUserCount:
-        allowedUserIds.length,
-      page,
-      limit,
-    },
-  );
-
-  // =========================================================
-  // ANSWERED FILTER
-  //
-  // answered=true
-  //   => duration > 0
-  //
-  // answered=false
-  //   => duration <= 0 OR missing duration
-  //
-  // no answered filter
-  //   => all calls
-  // =========================================================
 
   const hasAnsweredFilter =
     query.answered !==

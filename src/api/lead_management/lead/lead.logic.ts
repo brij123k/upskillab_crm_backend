@@ -109,6 +109,23 @@ export class LeadLogic {
       return [userId];
     }
   }
+  private async getUserDirectAndSubordinateIds(userId: string): Promise<string[]> {
+    try {
+      const users = await this.userLogic.getDirectUsersUnder({
+        userId,
+        roleName: 'user',
+      });
+
+      const ids = users
+        .map((user: any) => user?._id?.toString?.())
+        .filter(Boolean);
+
+      ids.push(userId);
+      return [...new Set(ids)];
+    } catch {
+      return [userId];
+    }
+  }
   private maskLeadPayload(
   payload: any,
   settings: {
@@ -5565,103 +5582,117 @@ async stateWiseEmployeeReport(query: any, user: any) {
   // =========================================================
 
   const teamMap =
-    new Map<
-      string,
-      string[]
-    >();
+  new Map<string, string[]>();
 
-  const teamSizeMap =
-    new Map<
-      string,
-      number
-    >();
+const teamSizeMap =
+  new Map<string, number>();
 
-  const employeeLookup =
-    new Map<
-      string,
-      any
-    >();
+const employeeLookup =
+  new Map<string, any>();
 
-  rootUsers.forEach(
-    (employee: any) => {
-      employeeLookup.set(
-        employee._id.toString(),
-        employee,
-      );
-    },
+rootUsers.forEach(
+  (employee: any) => {
+    employeeLookup.set(
+      employee._id.toString(),
+      employee,
+    );
+  },
+);
+
+for (const rootUser of rootUsers) {
+  const rootId =
+    rootUser._id.toString();
+
+  // =======================================================
+  // COMPLETE RECURSIVE SUBTREE
+  // Used for all lead/revenue calculations
+  // =======================================================
+
+  const subordinateIds =
+    await this.getUserAndSubordinateIds(
+      rootId,
+    );
+
+  const uniqueSubordinateIds = [
+    ...new Set(
+      (subordinateIds || []).map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ),
+  ].filter(
+    (id) =>
+      id !== rootId,
   );
 
-  for (const rootUser of rootUsers) {
-    const rootId =
-      rootUser._id.toString();
+  const allIds = [
+    rootId,
+    ...uniqueSubordinateIds,
+  ];
 
-    let memberIds: string[] = [
-      rootId,
-    ];
+  // Only ACTIVE employees
+  const activeMembers =
+    await this.userModel
+      .find({
+        _id: {
+          $in: allIds
+            .filter((id) =>
+              Types.ObjectId.isValid(id),
+            )
+            .map(
+              (id) =>
+                new Types.ObjectId(id),
+            ),
+        },
+        status: 'active',
+      })
+      .select('_id')
+      .lean();
 
-    if (isTeam) {
-      const subordinateIds =
-        await this.getUserAndSubordinateIds(
-          rootId,
-        );
-
-      const uniqueIds: string[] =
-        validIds([
-          rootId,
-          ...(subordinateIds || []),
-        ]);
-
-      // Only ACTIVE employees are allowed
-      const activeMembers =
-        await this.userModel
-          .find({
-            _id: {
-              $in: uniqueIds,
-            },
-            status: 'active',
-          })
-          .select('_id')
-          .lean();
-
-      const activeIds =
-        activeMembers.map(
-          (item: any) =>
-            item._id.toString(),
-        );
-
-      // Root itself should always be present
-      if (
-        !activeIds.includes(
-          rootId,
-        )
-      ) {
-        activeIds.push(
-          rootId,
-        );
-      }
-
-      memberIds = [
-        ...new Set(
-          activeIds,
-        ),
-      ];
-    }
-
-    teamMap.set(
-      rootId,
-      memberIds,
+  const activeIds =
+    activeMembers.map(
+      (employee: any) =>
+        employee._id.toString(),
     );
 
-    // IMPORTANT:
-    // teamSize = descendants only
-    teamSizeMap.set(
-      rootId,
-      Math.max(
-        0,
-        memberIds.length - 1,
-      ),
-    );
+  // Root must always be included
+  if (!activeIds.includes(rootId)) {
+    activeIds.push(rootId);
   }
+
+  teamMap.set(
+    rootId,
+    [
+      ...new Set(activeIds),
+    ],
+  );
+
+  // =======================================================
+  // DIRECT TEAM SIZE ONLY
+  // =======================================================
+
+  const directSubordinateIds =
+    await this.getUserDirectAndSubordinateIds(
+      rootId,
+    );
+
+  const uniqueDirectIds = [
+    ...new Set(
+      (directSubordinateIds || []).map(
+        (id: any) =>
+          id.toString(),
+      ),
+    ),
+  ].filter(
+    (id) =>
+      id !== rootId,
+  );
+
+  teamSizeMap.set(
+    rootId,
+    uniqueDirectIds.length,
+  );
+}
 
   // =========================================================
   // ALL EMPLOYEES WHO CAN OWN LEADS
@@ -6780,339 +6811,239 @@ async stateWiseEmployeeReport(query: any, user: any) {
   //   root + complete active subtree
   // =========================================================
 
-  let report: any[] = [];
+const report =
+  rootUsers.map(
+    (rootUser: any) => {
+      const rootId =
+        rootUser._id.toString();
 
-  if (!isTeam) {
-    report =
-      rootUsers.map(
-        (rootUser: any) => {
-          const rootId =
-            rootUser._id.toString();
+      const memberIds =
+        teamMap.get(rootId) ||
+        [rootId];
 
-          const employee =
+      let totalLeads = 0;
+      let totalAdmissionDone = 0;
+      let totalRegistrationDone = 0;
+      let totalRevenue = 0;
+
+      const combinedStates =
+        new Map<string, any>();
+
+      memberIds.forEach(
+        (memberId: string) => {
+          const member =
             individualEmployeeMap.get(
-              rootId,
+              memberId,
             );
 
-          const stats =
-            employee ||
-            {
-              employeeId:
-                rootId,
+          if (!member) {
+            return;
+          }
 
-              employeeName:
-                rootUser.name ||
-                'Unknown',
+          totalLeads +=
+            Number(
+              member.totalLeads || 0,
+            );
 
-              employeeEmail:
-                rootUser.email ||
-                '',
+          totalAdmissionDone +=
+            Number(
+              member.totalAdmissionDone || 0,
+            );
 
-              employeeCode:
-                rootUser.employeeId ||
-                '',
+          totalRegistrationDone +=
+            Number(
+              member.totalRegistrationDone || 0,
+            );
 
-              totalLeads: 0,
+          totalRevenue +=
+            Number(
+              member.totalRevenue || 0,
+            );
 
-              totalAdmissionDone: 0,
+          (
+            member.states || []
+          ).forEach(
+            (state: any) => {
+              const stateName =
+                state.state ||
+                'Unknown';
 
-              totalRegistrationDone: 0,
-
-              totalRevenue: 0,
-
-              conversionPercentage: 0,
-
-              registrationConversionPercentage: 0,
-
-              states: [],
-            };
-
-          return {
-            ...stats,
-
-            employeeId:
-              rootId,
-
-            team: false,
-
-            teamSize:
-              teamSizeMap.get(
-                rootId,
-              ) || 0,
-          };
-        },
-      );
-  } else {
-    report =
-      rootUsers.map(
-        (rootUser: any) => {
-          const rootId =
-            rootUser._id.toString();
-
-          const memberIds =
-            teamMap.get(
-              rootId,
-            ) || [rootId];
-
-          // ---------------------------------------------------
-          // COMBINED TEAM STATS
-          // ---------------------------------------------------
-
-          let totalLeads = 0;
-
-          let totalAdmissionDone = 0;
-
-          let totalRegistrationDone = 0;
-
-          let totalRevenue = 0;
-
-          const combinedStates =
-            new Map<
-              string,
-              any
-            >();
-
-          memberIds.forEach(
-            (
-              memberId: string,
-            ) => {
-              const member =
-                individualEmployeeMap.get(
-                  memberId,
+              if (
+                !combinedStates.has(
+                  stateName,
+                )
+              ) {
+                combinedStates.set(
+                  stateName,
+                  createStateStats(
+                    stateName,
+                  ),
                 );
-
-              if (!member) {
-                return;
               }
 
-              totalLeads +=
-                Number(
-                  member.totalLeads ||
-                    0,
+              const target =
+                combinedStates.get(
+                  stateName,
                 );
 
-              totalAdmissionDone +=
+              target.totalLeads +=
                 Number(
-                  member.totalAdmissionDone ||
-                    0,
+                  state.totalLeads || 0,
                 );
 
-              totalRegistrationDone +=
+              target.pcatScheduled +=
                 Number(
-                  member.totalRegistrationDone ||
-                    0,
+                  state.pcatScheduled || 0,
                 );
 
-              totalRevenue +=
+              target.pcatDone +=
                 Number(
-                  member.totalRevenue ||
-                    0,
+                  state.pcatDone || 0,
                 );
 
-              (
-                member.states ||
-                []
+              target.registrationDone +=
+                Number(
+                  state.registrationDone || 0,
+                );
+
+              target.admissionDone +=
+                Number(
+                  state.admissionDone || 0,
+                );
+
+              target.revenue +=
+                Number(
+                  state.revenue || 0,
+                );
+
+              Object.entries(
+                state.stages || {},
               ).forEach(
-                (
-                  state: any,
-                ) => {
-                  const stateName =
-                    state.state ||
-                    'Unknown';
-
-                  if (
-                    !combinedStates.has(
-                      stateName,
-                    )
-                  ) {
-                    combinedStates.set(
-                      stateName,
-                      createStateStats(
-                        stateName,
-                      ),
-                    );
-                  }
-
-                  const target =
-                    combinedStates.get(
-                      stateName,
-                    );
-
-                  target.totalLeads +=
-                    Number(
-                      state.totalLeads ||
-                        0,
-                    );
-
-                  target.pcatScheduled +=
-                    Number(
-                      state.pcatScheduled ||
-                        0,
-                    );
-
-                  target.pcatDone +=
-                    Number(
-                      state.pcatDone ||
-                        0,
-                    );
-
-                  target.registrationDone +=
-                    Number(
-                      state.registrationDone ||
-                        0,
-                    );
-
-                  target.admissionDone +=
-                    Number(
-                      state.admissionDone ||
-                        0,
-                    );
-
-                  target.revenue +=
-                    Number(
-                      state.revenue ||
-                        0,
-                    );
-
-                  Object.entries(
-                    state.stages ||
-                      {},
-                  ).forEach(
-                    ([
-                      stageName,
-                      count,
-                    ]) => {
+                ([
+                  stageName,
+                  count,
+                ]) => {
+                  target.stages[
+                    stageName
+                  ] =
+                    (
                       target.stages[
                         stageName
-                      ] =
-                        (
-                          target.stages[
-                            stageName
-                          ] || 0
-                        ) +
-                        Number(
-                          count,
-                        );
-                    },
-                  );
+                      ] || 0
+                    ) +
+                    Number(count);
                 },
               );
             },
           );
-
-          // ---------------------------------------------------
-          // FINAL TEAM STATES
-          // ---------------------------------------------------
-
-          const states =
-            Array.from(
-              combinedStates.values(),
-            )
-              .map(
-                (state: any) => ({
-                  ...state,
-
-                  revenue:
-                    round2(
-                      Number(
-                        state.revenue ||
-                          0,
-                      ),
-                    ),
-
-                  conversionPercentage:
-                    state.totalLeads >
-                    0
-                      ? round2(
-                          (
-                            state.admissionDone /
-                            state.totalLeads
-                          ) * 100,
-                        )
-                      : 0,
-
-                  registrationConversionPercentage:
-                    state.totalLeads >
-                    0
-                      ? round2(
-                          (
-                            state.registrationDone /
-                            state.totalLeads
-                          ) * 100,
-                        )
-                      : 0,
-                }),
-              )
-              .sort(
-                (
-                  a: any,
-                  b: any,
-                ) =>
-                  b.totalLeads -
-                  a.totalLeads,
-              );
-
-          return {
-            employeeId:
-              rootId,
-
-            employeeName:
-              rootUser.name ||
-              'Unknown',
-
-            employeeEmail:
-              rootUser.email ||
-              '',
-
-            employeeCode:
-              rootUser.employeeId ||
-              '',
-
-            totalLeads,
-
-            totalAdmissionDone,
-
-            totalRegistrationDone,
-
-            totalRevenue:
-              round2(
-                totalRevenue,
-              ),
-
-            conversionPercentage:
-              totalLeads > 0
-                ? round2(
-                    (
-                      totalAdmissionDone /
-                      totalLeads
-                    ) * 100,
-                  )
-                : 0,
-
-            registrationConversionPercentage:
-              totalLeads > 0
-                ? round2(
-                    (
-                      totalRegistrationDone /
-                      totalLeads
-                    ) * 100,
-                  )
-                : 0,
-
-            states,
-
-            team: true,
-
-            // Descendants only.
-            // Root employee is NOT counted.
-            teamSize:
-              teamSizeMap.get(
-                rootId,
-              ) || 0,
-          };
         },
       );
-  }
+
+      const states =
+        Array.from(
+          combinedStates.values(),
+        )
+          .map(
+            (state: any) => ({
+              ...state,
+
+              revenue:
+                round2(
+                  Number(
+                    state.revenue || 0,
+                  ),
+                ),
+
+              conversionPercentage:
+                state.totalLeads > 0
+                  ? round2(
+                      (
+                        state.admissionDone /
+                        state.totalLeads
+                      ) * 100,
+                    )
+                  : 0,
+
+              registrationConversionPercentage:
+                state.totalLeads > 0
+                  ? round2(
+                      (
+                        state.registrationDone /
+                        state.totalLeads
+                      ) * 100,
+                    )
+                  : 0,
+            }),
+          )
+          .sort(
+            (
+              a: any,
+              b: any,
+            ) =>
+              b.totalLeads -
+              a.totalLeads,
+          );
+const teamSize=teamSizeMap.get(
+            rootId,
+          ) || 0;
+      return {
+        employeeId:
+          rootId,
+
+        employeeName:
+          rootUser.name ||
+          'Unknown',
+
+        employeeEmail:
+          rootUser.email ||
+          '',
+
+        employeeCode:
+          rootUser.employeeId ||
+          '',
+
+        totalLeads,
+
+        totalAdmissionDone,
+
+        totalRegistrationDone,
+
+        totalRevenue:
+          round2(
+            totalRevenue,
+          ),
+
+        conversionPercentage:
+          totalLeads > 0
+            ? round2(
+                (
+                  totalAdmissionDone /
+                  totalLeads
+                ) * 100,
+              )
+            : 0,
+
+        registrationConversionPercentage:
+          totalLeads > 0
+            ? round2(
+                (
+                  totalRegistrationDone /
+                  totalLeads
+                ) * 100,
+              )
+            : 0,
+
+        states,
+
+        // ONLY response flag
+        team:
+          isTeam,
+
+        // DIRECT team members only
+        teamSize:teamSize + 1,
+      };
+    },
+  );
 
   // =========================================================
   // SORT
@@ -7450,18 +7381,6 @@ async stateWiseEmployeeTeamReport(
         loggedInUser?.id,
     );
 
-  console.log(
-    '[stateWiseEmployeeTeamReport] ACCESS',
-    {
-      loggedInRole,
-      isAdmin,
-      isBd,
-      loggedInUserId,
-      employeeId,
-      team: isTeam,
-    },
-  );
-
   // =========================================================
   // GET SELECTED EMPLOYEE
   // =========================================================
@@ -7611,15 +7530,15 @@ async stateWiseEmployeeTeamReport(
       }
     }
 
-    if (
-      !levelIds.has(
-        employeeId,
-      )
-    ) {
-      throw new BadRequestException(
-        'Selected employee does not belong to the requested level',
-      );
-    }
+    // if (
+    //   !levelIds.has(
+    //     employeeId,
+    //   )
+    // ) {
+    //   throw new BadRequestException(
+    //     'Selected employee does not belong to the requested level',
+    //   );
+    // }
   }
 
   // =========================================================
@@ -7633,24 +7552,21 @@ async stateWiseEmployeeTeamReport(
   // this API should return only one hierarchy level.
   // =========================================================
 
-  let rawDirectTeam: any[] =
-    [];
+ let rawDirectTeam: any[] = [];
 
-  if (isTeam) {
-    rawDirectTeam =
-      await this.userLogic.getUsersUnder(
-        parentEmployee,
-      );
-  }
-
-  console.log(
-    '[stateWiseEmployeeTeamReport] RAW DIRECT TEAM',
-    {
-      parentId: employeeId,
-      count:
-        rawDirectTeam?.length || 0,
-    },
+rawDirectTeam =
+  await this.userLogic.getDirectUsersUnder(
+    parentEmployee,
   );
+
+console.log(
+  '[stateWiseEmployeeTeamReport] RAW DIRECT TEAM',
+  {
+    parentId: employeeId,
+    count:
+      rawDirectTeam?.length || 0,
+  },
+);
 
   // =========================================================
   // DIRECT TEAM IDS
@@ -7948,86 +7864,6 @@ async stateWiseEmployeeTeamReport(
     throw error;
   }
 
-  if (!isTeam) {
-    return {
-      success: true,
-
-      startDate:
-        parentMetricReport?.startDate ||
-        null,
-
-      endDate:
-        parentMetricReport?.endDate ||
-        null,
-
-      dateFilter:
-        query.dateFilter ||
-        'today',
-
-      level:
-        levelNumber,
-
-      team: false,
-
-      employeeId,
-
-      parentEmployee: {
-        ...(parentMetricReport || {}),
-
-        employeeId,
-
-        employeeName:
-          parentEmployee?.name ||
-          parentMetricReport?.employeeName ||
-          'Unknown',
-
-        employeeEmail:
-          parentEmployee?.email ||
-          parentMetricReport?.employeeEmail ||
-          null,
-
-        employeeNumber:
-          parentEmployee?.number ||
-          null,
-
-        employeeCode:
-          parentEmployee?.employeeId ||
-          parentMetricReport?.employeeCode ||
-          null,
-
-        team: false,
-
-        teamSize: 0,
-
-        hasTeam:
-          false,
-      },
-
-      data: [],
-
-      totalEmployees: 0,
-    };
-  }
-
-  // =========================================================
-  // GET METRICS FOR EVERY DIRECT EMPLOYEE
-  //
-  // IMPORTANT:
-  //
-  // Each child is requested with team=true.
-  //
-  // Therefore:
-  //
-  // B report =
-  // B + B's complete descendants
-  //
-  // C report =
-  // C + C's complete descendants
-  //
-  // This gives correct drill-down numbers without putting
-  // deeper employees directly inside A's `data`.
-  // =========================================================
-
   const directReports =
     await Promise.all(
       cleanDirectEmployees.map(
@@ -8166,7 +8002,7 @@ async stateWiseEmployeeTeamReport(
               team: true,
 
               teamSize:
-                childTeamSize,
+                childTeamSize+1,
 
               hasTeam:
                 childTeamSize > 0,
