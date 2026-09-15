@@ -95,6 +95,23 @@ export class OrderService {
 
   private async getUserAndSubordinateIds(userId: string): Promise<string[]> {
     try {
+      const users = await this.userLogic.getUsersUnder({
+        userId,
+        roleName: 'user',
+      });
+
+      const ids = users
+        .map((user: any) => user?._id?.toString?.())
+        .filter(Boolean);
+
+      ids.push(userId);
+      return [...new Set(ids)];
+    } catch {
+      return [userId];
+    }
+  }
+  private async getUserAndDirectSubordinateIds(userId: string): Promise<string[]> {
+    try {
       const users = await this.userLogic.getDirectUsersUnder({
         userId,
         roleName: 'user',
@@ -4415,61 +4432,87 @@ async employeePoolUtilizationReport(query: any) {
   const teamMap =
     new Map<string, string[]>();
 
+  const directTeamMap =
+  new Map<string, string[]>();
   for (const rootUser of rootUsers) {
-    const rootId =
-      rootUser._id.toString();
+  const rootId =
+    rootUser._id.toString();
 
-    // if (!teamFilter) {
-    //   teamMap.set(rootId, [rootId]);
-    //   continue;
-    // }
+  // =========================================================
+  // FULL TEAM
+  // Own + direct + indirect subordinates
+  // Used for calculating combined data
+  // =========================================================
 
-    const subordinateIds =
-      await this.getUserAndSubordinateIds(
-        rootId,
-      );
-
-    const memberIds = [
+  const allSubordinateIds =
+    await this.getUserAndSubordinateIds(
       rootId,
-      ...subordinateIds.map(
+    );
+
+  const allMemberIds = [
+    rootId,
+    ...allSubordinateIds.map(
+      (id: any) => id.toString(),
+    ),
+  ];
+
+  const uniqueMemberIds = [
+    ...new Set(allMemberIds),
+  ];
+
+  const activeMembers =
+    await this.userModel
+      .find({
+        _id: {
+          $in: uniqueMemberIds,
+        },
+        status: 'active',
+      })
+      .select('_id')
+      .lean();
+
+  const activeMemberIds =
+    activeMembers.map(
+      (member) =>
+        member._id.toString(),
+    );
+
+  // Always keep root employee
+  if (!activeMemberIds.includes(rootId)) {
+    activeMemberIds.push(rootId);
+  }
+
+  // This is the FULL hierarchy.
+  // Example A => [A, B, C, D, E]
+  teamMap.set(
+    rootId,
+    [...new Set(activeMemberIds)],
+  );
+
+  // =========================================================
+  // DIRECT TEAM
+  // Own + ONLY direct subordinates
+  // Used ONLY for teamSize
+  // =========================================================
+
+  const directSubordinateIds =
+    await this.getUserAndDirectSubordinateIds(
+      rootId,
+    );
+
+  const directMemberIds = [
+    ...new Set(
+      directSubordinateIds.map(
         (id: any) => id.toString(),
       ),
-    ];
+    ),
+  ];
 
-    const uniqueMemberIds = [
-      ...new Set(memberIds),
-    ];
-
-    const activeMembers =
-      await this.userModel
-        .find({
-          _id: {
-            $in: uniqueMemberIds,
-          },
-          status: 'active',
-        })
-        .select('_id')
-        .lean();
-
-    const activeMemberIds =
-      activeMembers.map(
-        (member) =>
-          member._id.toString(),
-      );
-
-    if (
-      !activeMemberIds.includes(rootId)
-    ) {
-      activeMemberIds.push(rootId);
-    }
-
-    teamMap.set(
-      rootId,
-      [
-        ...new Set(activeMemberIds),
-      ],
-    );
-  }
+  directTeamMap.set(
+    rootId,
+    directMemberIds,
+  );
+}
 
   // =========================================================
   // GET ALL LEADS
@@ -4936,7 +4979,13 @@ async employeePoolUtilizationReport(query: any) {
                   24),
             )}d`
           : null;
+const directMemberIds =
+  directTeamMap.get(employeeId) || [];
 
+const teamSize =
+  directMemberIds.filter(
+    (id) => id !== employeeId,
+  ).length+1;
         return {
           employeeId,
 
@@ -4990,8 +5039,7 @@ async employeePoolUtilizationReport(query: any) {
           team:
             teamFilter,
 
-          teamSize:
-            memberIds.length,
+          teamSize
         };
       })
       .sort((a, b) =>
@@ -8205,60 +8253,90 @@ async employeePoolRevenueReport(query: any) {
 
   const allAllowedUserIds =
     new Set<string>();
+const teamSizeByEmployeeId =
+  new Map<string, number>();
 
-  // NEW:
-  // Store team size for every root employee
-  const teamSizeByEmployeeId =
-    new Map<string, number>();
+for (const rootUser of rootUsers) {
+  const rootId =
+    rootUser._id.toString();
 
-  for (const rootUser of rootUsers) {
-    const rootId =
-      rootUser._id.toString();
+  rootUsersById.set(
+    rootId,
+    rootUser,
+  );
 
-    rootUsersById.set(
+  // ============================================================
+  // FULL SUBTREE
+  // Root + direct + indirect subordinates
+  //
+  // Example:
+  // A -> [A, B, C, D, E]
+  // ============================================================
+
+  const subtreeIds =
+    await this.getUserAndSubordinateIds(
       rootId,
-      rootUser,
     );
 
-    const subtreeIds =
-      await this.getUserAndSubordinateIds(
-        rootId,
-      );
-
-    const uniqueSubtreeIds =
-      Array.from(
-        new Set(
-          subtreeIds.map((id: any) =>
-            id.toString(),
-          ),
+  const uniqueSubtreeIds =
+    [
+      ...new Set(
+        subtreeIds.map(
+          (id: any) => id.toString(),
         ),
-      ).filter(
-        (id) => id !== rootId,
-      );
-
-    // Team size = descendants only
-    teamSizeByEmployeeId.set(
-      rootId,
-      uniqueSubtreeIds.length+1,
-    );
-
-    // Root + complete subtree
-    const memberIds = [
-      rootId,
-      ...uniqueSubtreeIds,
+      ),
     ];
 
-    for (const memberId of memberIds) {
-      const id = memberId.toString();
+  // ============================================================
+  // DIRECT SUBORDINATES
+  // Used ONLY for teamSize
+  //
+  // Example:
+  // A -> [A, B, C]
+  // teamSize = 2
+  // ============================================================
 
-      allAllowedUserIds.add(id);
+  const directSubordinateIds =
+    await this.getUserAndDirectSubordinateIds(
+      rootId,
+    );
 
-      ownerByUserId.set(
-        id,
-        rootId,
-      );
-    }
+  const uniqueDirectSubordinateIds =
+    [
+      ...new Set(
+        directSubordinateIds
+          .map(
+            (id: any) => id.toString(),
+          )
+          .filter(
+            (id) => id !== rootId,
+          ),
+      ),
+    ];
+
+  teamSizeByEmployeeId.set(
+    rootId,
+    uniqueDirectSubordinateIds.length,
+  );
+
+  // ============================================================
+  // ALL USERS WHOSE REVENUE BELONGS TO THIS ROOT
+  // ============================================================
+
+  for (const memberId of uniqueSubtreeIds) {
+    const id = memberId.toString();
+
+    allAllowedUserIds.add(id);
+
+    // IMPORTANT:
+    // Always assign the employee to its root.
+    // Do NOT depend on teamFilter.
+    ownerByUserId.set(
+      id,
+      rootId,
+    );
   }
+}
 
   if (!allAllowedUserIds.size) {
     return {
@@ -8604,7 +8682,9 @@ async employeePoolRevenueReport(query: any) {
   for (const rootUser of rootUsers) {
     const rootId =
       rootUser._id.toString();
-
+    const teamSize = teamSizeByEmployeeId.get(
+            rootId,
+          ) || 0;
     employeeMap.set(
       rootId,
       {
@@ -8624,10 +8704,7 @@ async employeePoolRevenueReport(query: any) {
           rootUser.employeeId || null,
 
         // NEW
-        teamSize:
-          teamSizeByEmployeeId.get(
-            rootId,
-          ) || 0,
+        teamSize:teamSize + 1,
 
         hasTeam:
           (teamSizeByEmployeeId.get(
@@ -8643,7 +8720,12 @@ async employeePoolRevenueReport(query: any) {
   // ============================================================
   // BUILD REVENUE DATA
   // ============================================================
-
+const totalRevenue =
+  revenueRows.reduce(
+    (total, row) =>
+      total + Number(row.revenue || 0),
+    0,
+  );
   revenueRows.forEach((row) => {
     const employeeId =
       String(
@@ -8655,11 +8737,8 @@ async employeePoolRevenueReport(query: any) {
     }
 
     const rootId =
-      teamFilter
-        ? ownerByUserId.get(
-            employeeId,
-          ) || employeeId
-        : employeeId;
+  ownerByUserId.get(employeeId) ||
+  employeeId;
 
     const sourceUser =
       rootUsersById.get(rootId);
@@ -8778,10 +8857,48 @@ async employeePoolRevenueReport(query: any) {
   // ============================================================
 
   const employees =
-    Array.from(
-      employeeMap.values(),
-    )
-      .map((emp) => ({
+  Array.from(
+    employeeMap.values(),
+  )
+    .map((emp) => {
+      // ============================================================
+      // TOTAL REVENUE FOR THIS EMPLOYEE
+      // Own + complete subordinate hierarchy
+      // ============================================================
+
+      const employeeTotalRevenue =
+        Array.from(
+          emp.poolData.values(),
+        ).reduce(
+          (
+            total: number,
+            pool: any,
+          ) => {
+            const monthlyRevenue =
+              Object.values(
+                pool.revenueByMonth || {},
+              ) as number[];
+
+            const poolRevenue =
+              monthlyRevenue.reduce(
+                (
+                  sum: number,
+                  value: number,
+                ) => {
+                  return (
+                    sum +
+                    Number(value || 0)
+                  );
+                },
+                0,
+              );
+
+            return total + poolRevenue;
+          },
+          0,
+        );
+
+      return {
         employeeId:
           emp.employeeId,
 
@@ -8797,58 +8914,97 @@ async employeePoolRevenueReport(query: any) {
         employeeEmployeeId:
           emp.employeeEmployeeId,
 
-        // NEW
+        // Direct subordinate count only
         teamSize:
           emp.teamSize,
 
         hasTeam:
           emp.hasTeam,
 
-        pools: pools.map(
-          (reportPool) => {
-            const existingPool =
-              emp.poolData.get(
-                reportPool.poolId,
-              );
+        // Combined revenue:
+        // Own + all employees under this employee
+        totalRevenue:
+          employeeTotalRevenue,
 
-            return {
-              poolId:
-                reportPool.poolId,
+        pools:
+          pools.map(
+            (reportPool) => {
+              const existingPool =
+                emp.poolData.get(
+                  reportPool.poolId,
+                );
 
-              poolName:
-                reportPool.poolName,
+              // ======================================================
+              // TOTAL REVENUE FOR THIS PARTICULAR POOL
+              // Across all selected months
+              // ======================================================
 
-              revenueByMonth:
-                months.map(
-                  (month) => ({
-                    month,
+              const monthlyPoolRevenue =
+                Object.values(
+                  existingPool
+                    ?.revenueByMonth || {},
+                ) as number[];
 
-                    revenue:
-                      existingPool
-                        ?.revenueByMonth
-                        ?.[month] || 0,
-                  }),
-                ),
+              const poolTotalRevenue =
+                monthlyPoolRevenue.reduce(
+                  (
+                    sum: number,
+                    value: number,
+                  ) => {
+                    return (
+                      sum +
+                      Number(value || 0)
+                    );
+                  },
+                  0,
+                );
 
-              orders:
-                existingPool
-                  ?.orders || [],
-            };
-          },
-        ),
-      }))
-      .sort((a, b) =>
-        a.employeeName.localeCompare(
-          b.employeeName,
-        ),
-      );
+              return {
+                poolId:
+                  reportPool.poolId,
+
+                poolName:
+                  reportPool.poolName,
+
+                // Total revenue for this particular pool
+                // for the selected date range
+                totalRevenue:
+                  poolTotalRevenue,
+
+                revenueByMonth:
+                  months.map(
+                    (month) => ({
+                      month,
+
+                      revenue:
+                        Number(
+                          existingPool
+                            ?.revenueByMonth
+                            ?.[month] || 0,
+                        ),
+                    }),
+                  ),
+
+                orders:
+                  existingPool
+                    ?.orders || [],
+              };
+            },
+          ),
+      };
+    })
+    .sort((a, b) =>
+      a.employeeName.localeCompare(
+        b.employeeName,
+      ),
+    );
 
   return {
     startDate,
     endDate,
 
     months,
-
+    totalRevenue,
     pools,
 
     employees,
@@ -9765,12 +9921,49 @@ async employeePoolRevenueTeamReport(query: any) {
   // ============================================================
   // FINAL RESPONSE
   // ============================================================
+const employees =
+  Array.from(
+    employeeMap.values(),
+  )
+    .map((emp) => {
+      // ============================================================
+      // TOTAL REVENUE FOR THIS EMPLOYEE
+      // Own + complete subordinate hierarchy
+      // ============================================================
 
-  const employees =
-    Array.from(
-      employeeMap.values(),
-    )
-      .map((emp) => ({
+      const employeeTotalRevenue =
+        Array.from(
+          emp.poolData.values(),
+        ).reduce(
+          (
+            total: number,
+            pool: any,
+          ) => {
+            const monthlyRevenue =
+              Object.values(
+                pool.revenueByMonth || {},
+              ) as number[];
+
+            const poolRevenue =
+              monthlyRevenue.reduce(
+                (
+                  sum: number,
+                  value: number,
+                ) => {
+                  return (
+                    sum +
+                    Number(value || 0)
+                  );
+                },
+                0,
+              );
+
+            return total + poolRevenue;
+          },
+          0,
+        );
+
+      return {
         employeeId:
           emp.employeeId,
 
@@ -9786,11 +9979,17 @@ async employeePoolRevenueTeamReport(query: any) {
         employeeEmployeeId:
           emp.employeeEmployeeId,
 
+        // Direct subordinate count only
         teamSize:
           emp.teamSize,
 
         hasTeam:
           emp.hasTeam,
+
+        // Employee's combined revenue
+        // Own + all employees under this employee
+        totalRevenue:
+          employeeTotalRevenue,
 
         pools:
           pools.map(
@@ -9800,6 +9999,31 @@ async employeePoolRevenueTeamReport(query: any) {
                   reportPool.poolId,
                 );
 
+              // ======================================================
+              // TOTAL REVENUE FOR THIS PARTICULAR POOL
+              // Own + complete subordinate hierarchy
+              // ======================================================
+
+              const monthlyPoolRevenue =
+                Object.values(
+                  existingPool
+                    ?.revenueByMonth || {},
+                ) as number[];
+
+              const poolTotalRevenue =
+                monthlyPoolRevenue.reduce(
+                  (
+                    sum: number,
+                    value: number,
+                  ) => {
+                    return (
+                      sum +
+                      Number(value || 0)
+                    );
+                  },
+                  0,
+                );
+
               return {
                 poolId:
                   reportPool.poolId,
@@ -9807,15 +10031,21 @@ async employeePoolRevenueTeamReport(query: any) {
                 poolName:
                   reportPool.poolName,
 
+                // Combined total for this pool
+                totalRevenue:
+                  poolTotalRevenue,
+
                 revenueByMonth:
                   months.map(
                     (month) => ({
                       month,
 
                       revenue:
-                        existingPool
-                          ?.revenueByMonth
-                          ?.[month] || 0,
+                        Number(
+                          existingPool
+                            ?.revenueByMonth
+                            ?.[month] || 0,
+                        ),
                     }),
                   ),
 
@@ -9825,81 +10055,82 @@ async employeePoolRevenueTeamReport(query: any) {
               };
             },
           ),
-      }))
-      .sort((a, b) =>
-        a.employeeName.localeCompare(
-          b.employeeName,
-        ),
-      );
+      };
+    })
+    .sort((a, b) =>
+      a.employeeName.localeCompare(
+        b.employeeName,
+      ),
+    );
 
-  // ============================================================
-  // RESPONSE
-  // ============================================================
-
-  return {
-    startDate,
-
-    endDate,
-
-    months,
-
-    pools,
-
-    employees,
-
-    parentEmployee: {
-      employeeId:
+    const teamSize=
+      teamSizeByUserId.get(
         selectedEmployeeId,
+      ) || 0;
+// ============================================================
+// RESPONSE
+// ============================================================
 
-      employeeName:
-        selectedEmployee.name,
+return {
+  startDate,
 
-      employeeEmail:
-        selectedEmployee.email,
+  endDate,
 
-      employeeNumber:
-        selectedEmployee.number,
+  months,
 
-      employeeEmployeeId:
-        selectedEmployee.employeeId,
+  pools,
 
-      // NEW
-      teamSize:
+  employees,
+
+  parentEmployee: {
+    employeeId:
+      selectedEmployeeId,
+
+    employeeName:
+      selectedEmployee.name,
+
+    employeeEmail:
+      selectedEmployee.email,
+
+    employeeNumber:
+      selectedEmployee.number,
+
+    employeeEmployeeId:
+      selectedEmployee.employeeId,
+
+    teamSize:teamSize+1 || 0,
+
+    hasTeam:
+      (
         teamSizeByUserId.get(
           selectedEmployeeId,
-        ) || 0,
+        ) || 0
+      ) > 0,
+  },
 
-      hasTeam:
-        (
-          teamSizeByUserId.get(
-            selectedEmployeeId,
-          ) || 0
-        ) > 0,
-    },
+  filters: {
+    level:
+      (selectedEmployee as any)
+        ?.role?.level || null,
 
-    filters: {
-      level:
-        (selectedEmployee as any)
-          ?.role?.level || null,
+    team: true,
 
-      team: true,
+    employeeId:
+      selectedEmployeeId,
 
-      employeeId:
-        selectedEmployeeId,
+    poolId:
+      query.poolId || null,
 
-      poolId:
-        query.poolId || null,
+    dateFilter:
+      query.dateFilter || null,
 
-      dateFilter:
-        query.dateFilter || null,
+    fromDate:
+      query.fromDate || null,
 
-      fromDate:
-        query.fromDate || null,
-
-      toDate:
-        query.toDate || null,
-    },
-  };
+    toDate:
+      query.toDate || null,
+  },
+};
 }
 
   async applyPayment(orderId: string, amount: number) {
