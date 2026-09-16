@@ -8543,7 +8543,6 @@ level:
     let ongoingExam: any = null;
     try {
       const resp = await axios.get('https://api.upskillab.com/pcat/exams/ongoing/exam');
-      console.log(resp)
       if (resp && resp.status >= 200 && resp.status < 300) {
         ongoingExam = resp.data && resp.data._id ? resp.data : null;
       }
@@ -8564,14 +8563,65 @@ level:
       throw new BadRequestException('Lead name and phone are required for PCAT registration');
     }
 
+    const team1HeadId = '698be2a0df217601cf5c22db';
+const team2HeadId = '6a76c0ce1555e3f8b03111db';
+
+const team1MeetLink =
+  'https://meet.google.com/txy-rgxr-grg';
+
+const team2MeetLink =
+  'https://meet.google.com/ruc-hxof-icp';
+
+const currentUserId = user?.userId?.toString();
+console.log('currentUserId', currentUserId)
+let meetLink: string | null = null;
+
+// Team 1: get all users under team 1 head
+const team1Users =
+  await this.userLogic.getDirectUsersUnder({
+    _id: team1HeadId,
+  });
+
+const team1UserIds = team1Users.map(
+  (u: any) => u._id.toString(),
+);
+console.log('currentUserId', team1UserIds)
+// Include team head itself
+team1UserIds.push(team1HeadId);
+
+// Check current user
+if (team1UserIds.includes(currentUserId)) {
+  meetLink = team1MeetLink;
+}
+
+// Team 2
+if (!meetLink) {
+  const team2Users =
+    await this.userLogic.getDirectUsersUnder({
+      _id: team2HeadId,
+    });
+
+  const team2UserIds = team2Users.map(
+    (u: any) => u._id.toString(),
+  );
+
+  // Include team head itself
+  team2UserIds.push(team2HeadId);
+
+  if (team2UserIds.includes(currentUserId)) {
+    meetLink = team2MeetLink;
+  }
+}
+
     // 3️⃣ call external register endpoint
     const payload = {
       examId: ongoingExam._id,
       name: lead.name,
       email: lead.email || '',
       number: lead.phone,
+      meetLink,
     };
-
+    console.log('payload', payload)
     try {
       const registerResp = await axios.post('https://api.upskillab.com/pcat-users/register', payload, {
         headers: { 'Content-Type': 'application/json' },
