@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, InternalServerErrorException, ForbiddenException } from '@nestjs/common';
 import axios from 'axios';
 import { LeadData } from './lead.data';
-import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
+import { Lead, LeadSource, LeadStatus } from 'src/schema/lead_management/lead.schema';
 import { CreateLeadDto,UpskillabLeadDto, UpdateLeadDto } from 'src/dto/lead-management/lead.dto';
 import { LeadHistoryLogic } from '../lead-history/lead-history.logic';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
@@ -23,6 +23,7 @@ import { Pool } from 'src/schema/Pool.schema';
 import { MaskSetting } from 'src/schema/mask.schema';
 import { LeadStageHistoryService } from '../LeadStageHistory/LeadStageHistory.service';
 import { Order, PaymentMode } from 'src/schema/order_Management/order.schema';
+import { CreateBootcampRegistrationDto } from 'src/dto/BootcampRegistration.dto';
 
 @Injectable()
 export class LeadLogic {
@@ -290,6 +291,74 @@ await this.notificationEngine.handleEvent({
     return this.maskLeadResponse(lead, user);
   }
 
+  async createBootcampLead(dto: CreateBootcampRegistrationDto) {
+  // 1. Check whether this phone already has a bootcamp lead
+  const existingnumberLead = await this.leadData.findOne({
+    phone: dto.phone,
+    source: LeadSource.BOOTCAMP,
+    isActive: true,
+  });
+    const existingemailLead = await this.leadData.findOne({
+    email: dto.email,
+    source: LeadSource.BOOTCAMP,
+    isActive: true,
+  });
+  const NewStage = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');
+  const PoolId = await this.poolModel.findOne({ name: 'Inhouse Courses' }).select('_id');
+  const adminUser = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
+  if(adminUser === null || NewStage === null || PoolId === null){
+    return {
+      success:false,
+      message:"No Admin Found"
+    }
+  }
+  if (existingnumberLead || existingemailLead) {
+    return {
+      success: true,
+      message: 'Lead already registered for bootcamp',
+      data: existingnumberLead,
+    };
+  }
+
+  // 2. Create bootcamp lead
+  const lead = await this.leadData.create({
+    name: dto.name,
+    phone: dto.phone,
+    email: dto.email,
+    city: dto.city,
+    stageId: new Types.ObjectId(NewStage?._id),
+    poolId: new Types.ObjectId(PoolId?._id),
+    assignedTo: adminUser?._id,
+    reason: dto.profession,
+    source: LeadSource.BOOTCAMP,
+    modifiedAt: new Date(),
+    isActive: true,
+    status: LeadStatus.ACTIVE,
+    assignedDate:new Date(),
+  });
+
+  // 3. Log lead history
+  await this.leadHistoryLogic.log({
+    leadId: lead?.leadId.toString(),
+    actionType: LeadActionType.CREATED,
+    actionBy: adminUser._id.toString(),
+    changes: {
+      name: dto.name,
+      phone: dto.phone,
+      email: dto.email,
+      city: dto.city,
+      reason: dto.profession,
+      source: LeadSource.BOOTCAMP,
+    },
+  });
+  // 5. Return response
+  return {
+    success: true,
+    message: 'Bootcamp registration successful',
+    data: lead,
+  };
+}
+  
   async createByUpskillab(dto: UpskillabLeadDto) {
     const getAdmin = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
     const NewLead = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');

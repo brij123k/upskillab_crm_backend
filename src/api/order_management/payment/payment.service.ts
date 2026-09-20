@@ -8,7 +8,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { SubscriptionsPlan } from 'src/schema/order_Management/subscriptions-plan.schema';
 import { Payment } from 'src/schema/order_Management/payment.schema';
-import { Lead } from 'src/schema/lead_management/lead.schema';
+import { Lead, LeadSource } from 'src/schema/lead_management/lead.schema';
 import { UserLogic } from 'src/api/user/user.logic';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
 import { LeadHistoryLogic } from 'src/api/lead_management/lead-history/lead-history.logic';
@@ -208,6 +208,84 @@ async createleadPaymentLink(data: {
       throw new BadRequestException('Payment link creation failed');
     }
   }
+async createBootcampPaymentLink(data: {
+  leadId: number;
+  amount: number;
+}) {
+  const lead = await this.leadModel.findOne({
+    leadId: Number(data.leadId),
+    source: LeadSource.BOOTCAMP,
+    isActive: true,
+  });
+
+  if (!lead) {
+    throw new NotFoundException('Bootcamp lead not found');
+  }
+
+  try {
+    const payload: any = {
+      customer_details: {
+        customer_name: lead.name,
+        customer_email: lead.email || '',
+        customer_phone: lead.phone,
+      },
+
+      link_amount: data.amount,
+      link_currency: 'INR',
+
+      link_purpose: 'Bootcamp Registration Payment',
+
+      link_notify: {
+        send_sms: !!lead.phone,
+        send_email: !!lead.email,
+      },
+
+      link_meta: {
+        notify_url:
+          'https://crm.upskillab.in/bootcamp/payment/webhook',
+      },
+
+      link_notes: {
+        leadId: data.leadId.toString(),
+        type: 'BOOTCAMP',
+      },
+    };
+
+    const response = await axios.post(
+      'https://api.cashfree.com/pg/links',
+      payload,
+      {
+        headers: {
+          'x-client-id': process.env.CASHFREE_APP_ID,
+          'x-client-secret': process.env.CASHFREE_SECRET_KEY,
+          'x-api-version': '2025-01-01',
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    console.log(
+      'Bootcamp Payment Link Response:',
+      response.data,
+    );
+
+    return {
+      linkId: response.data.link_id,
+      paymentLink: response.data.link_url,
+    };
+  } catch (error: any) {
+    console.error(
+      'Cashfree Error:',
+      error.response?.data || error.message,
+    );
+
+    throw new BadRequestException(
+      error.response?.data?.message ||
+        'Bootcamp payment link creation failed',
+    );
+  }
+}
+
 
 async getAllPayments(filters: any, user: any) {
   const {

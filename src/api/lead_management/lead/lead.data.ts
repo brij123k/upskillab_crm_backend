@@ -732,7 +732,9 @@ const leadsWithCallInfo = data.map((lead: any) => {
   }
 
 
-
+async findOne(filters: any) {
+    return this.leadModel.findOne(filters);
+  }
 
 
   async findAllWithFiltersUserId(filters: any, userId: string) {

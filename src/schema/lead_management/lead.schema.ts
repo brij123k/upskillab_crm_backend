@@ -9,6 +9,7 @@ export enum LeadSource {
   POSITIVE = 'positive',
   REFURBISHED = 'refurbished',
   API = 'api',
+  BOOTCAMP = 'bootcamp',
 }
 
 export enum LeadStatus {

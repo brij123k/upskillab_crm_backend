@@ -31,5 +31,6 @@ import { LeadModule } from 'src/api/lead_management/lead/lead.module';
       ],
   providers: [PaymentService],
   controllers: [PaymentController],
+  exports: [PaymentService],
 })
 export class PaymentModule {}
