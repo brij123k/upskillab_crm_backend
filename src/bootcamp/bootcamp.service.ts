@@ -64,7 +64,6 @@ private async sendRegistrationConfirmation(
           body: {
             params: [
               lead.name || 'Participant',
-              amount.toString(),
             ],
           },
         },
@@ -95,136 +94,227 @@ private async sendRegistrationConfirmation(
       const subject =
         'Registration Confirmed – The Generation Nobody Prepared Us For';
 
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <title>Registration Confirmed</title>
-        </head>
+const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webinar Registration Confirmed</title>
+  </head>
 
-        <body style="
+  <body style="
+    margin: 0;
+    padding: 0;
+    background-color: #f5f7fb;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #222222;
+  ">
+
+    <div style="
+      max-width: 650px;
+      margin: 30px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    ">
+
+      <!-- Header -->
+      <div style="
+        padding: 30px 25px;
+        text-align: center;
+        background-color: #f8f9ff;
+      ">
+        <h1 style="
           margin: 0;
-          padding: 0;
-          background-color: #f5f7fb;
-          font-family: Arial, Helvetica, sans-serif;
-          color: #222;
+          color: #222222;
+          font-size: 26px;
+        ">
+          Registration Confirmed! 🎉
+        </h1>
+      </div>
+
+      <!-- Content -->
+      <div style="padding: 30px;">
+
+        <p style="font-size: 16px; margin-top: 0;">
+          Dear <strong>${lead.name || 'Participant'}</strong>,
+        </p>
+
+        <p style="
+          font-size: 16px;
+          line-height: 1.6;
+        ">
+          Thank you for registering for our upcoming webinar:
+        </p>
+
+        <!-- Webinar Details -->
+        <div style="
+          margin: 25px 0;
+          padding: 22px;
+          background-color: #f8f9ff;
+          border-radius: 10px;
+          border: 1px solid #e8eaf3;
         ">
 
-          <div style="
-            max-width: 650px;
-            margin: 30px auto;
-            background: #ffffff;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+          <h2 style="
+            margin: 0 0 20px 0;
+            font-size: 21px;
+            line-height: 1.4;
+            color: #222222;
           ">
+            The Generation Nobody Prepared Us For:
+            Understanding Gen Z & Gen Alpha
+          </h2>
 
-            <div style="
-              padding: 30px;
-              text-align: center;
-              background: #f8f9ff;
-            ">
-              <h1 style="
-                margin: 0;
-                color: #222;
-                font-size: 26px;
-              ">
-                🎉 Registration Confirmed!
-              </h1>
-            </div>
+          <p style="font-size: 16px; margin: 10px 0;">
+            📅 <strong>Date:</strong> 10 October 2026
+          </p>
 
-            <div style="padding: 30px;">
+          <p style="font-size: 16px; margin: 10px 0;">
+            🕗 <strong>Time:</strong> 8:00 PM – 9:00 PM IST
+          </p>
 
-              <p style="font-size: 16px;">
-                Hi <strong>${lead.name || 'Participant'}</strong>,
-              </p>
+          <p style="font-size: 16px; margin: 10px 0;">
+            🎙️ <strong>Facilitator:</strong> Reshmi Sensarma Basu
+          </p>
 
-              <p style="font-size: 16px; line-height: 1.6;">
-                Your registration for our special webinar has been
-                successfully confirmed. ✅
-              </p>
+          <p style="
+            font-size: 14px;
+            line-height: 1.5;
+            margin: 5px 0 0 0;
+            color: #555555;
+          ">
+            MS, MPhil, PGDPC (RCI-Licensed) | 25+ Years of Experience
+          </p>
 
-              <div style="
-                margin: 25px 0;
-                padding: 20px;
-                background: #f8f9ff;
-                border-radius: 10px;
-              ">
+        </div>
 
-                <h2 style="
-                  margin-top: 0;
-                  font-size: 21px;
-                  color: #222;
-                ">
-                  📌 The Generation Nobody Prepared Us For:
-                  Understanding Gen Z & Gen Alpha
-                </h2>
+        <!-- Join Webinar -->
+        <div style="
+          margin: 25px 0;
+          padding: 22px;
+          text-align: center;
+          background-color: #f1f8f4;
+          border-radius: 10px;
+        ">
 
-                <p>
-                  📅 <strong>Date:</strong> 10 October 2026
-                </p>
+          <h3 style="
+            margin: 0 0 12px 0;
+            font-size: 20px;
+            color: #222222;
+          ">
+            Join the Webinar
+          </h3>
 
-                <p>
-                  ⏰ <strong>Time:</strong> 8:00 PM – 9:00 PM IST
-                </p>
+          <p style="
+            margin: 0 0 18px 0;
+            font-size: 15px;
+            color: #555555;
+          ">
+            Please join 5–10 minutes before the scheduled start time.
+          </p>
 
-                <p>
-                  🎤 <strong>Facilitator:</strong>
-                  Reshmi Sensarma Basu
-                </p>
+          <a
+            href="https://meet.google.com/spn-avdm-xog"
+            target="_blank"
+            style="
+              display: inline-block;
+              padding: 13px 25px;
+              background-color: #1a73e8;
+              color: #ffffff;
+              text-decoration: none;
+              border-radius: 6px;
+              font-size: 16px;
+              font-weight: bold;
+            "
+          >
+            Join Webinar
+          </a>
 
-                <p>
-                  MS, MPhil, PGDPC (RCI-Licensed)<br />
-                  25+ Years of Experience
-                </p>
+          <p style="
+            margin: 15px 0 0 0;
+            font-size: 13px;
+            color: #666666;
+            word-break: break-all;
+          ">
+            Webinar Link:<br />
+            https://meet.google.com/spn-avdm-xog
+          </p>
 
-              </div>
+        </div>
 
-              <p style="font-size: 16px; line-height: 1.6;">
-                You’ll get practical insights into understanding
-                <strong>Gen Z & Gen Alpha</strong>, their changing
-                needs, behaviours and the generation gap.
-              </p>
+        <!-- WhatsApp -->
+        <div style="
+          margin: 25px 0;
+          padding: 20px;
+          background-color: #f8f9ff;
+          border-radius: 10px;
+        ">
 
-              <div style="
-                margin: 25px 0;
-                padding: 18px;
-                background: #f1f8f4;
-                border-radius: 10px;
-              ">
+          <h3 style="
+            margin: 0 0 10px 0;
+            font-size: 18px;
+          ">
+            Stay Connected 📢
+          </h3>
 
-                <p style="margin: 0; font-size: 16px;">
-                  💳 <strong>Registration Payment:</strong>
-                  ₹${amount} — Successfully Received
-                </p>
+          <p style="
+            margin: 0 0 15px 0;
+            font-size: 15px;
+            line-height: 1.6;
+          ">
+            Join our official WhatsApp Channel to receive webinar
+            reminders, important updates and announcements.
+          </p>
 
-              </div>
+          <a
+            href="https://whatsapp.com/channel/0029Vb6RBx0GufJ0RYlVaj2i"
+            target="_blank"
+            style="
+              color: #128c7e;
+              font-size: 15px;
+              font-weight: bold;
+              text-decoration: none;
+            "
+          >
+            📢 Join WhatsApp Channel
+          </a>
 
-              <p style="font-size: 16px; line-height: 1.6;">
-                Please save the date and join us on time.
-              </p>
+        </div>
 
-              <p style="font-size: 16px; line-height: 1.6;">
-                We look forward to having you with us! 🙌
-              </p>
+        <p style="
+          font-size: 15px;
+          line-height: 1.6;
+        ">
+          We recommend joining the webinar 5–10 minutes before the
+          scheduled start time.
+        </p>
 
-              <p style="
-                margin-top: 30px;
-                font-size: 16px;
-              ">
-                Regards,<br />
-                <strong>UpskillLab Team</strong>
-              </p>
+        <p style="
+          font-size: 16px;
+          line-height: 1.6;
+        ">
+          We look forward to having you with us for this insightful session.
+        </p>
 
-            </div>
+        <p style="
+          margin-top: 30px;
+          font-size: 16px;
+          line-height: 1.6;
+        ">
+          Warm regards,<br />
+          <strong>Team Upskillab</strong>
+        </p>
 
-          </div>
+      </div>
 
-        </body>
-        </html>
-      `;
+    </div>
+
+  </body>
+  </html>
+`;
 
       const emailSent = await this.emailService.sendMail(
         lead.email,
