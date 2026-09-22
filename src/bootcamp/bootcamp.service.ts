@@ -1,10 +1,14 @@
 import { Injectable } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
 import { LeadData } from "src/api/lead_management/lead/lead.data";
 import { LeadLogic } from "src/api/lead_management/lead/lead.logic";
 import { PaymentService } from "src/api/order_management/payment/payment.service";
 import { WhatsappService } from "src/api/whatsapp/whatsapp.service";
 import { EmailService } from "src/common/services/email.service";
 import { CreateBootcampRegistrationDto } from "src/dto/BootcampRegistration.dto";
+import { LeadStage } from "src/schema/lead_management/lead-stage.schema";
+import { Lead } from "src/schema/lead_management/lead.schema";
 LeadData
 @Injectable()
 export class BootCampService {
@@ -14,6 +18,12 @@ export class BootCampService {
       private readonly emailService: EmailService,
       private readonly paymentService: PaymentService,
       private readonly whatsappService: WhatsappService,
+
+      @InjectModel(LeadStage.name)
+      private readonly leadStageModel: Model<LeadStage>,
+
+      @InjectModel(Lead.name)
+      private readonly leadModel: Model<Lead>,
     ) {}
 private formatPhoneNumber(phone: string): string {
   if (!phone) {
@@ -443,14 +453,15 @@ async handlePaymentWebhook(body: any) {
     }
 
     const lead = await this.leadData.getByLeadId(Number(leadId));
-
+    const leadStage = await this.leadStageModel.findOne({ name: "Bootcamp Registered" }).exec();
     if (!lead) {
       return {
         success: false,
         message: 'Bootcamp lead not found',
       };
     }
-
+    console.log(lead,"lead data",leadStage,"lead stage");
+    await this.leadModel.findByIdAndUpdate(lead._id, { stageId: new Types.ObjectId(leadStage?._id) }).exec();
     // IMPORTANT:
     // We don't mark registration completed here.
     // PAYMENT_SUCCESS_WEBHOOK handles successful payment.
