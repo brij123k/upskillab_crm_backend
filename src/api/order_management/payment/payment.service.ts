@@ -252,7 +252,7 @@ async createBootcampPaymentLink(data: {
     };
 
     const response = await axios.post(
-      'https://sandbox.cashfree.com/pg/links',
+      'https://api.cashfree.com/pg/links',
       payload,
       {
         headers: {
