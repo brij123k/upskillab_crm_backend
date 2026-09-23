@@ -232,7 +232,7 @@ async createBootcampPaymentLink(data: {
 
       link_amount: data.amount,
       link_currency: 'INR',
-
+      link_expiry_time: "2026-10-09T21:00:00+05:30",
       link_purpose: 'Webinar The Generation Nobody Prepared Us For: Understanding Gen Z & Gen Alpha Date: October 10, 2026 Time: 8 pm to 9 pm',
 
       link_notify: {
