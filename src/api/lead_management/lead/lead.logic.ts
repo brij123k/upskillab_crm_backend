@@ -496,6 +496,10 @@ await this.notificationEngine.handleEvent({
       }
     }
 
+//     if (!user.isSuperAdmin) {
+//   match.assignedTo = user.userId;
+// }
+
     const stageResults = await this.leadModel.aggregate([
       { $match: match },
       {

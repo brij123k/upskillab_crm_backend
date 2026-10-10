@@ -48,7 +48,7 @@ export class LevelController {
   }
 
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
+@UseGuards(JwtAuthGuard, RoleGuard)
 @Roles('Admin')
   @Patch(':id')
   update(

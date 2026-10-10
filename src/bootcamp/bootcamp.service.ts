@@ -100,6 +100,7 @@ private async sendRegistrationConfirmation(
   // EMAIL
   // ============================================================
   if (lead?.email) {
+    console.log("entered")
     try {
       const subject =
         'Registration Confirmed – The Generation Nobody Prepared Us For';
@@ -357,22 +358,23 @@ async register(dto: CreateBootcampRegistrationDto) {
     };
   }
 
-  const payment =
-    await this.paymentService.createBootcampPaymentLink({
-      leadId: lead.data.leadId,
-      amount: 10,
-    });
+  // const payment =
+  //   await this.paymentService.createBootcampPaymentLink({
+  //     leadId: lead.data.leadId,
+  //     amount: 10,
+  //   });
 
   return {
     success: true,
     message: 'Bootcamp registration successful',
     data: {
       lead: lead.data,
-      paymentLink: payment.paymentLink,
-      linkId: payment.linkId,
+      paymentLink: "https://meet.google.com/spn-avdm-xog",
+      linkId: null,
     },
   };
 }
+
 
 async handlePaymentWebhook(body: any) {
     try {
