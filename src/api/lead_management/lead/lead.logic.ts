@@ -358,7 +358,33 @@ await this.notificationEngine.handleEvent({
     data: lead,
   };
 }
-  
+  async createExamLead(dto: any) {
+    const getAdmin = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
+    const NewLead = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');
+    const assignedTo =  getAdmin?._id?getAdmin._id:"";
+    const lead = await this.leadData.create({
+      ...dto,
+      city:dto.city?dto.city:"N/A",
+      state:dto.city?dto.city:"N/A",
+      stageId:new Types.ObjectId(NewLead?._id),
+      assignedTo,
+      source:"Webinor",
+      source_campaign:dto.source_campaign?dto.source_campaign:"exam form",
+      assignedDate: dto.assignedDate ? new Date(dto.assignedDate) : new Date(),
+      modifiedAt: new Date(),
+    });
+
+    await this.leadHistoryLogic.log({
+      leadId: lead?.leadId.toString(),
+      actionType: LeadActionType.CREATED,
+      actionBy: "",
+      changes: {
+        dto,
+        message:"Lead Added from Upskillab"
+      },
+    });
+    return {"message":"Lead Added succefully"};
+  }
   async createByUpskillab(dto: UpskillabLeadDto) {
     const getAdmin = await this.userModel.findOne({ role: '696f88b60841bc5572ee2385' }).select('_id');
     const NewLead = await this.leadStageModel.findOne({ name: 'New Lead' }).select('_id');

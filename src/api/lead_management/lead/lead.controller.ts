@@ -48,6 +48,16 @@ export class LeadController {
         return this.logic.create(dto, req?.user);
     }
 
+    @Post("exam")
+    @RequirePermission(
+      PERMISSIONS.LEAD.MODULE,
+      PERMISSIONS.LEAD.ACTIONS.CREATE,
+    )
+    @ApiOperation({ summary: 'Create lead' })
+    createExamLead(@Body() dto: any) {
+        return this.logic.createExamLead(dto);
+    }
+
     @Post("upskillab")
     @ApiOperation({ summary: 'Add Lead from Upskill' })
     createByUpskillab(@Body() dto: UpskillabLeadDto) {
