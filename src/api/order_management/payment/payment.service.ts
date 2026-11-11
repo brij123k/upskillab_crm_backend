@@ -2,7 +2,13 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { OrderService } from '../order.service';
-import { Order, OrderStatus } from 'src/schema/order_Management/order.schema';
+import { CreditStatus, Order, OrderStatus } from 'src/schema/order_Management/order.schema';
+import {
+  LUMPSUM_EXCLUDED_STATUSES,
+  MONEY_EPSILON,
+  moneyEquals,
+  toMoney,
+} from '../financial/order-financial.util';
 import { Subscription } from 'src/schema/order_Management/subscription.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -40,21 +46,95 @@ export class PaymentService {
     };
   }
 
+  /**
+   * Unique key of a payment-link payment: link id + Cashfree order /
+   * transaction id. Stable across webhook retries of the same payment.
+   */
+  buildLinkPaymentKey(data: any): string {
+    const linkId = data?.link_id || data?.cf_link_id || 'link';
+    const paymentRef =
+      data?.order?.transaction_id ?? data?.order?.order_id ?? data?.cf_payment_id;
+    if (paymentRef === undefined || paymentRef === null || paymentRef === '') {
+      return `${linkId}:no-ref`;
+    }
+    return `${linkId}:${paymentRef}`;
+  }
+
+  /**
+   * Validates the amount of a payment link against its target:
+   *  - creditId        → must equal the (unpaid) credit amount
+   *  - lumpsumEntryId  → must not exceed that entry's outstanding balance
+   *  - none            → must not exceed the total outstanding lumpsum balance
+   */
+  async validatePaymentLinkTarget(data: {
+    orderId: string;
+    amount: number;
+    creditId?: string;
+    lumpsumEntryId?: string;
+  }) {
+    const amount = toMoney(data.amount);
+    if (!(amount > 0)) throw new BadRequestException('Amount must be greater than 0');
+    const view = await this.orderService.getFinancialSummary(data.orderId);
+
+    if (data.creditId) {
+      const credit = (view.credits || []).find(
+        (c: any) => c._id?.toString() === String(data.creditId),
+      );
+      if (!credit) throw new BadRequestException('Credit not found on this order');
+      if (credit.status === CreditStatus.PAID) {
+        throw new BadRequestException('This credit is already paid');
+      }
+      if (!moneyEquals(credit.amount, amount)) {
+        throw new BadRequestException(`Amount should be ${toMoney(credit.amount)} for this credit`);
+      }
+      return;
+    }
+
+    const activeLumpsum = (view.lumpsumPayments || []).filter(
+      (e: any) => !LUMPSUM_EXCLUDED_STATUSES.includes(e.status),
+    );
+    const entries = data.lumpsumEntryId
+      ? activeLumpsum.filter((e: any) => e._id?.toString() === String(data.lumpsumEntryId))
+      : activeLumpsum;
+    if (data.lumpsumEntryId && !entries.length) {
+      throw new BadRequestException('Lumpsum payment entry not found on this order');
+    }
+    const outstanding = toMoney(
+      entries.reduce(
+        (sum: number, e: any) => sum + Math.max(0, toMoney(e.amount) - toMoney(e.amountReceived)),
+        0,
+      ),
+    );
+    if (outstanding <= 0) {
+      throw new BadRequestException(
+        'No lumpsum balance is pending on this order. To collect a credit, create the link with creditId.',
+      );
+    }
+    if (amount - outstanding > MONEY_EPSILON) {
+      throw new BadRequestException(`Amount should be ${outstanding}`);
+    }
+  }
+
   async createPaymentLink(data: {
     name: string;
     email: string;
     phone: string;
     amount: number;
     orderId?: string;
+    creditId?: string;
+    lumpsumEntryId?: string;
   },userId: string) {
     if (data.orderId) {
       const order = await this.orderService.findById(data.orderId);
       if (!order) throw new BadRequestException('Invalid orderId');
       if (!order.Approved) throw new BadRequestException('Please Approve the order first');
       if (order.status == OrderStatus.FULLY_PAID) throw new BadRequestException('No pending amount for this order');
-      if (order.finalFee - (order.lumpsumDetails?.totalReceived || 0) < data.amount) {
-        throw new BadRequestException(`Amount should be ${order.finalFee - (order.lumpsumDetails?.totalReceived || 0)}`);
-      }
+      await this.validatePaymentLinkTarget({
+        orderId: data.orderId,
+        amount: data.amount,
+        creditId: data.creditId,
+        lumpsumEntryId: data.lumpsumEntryId,
+      });
     }
     const lead= await this.leadModel.findOne({email:data.email})
     try {
@@ -84,7 +164,10 @@ export class PaymentService {
       if (data.orderId) {
         payload.link_notes = {
           orderId: data.orderId,
-          userId
+          userId,
+          // Payment target used by the webhook to update the right entry
+          ...(data.creditId ? { creditId: String(data.creditId) } : {}),
+          ...(data.lumpsumEntryId ? { lumpsumEntryId: String(data.lumpsumEntryId) } : {}),
         };
       }
       const response = await axios.post(

@@ -19,10 +19,22 @@ import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { OrderFilterDto } from 'src/dto/order_management/orderFilterDto.dto';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
+import {
+    MarkCreditPaidDto,
+    PendingCreditReportQueryDto,
+    RevertCreditPaymentDto,
+    UpdateOrderFinancialsDto,
+} from 'src/dto/order_management/order-payment.dto';
+import { PendingCreditService } from './credits/pending-credit.service';
+import { PendingCreditNotificationService } from './credits/pending-credit-notification.service';
 @ApiTags('Order')
 @Controller('order')
 export class OrderController {
-    constructor(private readonly service: OrderService) { }
+    constructor(
+        private readonly service: OrderService,
+        private readonly pendingCreditService: PendingCreditService,
+        private readonly pendingCreditNotifications: PendingCreditNotificationService,
+    ) { }
 
     @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
     @Roles('Admin', 'bd')
@@ -65,7 +77,122 @@ export class OrderController {
         PERMISSIONS.Orders.ACTIONS.UPDATE,
     )
     update(@Param('id') id: string, @Body() dto: UpdateOrderDto, @Req() req: any) {
-        return this.service.update(id, dto, req.user.userId);
+        return this.service.update(id, dto, req.user);
+    }
+
+    // ================= PAYMENT SOURCES & CREDITS =================
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Get(':id/financials')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.READ,
+    )
+    @ApiOperation({ summary: 'Payment sources, credits, planned coverage and actual received revenue of an order' })
+    async getFinancials(@Param('id') id: string, @Req() req: any) {
+        await this.service.assertOrderAccess(id, req.user);
+        return this.service.getFinancialSummary(id);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Patch(':id/financials')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.UPDATE,
+    )
+    @ApiOperation({
+        summary:
+            'Add/update lumpsum, loan, subscription entries and credits. The whole order is re-validated. Approved orders additionally require the approve permission; recording received money requires record_payment; reductions/refunds require revert_payment.',
+    })
+    async updateFinancials(
+        @Param('id') id: string,
+        @Body() dto: UpdateOrderFinancialsDto,
+        @Req() req: any,
+    ) {
+        await this.service.assertOrderAccess(id, req.user);
+        return this.service.updateFinancials(id, dto, req.user);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Post(':id/credits/:creditId/pay')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.RECORD_PAYMENT,
+    )
+    @ApiOperation({ summary: 'Mark a credit Paid with a verified payment reference' })
+    async markCreditPaid(
+        @Param('id') id: string,
+        @Param('creditId') creditId: string,
+        @Body() dto: MarkCreditPaidDto,
+        @Req() req: any,
+    ) {
+        await this.service.assertOrderAccess(id, req.user);
+        return this.service.markCreditPaid(id, creditId, dto, req.user);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Post(':id/credits/:creditId/revert')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.REVERT_PAYMENT,
+    )
+    @ApiOperation({ summary: 'Revert a Paid credit to Pending/Overdue (audited, reason required)' })
+    async revertCreditPayment(
+        @Param('id') id: string,
+        @Param('creditId') creditId: string,
+        @Body() dto: RevertCreditPaymentDto,
+        @Req() req: any,
+    ) {
+        await this.service.assertOrderAccess(id, req.user);
+        return this.service.revertCreditPayment(id, creditId, dto.reason, req.user);
+    }
+
+    // ================= PENDING CREDITS =================
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Get('report/pending-credits')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.PENDING_CREDITS,
+    )
+    @ApiOperation({
+        summary:
+            'Pending credit report (approved orders). Admins see all orders; other users see their own and their team\'s.',
+    })
+    pendingCreditsReport(@Query() query: PendingCreditReportQueryDto, @Req() req: any) {
+        return this.pendingCreditService.getReport(query, req.user);
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin')
+    @Get('report/pending-credits/notifications')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.PENDING_CREDITS,
+    )
+    @ApiOperation({ summary: 'Execution history of the daily pending-credit notification' })
+    pendingCreditNotificationHistory(@Query('page') page?: string, @Query('limit') limit?: string) {
+        return this.pendingCreditNotifications.getHistory(
+            Math.max(1, Number(page) || 1),
+            Math.min(100, Math.max(1, Number(limit) || 20)),
+        );
+    }
+
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin')
+    @Post('report/pending-credits/notifications/run')
+    @RequirePermission(
+        PERMISSIONS.Orders.MODULE,
+        PERMISSIONS.Orders.ACTIONS.PENDING_CREDITS,
+    )
+    @ApiOperation({ summary: 'Run the pending-credit notification now (credits already notified today are skipped)' })
+    runPendingCreditNotifications(@Req() req: any) {
+        return this.pendingCreditNotifications.run('MANUAL', req.user?.userId);
     }
 
     // @UseGuards(JwtAuthGuard, RoleGuard)
@@ -140,7 +267,7 @@ consultantPerformanceDetails(@Query() query: any) {
         PERMISSIONS.Orders.MODULE,
         PERMISSIONS.Orders.ACTIONS.READ,
     )
-    @ApiOperation({ summary: 'Get employee utilization report with lead assignment, dial metrics, PCAT, registration, and admission counts' })
+    @ApiOperation({ summary: 'Get employee utilization report with lead assignment, dial metrics, PCAT, registration, and admission counts', description: 'activityDateFilter (today|week|month) or activityDateFrom + activityDateTo switches to employee activity: leads assigned / created, calls made and stage changes made by the employee in the period. The assigned/created filters are ignored then.' })
     @Get('report/employee-pool-utilization')
     employeePoolUtilizationReport(@Query() query: any) {
         return this.service.employeePoolUtilizationReport(query);
@@ -155,6 +282,8 @@ consultantPerformanceDetails(@Query() query: any) {
 @ApiOperation({
   summary:
     'Get employee utilization hierarchy with direct team members',
+  description:
+    'Supports the same activityDateFilter / activityDateFrom / activityDateTo as the main report.',
 })
 @Get('report/employee-pool-utilization/team')
 employeePoolUtilizationTeamReport(@Query() query: any) {

@@ -22,7 +22,10 @@ import { Role } from 'src/schema/role.schema';
 import { Pool } from 'src/schema/Pool.schema';
 import { MaskSetting } from 'src/schema/mask.schema';
 import { LeadStageHistoryService } from '../LeadStageHistory/LeadStageHistory.service';
-import { Order, PaymentMode } from 'src/schema/order_Management/order.schema';
+import { Order } from 'src/schema/order_Management/order.schema';
+import {
+  buildRevenueAddFields,
+} from 'src/api/order_management/financial/order-financial.util';
 import { CreateBootcampRegistrationDto } from 'src/dto/BootcampRegistration.dto';
 
 @Injectable()
@@ -4504,45 +4507,7 @@ async stateWiseReport(
 
           {
             $addFields: {
-              revenue: {
-                $switch: {
-                  branches: [
-                    {
-                      case: {
-                        $eq: [
-                          '$paymentMode',
-                          PaymentMode.LOAN,
-                        ],
-                      },
-
-                      then: {
-                        $ifNull: [
-                          '$loanDetails.disbursementAmount',
-                          0,
-                        ],
-                      },
-                    },
-
-                    {
-                      case: {
-                        $eq: [
-                          '$paymentMode',
-                          PaymentMode.LUMPSUM,
-                        ],
-                      },
-
-                      then: {
-                        $ifNull: [
-                          '$lumpsumDetails.totalReceived',
-                          0,
-                        ],
-                      },
-                    },
-                  ],
-
-                  default: 0,
-                },
-              },
+              ...buildRevenueAddFields('', 'revenue'),
 
               normalizedEmail: {
                 $toLower: {
@@ -6159,8 +6124,10 @@ for (const rootUser of rootUsers) {
   //   lead email OR lead phone/mobile
   //
   // Revenue:
-  //   LOAN    -> loanDetails.disbursementAmount
-  //   LUMPSUM -> lumpsumDetails.totalReceived
+  //   Actual received revenue (centralised in
+  //   order_management/financial/order-financial.util):
+  //   lumpsum received + loan disbursed + successful
+  //   subscription payments + paid credits
   // =========================================================
 
   let orderResults: any[] = [];
@@ -6238,48 +6205,7 @@ for (const rootUser of rootUsers) {
               },
             },
 
-            calculatedRevenue: {
-              $switch: {
-                branches: [
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LOAN,
-                      ],
-                    },
-                    then: {
-                      $convert: {
-                        input:
-                          '$loanDetails.disbursementAmount',
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0,
-                      },
-                    },
-                  },
-
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LUMPSUM,
-                      ],
-                    },
-                    then: {
-                      $convert: {
-                        input:
-                          '$lumpsumDetails.totalReceived',
-                        to: 'double',
-                        onError: 0,
-                        onNull: 0,
-                      },
-                    },
-                  },
-                ],
-                default: 0,
-              },
-            },
+            ...buildRevenueAddFields(),
           },
         },
 

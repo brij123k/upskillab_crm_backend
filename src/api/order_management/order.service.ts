@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { isAdminUser } from 'src/common/utils/has-permission.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Order, OrderStatus, PaymentMode } from 'src/schema/order_Management/order.schema';
+import { Order } from 'src/schema/order_Management/order.schema';
 import { CreateOrderDto, UpdateOrderDto } from 'src/dto/order_management/create-order.dto';
 import { Pool } from 'src/schema/Pool.schema';
 import { LoanEmi } from 'src/schema/order_Management/loan-emi.schema';
@@ -18,6 +20,35 @@ import { CallLog } from 'src/schema/call-log.schema';
 import { Role } from 'src/schema/role.schema';
 import { User, UserStatus } from 'src/schema/user.schema';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
+import { LeadStageHistory } from 'src/schema/lead_management/LeadStageHistory.schema';
+import {
+  OrderFinancialService,
+  PROTECTED_ORDER_KEYS,
+} from './financial/order-financial.service';
+import {
+  buildActualRevenueExpression,
+  buildRevenueAddFields,
+  buildUnrealisedRevenueExpression,
+  calculateActualRevenue,
+  getServerTimezone,
+  hasActualRevenueMatch,
+  hasLegacyFinancialInput,
+  hasV2FinancialInput,
+  recalculateOrderFinancials,
+  toMoney,
+} from './financial/order-financial.util';
+
+/** Request keys describing payment sources (never written directly). */
+const ORDER_PAYMENT_INPUT_KEYS = [
+  'lumpsumPayments',
+  'loans',
+  'subscriptions',
+  'credits',
+  'lumpsumDetails',
+  'loanDetails',
+  'subscriptionDetails',
+  'paymentMode',
+];
 
 @Injectable()
 export class OrderService {
@@ -32,9 +63,12 @@ export class OrderService {
     @InjectModel(Role.name) private readonly roleModel: Model<Role>,
     @InjectModel(LeadStage.name)
     private readonly leadStageModel: Model<LeadStage>,
+    @InjectModel(LeadStageHistory.name)
+    private readonly leadStageHistoryModel: Model<LeadStageHistory>,
     private readonly userLogic: UserLogic,
     private readonly emailService: EmailService,
     private readonly userActivityLogic: UserActivityLogic,
+    private readonly financialService: OrderFinancialService,
   ) { }
 
   private resolveLevel(level: any): number | null {
@@ -110,6 +144,304 @@ export class OrderService {
       return [userId];
     }
   }
+  // =========================================================
+  // EMPLOYEE ACTIVITY (utilization reports)
+  // =========================================================
+
+  /** Ids as both strings and ObjectIds, for fields stored either way. */
+  private toIdVariants(ids: string[]): any[] {
+    return [
+      ...ids,
+      ...ids
+        .filter((id) => Types.ObjectId.isValid(id))
+        .map((id) => new Types.ObjectId(id)),
+    ];
+  }
+
+  /**
+   * Activity period for the utilization reports: activityDateFilter
+   * (today | week | month) or activityDateFrom + activityDateTo (max 31 days).
+   * Returns null when no activity filter is sent.
+   */
+  private resolveActivityRange(
+    query: any,
+  ): { startDate: Date; endDate: Date } | null {
+    const { activityDateFilter, activityDateFrom, activityDateTo } =
+      query || {};
+
+    if (activityDateFrom || activityDateTo) {
+      if (!activityDateFrom || !activityDateTo) {
+        throw new BadRequestException(
+          'activityDateFrom and activityDateTo are both required',
+        );
+      }
+
+      const startDate = new Date(activityDateFrom);
+      const endDate = new Date(activityDateTo);
+
+      if (Number.isNaN(startDate.getTime())) {
+        throw new BadRequestException('Invalid activityDateFrom');
+      }
+      if (Number.isNaN(endDate.getTime())) {
+        throw new BadRequestException('Invalid activityDateTo');
+      }
+
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+
+      if (startDate > endDate) {
+        throw new BadRequestException(
+          'activityDateFrom cannot be greater than activityDateTo',
+        );
+      }
+
+      const diffDays =
+        Math.floor(
+          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+        ) + 1;
+      if (diffDays > 31) {
+        throw new BadRequestException(
+          'activity date range cannot be more than 31 days',
+        );
+      }
+
+      return { startDate, endDate };
+    }
+
+    if (!activityDateFilter || activityDateFilter === 'none') return null;
+
+    const type = String(activityDateFilter).toLowerCase();
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
+
+    if (type === 'today') {
+      startDate = new Date(now);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (type === 'week') {
+      startDate = new Date(now);
+      startDate.setDate(startDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(now);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (type === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      endDate = new Date(
+        now.getFullYear(),
+        now.getMonth() + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+    } else {
+      throw new BadRequestException(
+        'Invalid activityDateFilter. Allowed values: today, week, month',
+      );
+    }
+
+    return { startDate, endDate };
+  }
+
+  /**
+   * What each employee (with the given members) did in the period:
+   * - leadAssigned: leads assigned to them in the period (assignedDate)
+   * - newLead: new leads created in the period and assigned to them
+   * - calls: dials / unique dials / answered / talk time made in the period
+   * - stages: leads they moved into a stage in the period (LeadStageHistory),
+   *   counted once per lead, which gives PCAT scheduled/done, registration
+   *   and admission.
+   */
+  private async getEmployeeActivityMetrics(
+    teamMap: Map<string, string[]>,
+    range: { startDate: Date; endDate: Date },
+  ): Promise<Map<string, any>> {
+    const result = new Map<string, any>();
+    const allIds = [...new Set(Array.from(teamMap.values()).flat())];
+    if (!allIds.length) return result;
+
+    const idVariants = this.toIdVariants(allIds);
+    const period = { $gte: range.startDate, $lte: range.endDate };
+    const toStr = (input: string) => ({
+      $convert: { input, to: 'string', onError: null, onNull: null },
+    });
+
+    const [leads, callStats, stageRows] = await Promise.all([
+      this.leadModel.aggregate([
+        {
+          $match: {
+            assignedTo: { $in: idVariants },
+            $or: [{ assignedDate: period }, { createdAt: period }],
+          },
+        },
+        {
+          $project: {
+            assignedTo: toStr('$assignedTo'),
+            assigned: {
+              $and: [
+                { $gte: ['$assignedDate', range.startDate] },
+                { $lte: ['$assignedDate', range.endDate] },
+              ],
+            },
+            created: {
+              $and: [
+                { $gte: ['$createdAt', range.startDate] },
+                { $lte: ['$createdAt', range.endDate] },
+              ],
+            },
+          },
+        },
+      ]),
+
+      this.callLogModel.aggregate([
+        {
+          $match: {
+            createdAt: period,
+            $expr: { $in: [toStr('$userId'), allIds] },
+          },
+        },
+        {
+          $group: {
+            _id: { userId: toStr('$userId'), customerNumber: '$customerNumber' },
+            dialCount: { $sum: 1 },
+            answeredCount: {
+              $sum: { $cond: [{ $gt: ['$duration', 0] }, 1, 0] },
+            },
+            talkTime: {
+              $sum: { $cond: [{ $gt: ['$duration', 0] }, '$duration', 0] },
+            },
+          },
+        },
+        {
+          $group: {
+            _id: '$_id.userId',
+            totalDial: { $sum: '$dialCount' },
+            uniqDial: { $sum: 1 },
+            answeredCall: { $sum: '$answeredCount' },
+            answeredTalkTime: { $sum: '$talkTime' },
+          },
+        },
+      ]),
+
+      this.leadStageHistoryModel.aggregate([
+        {
+          $match: {
+            userId: { $in: idVariants },
+            changedAt: period,
+          },
+        },
+        {
+          $group: {
+            _id: {
+              userId: toStr('$userId'),
+              stageId: toStr('$stageId'),
+              stageName: '$stageName',
+            },
+            leadIds: { $addToSet: toStr('$leadId') },
+          },
+        },
+      ]),
+    ]);
+
+    const leadsByUser = new Map<string, any[]>();
+    for (const lead of leads) {
+      if (!lead.assignedTo) continue;
+      const list = leadsByUser.get(lead.assignedTo) || [];
+      list.push(lead);
+      leadsByUser.set(lead.assignedTo, list);
+    }
+
+    const callsByUser = new Map<string, any>();
+    for (const row of callStats) {
+      if (row._id) callsByUser.set(row._id.toString(), row);
+    }
+
+    const stagesByUser = new Map<string, any[]>();
+    for (const row of stageRows) {
+      const userId = row._id?.userId;
+      if (!userId) continue;
+      const list = stagesByUser.get(userId) || [];
+      list.push(row);
+      stagesByUser.set(userId, list);
+    }
+
+    for (const [employeeId, members] of teamMap) {
+      const memberIds = [...new Set(members.map((id) => id.toString()))];
+
+      let leadAssigned = 0;
+      let newLead = 0;
+      const calls = {
+        totalDial: 0,
+        uniqDial: 0,
+        answeredCall: 0,
+        answeredTalkTime: 0,
+      };
+      const stageMap = new Map<
+        string,
+        { stageId: string; stageName: string; leads: Set<string> }
+      >();
+
+      for (const memberId of memberIds) {
+        for (const lead of leadsByUser.get(memberId) || []) {
+          if (lead.assigned) leadAssigned++;
+          if (lead.created) newLead++;
+        }
+
+        const memberCalls = callsByUser.get(memberId);
+        if (memberCalls) {
+          calls.totalDial += memberCalls.totalDial || 0;
+          calls.uniqDial += memberCalls.uniqDial || 0;
+          calls.answeredCall += memberCalls.answeredCall || 0;
+          calls.answeredTalkTime += memberCalls.answeredTalkTime || 0;
+        }
+
+        for (const row of stagesByUser.get(memberId) || []) {
+          const stageName = row._id.stageName || 'Unknown';
+          const key = row._id.stageId || stageName;
+          const entry = stageMap.get(key) || {
+            stageId: row._id.stageId,
+            stageName,
+            leads: new Set<string>(),
+          };
+          (row.leadIds || []).forEach((id: string) => id && entry.leads.add(id));
+          stageMap.set(key, entry);
+        }
+      }
+
+      const countLeads = (test: (stageName: string) => boolean) => {
+        const ids = new Set<string>();
+        for (const entry of stageMap.values()) {
+          if (test(entry.stageName)) entry.leads.forEach((id) => ids.add(id));
+        }
+        return ids.size;
+      };
+      const isStage = (name: string) => (stageName: string) =>
+        String(stageName || '').toLowerCase() === name;
+
+      result.set(employeeId, {
+        leadAssigned,
+        newLead,
+        ...calls,
+        pcatScheduled: countLeads((name) => /pcat.*schedul/i.test(name)),
+        pcatDone: countLeads((name) => /pcat.*done|pcat.*complete/i.test(name)),
+        registrationDone: countLeads(isStage('registration done')),
+        admissionDone: countLeads(isStage('admission done')),
+        allStages: Array.from(stageMap.values())
+          .map(({ stageId, stageName, leads: ids }) => ({
+            stageId,
+            stageName,
+            count: ids.size,
+          }))
+          .sort((a, b) => a.stageName.localeCompare(b.stageName)),
+      });
+    }
+
+    return result;
+  }
+
   private async getUserAndDirectSubordinateIds(userId: string): Promise<string[]> {
     try {
       const users = await this.userLogic.getDirectUsersUnder({
@@ -140,126 +472,75 @@ export class OrderService {
       }else{
         finalFee = dto.totalFee - (dto.discount || 0);
       }
-      let status = OrderStatus.PARTIALLY_PAID;
-      let countedRevenue = Number(pool.revenue_percentage) * finalFee / 100;
-      // 🔥 STEP 1: CREATE ORDER FIRST
+      const countedRevenue = Number(pool.revenue_percentage) * finalFee / 100;
       if (dto.GSTEnabled) {
         finalFee += dto.GSTAmount;
       }
-      const order = await this.orderModel.create({
-        ...dto,
-        counsellorId: userId,
-        counsellorName: user.name,
-        countedRevenue: countedRevenue,
+
+      // 🔥 STEP 1: VALIDATE PAYMENT SOURCES + CREDITS (planned coverage + credits must equal finalFee)
+      const financial = this.financialService.prepareNewOrderFinancials(
+        dto,
         finalFee,
-        status,
+        userId,
+      );
+
+      const base: Record<string, any> = { ...dto };
+      for (const key of [...ORDER_PAYMENT_INPUT_KEYS, ...PROTECTED_ORDER_KEYS]) {
+        delete base[key];
+      }
+
+      // 🔥 STEP 2: CREATE ORDER (+ LOAN EMI TRACKERS) ATOMICALLY
+      const order = await this.financialService.runInTransaction(async (session) => {
+        const orderId = new Types.ObjectId();
+        const orderShape = {
+          ...base,
+          _id: orderId,
+          // Stored exactly as before (string) – existing queries and
+          // reports match counsellorId as a string.
+          counsellorId: userId,
+          counsellorName: user.name,
+        };
+
+        await this.financialService.createLoanTrackers(
+          orderShape,
+          financial.loans || [],
+          session,
+        );
+        // Mirror (loanDetails.loanId) must reflect the created trackers.
+        recalculateOrderFinancials(financial);
+
+        const [created] = await this.orderModel.create(
+          [
+            {
+              ...orderShape,
+              countedRevenue,
+              finalFee,
+              ...this.financialService.extractFinancialFields(financial),
+              financialAuditLog: [
+                {
+                  action: 'ORDER_CREATED',
+                  entryType: 'order',
+                  entryId: orderId.toString(),
+                  after: { summary: financial.paymentSummary },
+                  performedBy: new Types.ObjectId(userId),
+                  source: 'API',
+                  performedAt: new Date(),
+                },
+              ],
+            },
+          ],
+          { session },
+        );
+        return created;
       });
 
-      // ================= LOAN =================
-      if (dto.paymentMode === PaymentMode.LOAN) {
-        const firstDate = new Date(dto.loanDetails.firstEmiDate);
-
-        const secondDate = new Date(firstDate);
-        secondDate.setMonth(secondDate.getMonth() + 1);
-
-        const thirdDate = new Date(firstDate);
-        thirdDate.setMonth(thirdDate.getMonth() + 2);
-
-        const emi = await this.emiModel.create({
-          orderId: order._id,
-          learnerName: dto.studentName,
-          mobile: dto.mobile,
-          email: dto.email,
-          couselorId: userId,
-          counselorName: user.name,
-          LoanPartner: dto.loanDetails.loanPartner,
-          loanAmount: dto.loanDetails.loanAmount,
-          disbursementAmount: dto.loanDetails.disbursementAmount,
-          loanDate: dto.loanDetails.loanDate,
-          firstEmiDate: firstDate,
-          secondEmiDate: secondDate,
-          thirdEmiDate: thirdDate,
-        });
-
-        order.loanDetails = {
-          ...dto.loanDetails,
-          loanId: emi._id,
-
-        };
-        order.status = OrderStatus.FULLY_PAID;
-
-        await order.save();
-      }
-
-      // ================= LUMPSUM =================
-      if (dto.paymentMode === PaymentMode.LUMPSUM) {
-        let pendingAmount = finalFee;
-
-        if (dto.lumpsumDetails?.totalReceived >= finalFee) {
-          status = OrderStatus.FULLY_PAID;
-          pendingAmount = 0;
-        } else {
-          pendingAmount =
-            finalFee - (dto.lumpsumDetails?.totalReceived || 0);
-        }
-
-        order.status = status;
-
-        order.lumpsumDetails = {
-          ...dto.lumpsumDetails,
-          pendingAmount,
-        };
-
-        await order.save();
-      }
-
-      // ================= SUBSCRIPTION =================
-      if (dto.paymentMode === PaymentMode.SUBSCRIPTION) {
-        const installments: any[] = [];
-
-        const firstDate = new Date(
-          dto.subscriptionDetails.firstInstallmentDate,
-        );
-
-        const totalInstallments =
-          dto.subscriptionDetails.numberOfInstallments;
-
-        const installmentAmount =
-          dto.subscriptionDetails.installmentAmount;
-
-        for (let i = 0; i < totalInstallments; i++) {
-          const dueDate = new Date(firstDate);
-          dueDate.setMonth(dueDate.getMonth() + i);
-
-          installments.push({
-            installmentNo: i + 1,
-            dueDate,
-            amount: installmentAmount,
-          });
-        }
-
-        // await this.subscriptionModel.create({
-        //   orderId: order._id,
-        //   studentName: order.studentName,
-        //   mobile: order.mobile,
-        //   email: order.email,
-        //   counselorName: order.counsellorName,
-        //   totalAmount: order.finalFee,
-        //   installmentAmount,
-        //   numberOfInstallments: totalInstallments,
-        //   firstInstallmentDate: firstDate,
-        //   lastInstallmentDate:
-        //     installments[installments.length - 1].dueDate,
-        //   installments,
-        // });
-      }
       await this.userActivityLogic.log({
         userId: userId,
         action: 'Order Created',
         referenceType: 'ORDER',
         meta: {
           message: dto.remarks,
-          PaymentMode: dto.paymentMode,
+          PaymentMode: order.paymentMode,
           order
         },
       });
@@ -273,27 +554,6 @@ export class OrderService {
 
       throw error;
     }
-  }
-
-  async applySubscriptionPayment(orderId: string, amount: number) {
-    const sub = await this.subscriptionModel.findOne({ orderId });
-
-    if (!sub) return;
-
-    for (const inst of sub.installments) {
-      if (!inst.isPaid) {
-        inst.isPaid = true;
-        inst.paidAt = new Date();
-        break;
-      }
-    }
-
-    const allPaid = sub.installments.every(i => i.isPaid);
-    if (allPaid) sub.status = 'COMPLETED';
-
-    await sub.save();
-
-    await this.applyPayment(orderId, amount);
   }
 
   async findAll(filters: any, user: any) {
@@ -339,12 +599,18 @@ export class OrderService {
         { studentName: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
         { phone: { $regex: search, $options: 'i' } },
+        { mobile: { $regex: search, $options: 'i' } },
       ];
     }
 
     /* ================= PAYMENT & STATUS ================= */
 
-    if (paymentMode) query.paymentMode = paymentMode;
+    // Multi-source orders list every source in paymentModes.
+    if (paymentMode) {
+      query.$and = [
+        { $or: [{ paymentMode }, { paymentModes: paymentMode }] },
+      ];
+    }
     if (status) query.status = status;
 
     /* ================= DATE FILTER ================= */
@@ -469,6 +735,7 @@ if (fromDate && toDate) {
         .populate('approvedBy', 'name email')
         .populate('loanDetails.loanPartner', 'name type submissionCharge')
         .populate('loanDetails.loanId')
+        .populate('loans.loanPartner', 'name type submissionCharge')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit)),
@@ -492,16 +759,25 @@ if (fromDate && toDate) {
       .populate('counsellorId', 'name email')
       .populate('approvedBy', 'name email')
       .populate('loanDetails.loanPartner', 'name type submissionCharge')
-      .populate('loanDetails.loanId');
+      .populate('loanDetails.loanId')
+      .populate('loans.loanPartner', 'name type submissionCharge')
+      .populate('loans.loanId');
 
   }
 
-  async update(id: string, dto: any, userId: string) {
+  /**
+   * Generic order update (unapproved orders only – unchanged rule).
+   * Payment fields are never written directly: v2 arrays, legacy
+   * *Details objects and finalFee changes are routed through the
+   * financial service, which re-validates the complete order.
+   */
+  async update(id: string, dto: any, user: any) {
+    const actor = typeof user === 'string' ? { userId: user } : user;
     const existing = await this.orderModel.findById(id);
     if (!existing) throw new BadRequestException('Order not found');
     if (existing.Approved) throw new BadRequestException('Cannot update approved order');
     await this.userActivityLogic.log({
-      userId: userId,
+      userId: actor?.userId,
       action: 'Order Updated',
       referenceType: 'ORDER',
       meta: {
@@ -509,15 +785,121 @@ if (fromDate && toDate) {
         order: existing
       },
     });
-    return this.orderModel.findByIdAndUpdate(id, dto, { new: true });
+
+    const fields: Record<string, any> = { ...(dto || {}) };
+    const hasV2 = hasV2FinancialInput(fields);
+    const hasLegacy = !hasV2 && hasLegacyFinancialInput(fields);
+    const finalFeeChanged =
+      fields.finalFee !== undefined &&
+      toMoney(fields.finalFee) !== toMoney(existing.finalFee);
+
+    const patch: any = {};
+    if (hasV2) {
+      for (const key of ['lumpsumPayments', 'loans', 'subscriptions', 'credits']) {
+        if (Array.isArray(fields[key])) patch[key] = fields[key];
+      }
+    }
+    const legacyDto = hasLegacy
+      ? {
+          paymentMode: fields.paymentMode,
+          lumpsumDetails: fields.lumpsumDetails,
+          loanDetails: fields.loanDetails,
+          subscriptionDetails: fields.subscriptionDetails,
+        }
+      : undefined;
+    const newFinalFee = fields.finalFee;
+
+    for (const key of [...ORDER_PAYMENT_INPUT_KEYS, ...PROTECTED_ORDER_KEYS, 'finalFee']) {
+      delete fields[key];
+    }
+
+    if (hasV2 || hasLegacy || finalFeeChanged) {
+      await this.financialService.updateFinancials(
+        id,
+        { ...patch, ...(newFinalFee !== undefined ? { finalFee: newFinalFee } : {}) },
+        actor,
+        { extraSet: fields, legacyDto },
+      );
+      return this.findById(id);
+    }
+
+    return this.orderModel.findByIdAndUpdate(id, fields, { new: true });
   }
 
+  /** PATCH /order/:id/financials – add/update payment entries and credits. */
+  async updateFinancials(id: string, dto: any, user: any) {
+    const before = await this.orderModel.findById(id).select('paymentSummary Approved').lean();
+    if (!before) throw new NotFoundException('Order not found');
+    await this.financialService.updateFinancials(id, dto, user);
+    const order = await this.findById(id);
+    await this.userActivityLogic.log({
+      userId: user?.userId,
+      action: 'Order Payments Updated',
+      referenceType: 'ORDER',
+      meta: {
+        message: dto?.reason || 'Order payment structure updated',
+        approved: before.Approved,
+        before: before.paymentSummary,
+        after: order?.paymentSummary,
+      },
+    });
+    return order;
+  }
+
+  async markCreditPaid(id: string, creditId: string, dto: any, user: any) {
+    await this.financialService.markCreditPaid(id, creditId, dto, user);
+    const order = await this.findById(id);
+    await this.userActivityLogic.log({
+      userId: user?.userId,
+      action: 'Credit Payment Recorded',
+      referenceType: 'ORDER',
+      meta: {
+        message: `Credit ${creditId} marked Paid`,
+        creditId,
+        paymentReferenceId: dto?.paymentReferenceId,
+        amount: dto?.amount,
+      },
+    });
+    return order;
+  }
+
+  async revertCreditPayment(id: string, creditId: string, reason: string, user: any) {
+    await this.financialService.revertCreditPayment(id, creditId, reason, user);
+    const order = await this.findById(id);
+    await this.userActivityLogic.log({
+      userId: user?.userId,
+      action: 'Credit Payment Reverted',
+      referenceType: 'ORDER',
+      meta: { message: reason, creditId },
+    });
+    return order;
+  }
+
+  getFinancialSummary(id: string) {
+    return this.financialService.getFinancialSummary(id);
+  }
+
+  /**
+   * Non-admin users may only work with the financials of their own orders
+   * or orders of users reporting to them.
+   */
+  async assertOrderAccess(id: string, user: any) {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException('Invalid order id');
+    const order = await this.orderModel.findById(id).select('counsellorId').lean();
+    if (!order) throw new NotFoundException('Order not found');
+    if (isAdminUser(user)) return;
+    const allowed = await this.getUserAndSubordinateIds(String(user?.userId));
+    if (!allowed.includes(String(order.counsellorId))) {
+      throw new ForbiddenException('You do not have access to this order');
+    }
+  }
+
+  /**
+   * Approval keeps the existing workflow and additionally requires the order
+   * to be balanced (planned coverage + credits = finalFee).
+   */
   async approveOrder(id: string, approvedBy: string) {
-    const order = await this.orderModel.findByIdAndUpdate(
-      id,
-      { Approved: true, approvedBy },
-      { new: true },
-    );
+    const order = await this.financialService.approve(id, approvedBy);
     await this.userActivityLogic.log({
       userId: approvedBy,
       action: 'Order Approved',
@@ -531,12 +913,23 @@ if (fromDate && toDate) {
 
   }
 
+  /** Orders and actual received revenue grouped by order status. */
   async paymentReport() {
     return this.orderModel.aggregate([
       {
+        $addFields: buildRevenueAddFields(),
+      },
+      {
         $group: {
           _id: '$status',
-          totalAmount: { $sum: '$totalReceived' },
+          totalAmount: { $sum: '$calculatedRevenue' },
+          approvedAmount: {
+            $sum: { $cond: [{ $eq: ['$Approved', true] }, '$calculatedRevenue', 0] },
+          },
+          lumpsumRevenue: { $sum: '$lumpsumRevenue' },
+          loanRevenue: { $sum: '$loanRevenue' },
+          subscriptionRevenue: { $sum: '$subscriptionRevenue' },
+          creditRevenue: { $sum: '$creditRevenue' },
           count: { $sum: 1 },
         },
       },
@@ -1202,80 +1595,9 @@ if (!allAllowedUserIds.length) {
               },
             },
 
-            calculatedRevenue: {
-              $switch: {
-                branches: [
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LOAN,
-                      ],
-                    },
+            ...buildRevenueAddFields(),
 
-                    then: {
-                      $ifNull: [
-                        '$loanDetails.disbursementAmount',
-                        0,
-                      ],
-                    },
-                  },
-
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LUMPSUM,
-                      ],
-                    },
-
-                    then: {
-                      $ifNull: [
-                        '$lumpsumDetails.totalReceived',
-                        0,
-                      ],
-                    },
-                  },
-                ],
-
-                default: 0,
-              },
-            },
-
-            calculatedUnrealisedRevenue: {
-              $switch: {
-                branches: [
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LOAN,
-                      ],
-                    },
-
-                    then: 0,
-                  },
-
-                  {
-                    case: {
-                      $eq: [
-                        '$paymentMode',
-                        PaymentMode.LUMPSUM,
-                      ],
-                    },
-
-                    then: {
-                      $ifNull: [
-                        '$lumpsumDetails.pendingAmount',
-                        0,
-                      ],
-                    },
-                  },
-                ],
-
-                default: 0,
-              },
-            },
+            calculatedUnrealisedRevenue: buildUnrealisedRevenueExpression(),
           },
         },
 
@@ -1379,45 +1701,7 @@ if (!allAllowedUserIds.length) {
             },
           },
 
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-              ],
-
-              default: 0,
-            },
-          },
+          ...buildRevenueAddFields(),
         },
       },
 
@@ -2761,89 +3045,9 @@ async consultantPerformanceTeamReport(query: any) {
                                         },
                                 },
 
-                            calculatedRevenue:
-                                {
-                                    $switch:
-                                        {
-                                            branches:
-                                                [
-                                                    {
-                                                        case: {
-                                                            $eq: [
-                                                                '$paymentMode',
-                                                                PaymentMode.LOAN,
-                                                            ],
-                                                        },
+                            ...buildRevenueAddFields(),
 
-                                                        then: {
-                                                            $ifNull:
-                                                                [
-                                                                    '$loanDetails.disbursementAmount',
-                                                                    0,
-                                                                ],
-                                                        },
-                                                    },
-
-                                                    {
-                                                        case: {
-                                                            $eq: [
-                                                                '$paymentMode',
-                                                                PaymentMode.LUMPSUM,
-                                                            ],
-                                                        },
-
-                                                        then: {
-                                                            $ifNull:
-                                                                [
-                                                                    '$lumpsumDetails.totalReceived',
-                                                                    0,
-                                                                ],
-                                                        },
-                                                    },
-                                                ],
-
-                                            default: 0,
-                                        },
-                                },
-
-                            calculatedUnrealisedRevenue:
-                                {
-                                    $switch:
-                                        {
-                                            branches:
-                                                [
-                                                    {
-                                                        case: {
-                                                            $eq: [
-                                                                '$paymentMode',
-                                                                PaymentMode.LOAN,
-                                                            ],
-                                                        },
-
-                                                        then: 0,
-                                                    },
-
-                                                    {
-                                                        case: {
-                                                            $eq: [
-                                                                '$paymentMode',
-                                                                PaymentMode.LUMPSUM,
-                                                            ],
-                                                        },
-
-                                                        then: {
-                                                            $ifNull:
-                                                                [
-                                                                    '$lumpsumDetails.pendingAmount',
-                                                                    0,
-                                                                ],
-                                                        },
-                                                    },
-                                                ],
-
-                                            default: 0,
-                                        },
-                                },
+                            calculatedUnrealisedRevenue: buildUnrealisedRevenueExpression(),
                         },
                     },
 
@@ -2966,50 +3170,7 @@ async consultantPerformanceTeamReport(query: any) {
                                     },
                             },
 
-                        calculatedRevenue:
-                            {
-                                $switch:
-                                    {
-                                        branches:
-                                            [
-                                                {
-                                                    case: {
-                                                        $eq: [
-                                                            '$paymentMode',
-                                                            PaymentMode.LOAN,
-                                                        ],
-                                                    },
-
-                                                    then: {
-                                                        $ifNull:
-                                                            [
-                                                                '$loanDetails.disbursementAmount',
-                                                                0,
-                                                            ],
-                                                    },
-                                                },
-
-                                                {
-                                                    case: {
-                                                        $eq: [
-                                                            '$paymentMode',
-                                                            PaymentMode.LUMPSUM,
-                                                        ],
-                                                    },
-
-                                                    then: {
-                                                        $ifNull:
-                                                            [
-                                                                '$lumpsumDetails.totalReceived',
-                                                                0,
-                                                            ],
-                                                    },
-                                                },
-                                            ],
-
-                                        default: 0,
-                                    },
-                            },
+                        ...buildRevenueAddFields(),
                     },
                 },
 
@@ -3935,27 +4096,8 @@ async consultantPerformanceDetails(query: any) {
 
   const orderMatch: any = {
     Approved: true,
-    $or: [
-      {
-        paymentMode:
-          PaymentMode.LUMPSUM,
-
-        'lumpsumDetails.totalReceived':
-          {
-            $gt: 0,
-          },
-      },
-
-      {
-        paymentMode:
-          PaymentMode.LOAN,
-
-        'loanDetails.disbursementAmount':
-          {
-            $gt: 0,
-          },
-      },
-    ],
+    // Only orders with actual received revenue (centralised definition)
+    ...hasActualRevenueMatch(),
   };
 
   // Lead filters mean orders MUST belong
@@ -4045,33 +4187,14 @@ async consultantPerformanceDetails(query: any) {
   // FORMAT ORDER
   // SAME REVENUE LOGIC AS REPORT
   // =========================================================
-  console.log(orders,"2")
   const formattedOrders =
     orders.map(
       (order: any) => {
-        let revenue = 0;
-
-        if (
-          order.paymentMode ===
-          PaymentMode.LOAN
-        ) {
-          revenue =
-            Number(
-              order.loanDetails
-                ?.disbursementAmount,
-            ) || 0;
-        }
-
-        if (
-          order.paymentMode ===
-          PaymentMode.LUMPSUM
-        ) {
-          revenue =
-            Number(
-              order.lumpsumDetails
-                ?.totalReceived,
-            ) || 0;
-        }
+        // Actual received revenue (centralised definition)
+        const revenueBreakdown =
+          calculateActualRevenue(order);
+        const revenue =
+          revenueBreakdown.total;
 
         let lead: any = null;
 
@@ -4100,6 +4223,8 @@ async consultantPerformanceDetails(query: any) {
           ...order,
 
           revenue,
+
+          revenueBreakdown,
 
           lead:
             lead || null,
@@ -4449,8 +4574,20 @@ async employeePoolUtilizationReport(query: any) {
     createdEndDate = range.endDate;
   }
 
+  // Activity filter: count what employees did in the period
+  const activityRange =
+    this.resolveActivityRange(query);
+
+  if (activityRange) {
+    assignedStartDate = null;
+    assignedEndDate = null;
+    createdStartDate = null;
+    createdEndDate = null;
+  }
+
   // No filter = current month
   if (
+    !activityRange &&
     !assignedStartDate &&
     !createdStartDate
   ) {
@@ -4668,8 +4805,9 @@ async employeePoolUtilizationReport(query: any) {
     };
   }
 
-  const allLeads =
-    await this.leadModel.aggregate([
+  const allLeads: any[] = activityRange
+    ? []
+    : await this.leadModel.aggregate([
       {
         $match: leadMatch,
       },
@@ -4745,8 +4883,9 @@ async employeePoolUtilizationReport(query: any) {
     };
   }
 
-  const callStats =
-    await this.callLogModel.aggregate([
+  const callStats: any[] = activityRange
+    ? []
+    : await this.callLogModel.aggregate([
       {
         $match: {
           ...callDateMatch,
@@ -4841,6 +4980,14 @@ async employeePoolUtilizationReport(query: any) {
         },
       },
     ]);
+
+  const activityMetrics =
+    activityRange
+      ? await this.getEmployeeActivityMetrics(
+          teamMap,
+          activityRange,
+        )
+      : null;
 
   const callStatsMap =
     new Map<string, any>();
@@ -5124,6 +5271,9 @@ const teamSize =
 
           allStages,
 
+          // Activity filter: replace the lead-based numbers
+          ...(activityMetrics?.get(employeeId) || {}),
+
           employeeEmail:
             user.email || null,
 
@@ -5159,6 +5309,22 @@ const teamSize =
     createdDateFilter:
       query.createdDateFilter ||
       null,
+
+    mode: activityRange
+      ? 'activity'
+      : 'lead',
+
+    activityStartDate:
+      activityRange?.startDate || null,
+
+    activityEndDate:
+      activityRange?.endDate || null,
+
+    activityDateFilter:
+      activityRange
+        ? query.activityDateFilter ||
+          'custom'
+        : null,
 
     team:
       teamFilter,
@@ -5385,8 +5551,20 @@ async employeePoolUtilizationTeamReport(query: any) {
       range.endDate;
   }
 
+  // Activity filter: count what employees did in the period
+  const activityRange =
+    this.resolveActivityRange(query);
+
+  if (activityRange) {
+    assignedStartDate = null;
+    assignedEndDate = null;
+    createdStartDate = null;
+    createdEndDate = null;
+  }
+
   // No filter = current month
   if (
+    !activityRange &&
     !assignedStartDate &&
     !createdStartDate
   ) {
@@ -5684,8 +5862,9 @@ const rawUsers = (
   // GET LEADS
   // =========================================================
 
-  const allLeads =
-    await this.leadModel.aggregate([
+  const allLeads: any[] = activityRange
+    ? []
+    : await this.leadModel.aggregate([
       {
         $match: leadMatch,
       },
@@ -5762,8 +5941,9 @@ const rawUsers = (
     };
   }
 
-  const callStats =
-    await this.callLogModel.aggregate([
+  const callStats: any[] = activityRange
+    ? []
+    : await this.callLogModel.aggregate([
       {
         $match: {
           ...callDateMatch,
@@ -5861,6 +6041,14 @@ const rawUsers = (
         },
       },
     ]);
+
+  const activityMetrics =
+    activityRange
+      ? await this.getEmployeeActivityMetrics(
+          teamMap,
+          activityRange,
+        )
+      : null;
 
   const callStatsMap =
     new Map<string, any>();
@@ -6222,6 +6410,9 @@ const teamSize=teamSizeMap.get(
 
           allStages,
 
+          // Activity filter: replace the lead-based numbers
+          ...(activityMetrics?.get(userId) || {}),
+
           employeeEmail:
             user.email || null,
 
@@ -6272,6 +6463,22 @@ const teamSize=teamSizeMap.get(
     createdDateFilter:
       query.createdDateFilter ||
       null,
+
+    mode: activityRange
+      ? 'activity'
+      : 'lead',
+
+    activityStartDate:
+      activityRange?.startDate || null,
+
+    activityEndDate:
+      activityRange?.endDate || null,
+
+    activityDateFilter:
+      activityRange
+        ? query.activityDateFilter ||
+          'custom'
+        : null,
 
     team:
       teamFilter,
@@ -6741,6 +6948,43 @@ async employeeStageLeads(query: any) {
     };
   }
 
+  // Activity filter: leads the employee/team moved into this stage
+  // in the period (whatever stage they are in now).
+  const activityRange =
+    this.resolveActivityRange(query);
+
+  if (activityRange) {
+    const leadIds =
+      await this.leadStageHistoryModel.distinct(
+        'leadId',
+        {
+          stageId:
+            new Types.ObjectId(stageId),
+          userId: {
+            $in: this.toIdVariants(
+              assignedUserIds,
+            ),
+          },
+          changedAt: {
+            $gte: activityRange.startDate,
+            $lte: activityRange.endDate,
+          },
+        },
+      );
+
+    Object.keys(match).forEach(
+      (key) => delete match[key],
+    );
+
+    match._id = {
+      $in: leadIds.map((id: any) =>
+        Types.ObjectId.isValid(String(id))
+          ? new Types.ObjectId(String(id))
+          : id,
+      ),
+    };
+  }
+
   // =========================================================
   // PAGINATION
   // =========================================================
@@ -7019,6 +7263,18 @@ async employeeStageLeads(query: any) {
       isTeam
         ? assignedUserIds
         : [employeeId],
+
+    mode: activityRange
+      ? 'activity'
+      : 'lead',
+
+    activityDateRange:
+      activityRange
+        ? {
+            from: activityRange.startDate,
+            to: activityRange.endDate,
+          }
+        : null,
 
     data,
   };
@@ -7374,23 +7630,8 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
   const orderMatch: any = {
     Approved: true,
 
-    $or: [
-      {
-        paymentMode: 'Lumpsum',
-
-        'lumpsumDetails.totalReceived': {
-          $gt: 0,
-        },
-      },
-
-      {
-        paymentMode: 'Loan',
-
-        'loanDetails.disbursementAmount': {
-          $gt: 0,
-        },
-      },
-    ],
+    // Only orders with actual received revenue (centralised definition)
+    ...hasActualRevenueMatch(),
   };
 
   // ---------------------------------------------------------
@@ -7438,31 +7679,9 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
   const formattedOrders =
     orders
       .map((order: any) => {
-        let revenue = 0;
-
-        if (
-          order.paymentMode ===
-          'Lumpsum'
-        ) {
-          revenue =
-            Number(
-              order
-                .lumpsumDetails
-                ?.totalReceived,
-            ) || 0;
-        }
-
-        else if (
-          order.paymentMode ===
-          'Loan'
-        ) {
-          revenue =
-            Number(
-              order
-                .loanDetails
-                ?.disbursementAmount,
-            ) || 0;
-        }
+        // Actual received revenue (centralised definition)
+        const revenue =
+          calculateActualRevenue(order).total;
 
         return {
           ...order,
@@ -8044,12 +8263,18 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
     }
 
     const leadPhones = filteredLeads.map((lead) => lead.phone).filter(Boolean);
-    const orders = await this.orderModel
-      .find({
-        mobile: { $in: leadPhones },
-        orderDate: { $gte: startDate, $lte: endDate },
-      })
-      .lean();
+    // Approved orders only; revenue = actual received revenue (centralised
+    // definition) computed in MongoDB. Previously countedRevenue was used.
+    const orders: any[] = await this.orderModel.aggregate([
+      {
+        $match: {
+          Approved: true,
+          mobile: { $in: leadPhones },
+          orderDate: { $gte: startDate, $lte: endDate },
+        },
+      },
+      { $project: { mobile: 1, calculatedRevenue: buildActualRevenueExpression() } },
+    ]);
 
     const ordersByPhone = new Map<string, any[]>();
     orders.forEach((order) => {
@@ -8067,7 +8292,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
 
     const getRevenueForLead = (phone: string) => {
       const leadOrders = ordersByPhone.get(phone) || [];
-      return leadOrders.reduce((sum, order) => sum + (order.countedRevenue || 0), 0);
+      return leadOrders.reduce((sum, order) => sum + (order.calculatedRevenue || 0), 0);
     };
 
     filteredLeads.forEach((lead: any) => {
@@ -8118,7 +8343,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
       });
 
     const summary = {
-      totalRevenue: orders.reduce((sum, order) => sum + (order.countedRevenue || 0), 0),
+      totalRevenue: orders.reduce((sum, order) => sum + (order.calculatedRevenue || 0), 0),
       totalLeads: filteredLeads.length,
       totalOrders: orders.length,
     };
@@ -8492,6 +8717,7 @@ for (const rootUser of rootUsers) {
                 $dateToString: {
                   format: '%b',
                   date: '$orderDate',
+                  timezone: getServerTimezone(),
                 },
               },
               "'",
@@ -8499,7 +8725,7 @@ for (const rootUser of rootUsers) {
                 $substr: [
                   {
                     $toString: {
-                      $year: '$orderDate',
+                      $year: { date: '$orderDate', timezone: getServerTimezone() },
                     },
                   },
                   2,
@@ -8509,45 +8735,7 @@ for (const rootUser of rootUsers) {
             ],
           },
 
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-              ],
-
-              default: 0,
-            },
-          },
+          ...buildRevenueAddFields(),
         },
       },
 
@@ -8636,31 +8824,18 @@ for (const rootUser of rootUsers) {
               revenue:
                 '$calculatedRevenue',
 
-              loanDisbursementAmount: {
-                $cond: [
-                  {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-                  '$loanDetails.disbursementAmount',
-                  null,
-                ],
-              },
+              // Per-source actual received revenue (centralised definition)
+              loanDisbursementAmount:
+                '$loanRevenue',
 
-              lumpsumTotalReceived: {
-                $cond: [
-                  {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-                  '$lumpsumDetails.totalReceived',
-                  null,
-                ],
-              },
+              lumpsumTotalReceived:
+                '$lumpsumRevenue',
+
+              subscriptionRevenue:
+                '$subscriptionRevenue',
+
+              creditRevenue:
+                '$creditRevenue',
 
               status: '$status',
 
@@ -9579,6 +9754,7 @@ async employeePoolRevenueTeamReport(query: any) {
                 $dateToString: {
                   format: '%b',
                   date: '$orderDate',
+                  timezone: getServerTimezone(),
                 },
               },
               "'",
@@ -9586,7 +9762,7 @@ async employeePoolRevenueTeamReport(query: any) {
                 $substr: [
                   {
                     $toString: {
-                      $year: '$orderDate',
+                      $year: { date: '$orderDate', timezone: getServerTimezone() },
                     },
                   },
                   2,
@@ -9596,45 +9772,7 @@ async employeePoolRevenueTeamReport(query: any) {
             ],
           },
 
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-              ],
-
-              default: 0,
-            },
-          },
+          ...buildRevenueAddFields(),
         },
       },
 
@@ -9730,31 +9868,18 @@ async employeePoolRevenueTeamReport(query: any) {
               revenue:
                 '$calculatedRevenue',
 
-              loanDisbursementAmount: {
-                $cond: [
-                  {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-                  '$loanDetails.disbursementAmount',
-                  null,
-                ],
-              },
+              // Per-source actual received revenue (centralised definition)
+              loanDisbursementAmount:
+                '$loanRevenue',
 
-              lumpsumTotalReceived: {
-                $cond: [
-                  {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-                  '$lumpsumDetails.totalReceived',
-                  null,
-                ],
-              },
+              lumpsumTotalReceived:
+                '$lumpsumRevenue',
+
+              subscriptionRevenue:
+                '$subscriptionRevenue',
+
+              creditRevenue:
+                '$creditRevenue',
 
               status: '$status',
 
@@ -10228,27 +10353,32 @@ return {
 };
 }
 
-  async applyPayment(orderId: string, amount: number) {
-    const order = await this.orderModel.findById(orderId);
-    if (!order) throw new BadRequestException('Order not found');
-
-    order.lumpsumDetails = order.lumpsumDetails || {
-      registrationDate: order.feeDepositDate || new Date(),
-      registrationAmount: 0,
-      totalReceived: 0,
-      pendingAmount: order.finalFee || 0,
-      paymentType: 'Subscription',
-    };
-    order.lumpsumDetails.totalReceived += amount;
-    order.lumpsumDetails.pendingAmount = order.finalFee - order.lumpsumDetails.totalReceived;
-
-    if (order.lumpsumDetails.pendingAmount <= 0) {
-      order.status = OrderStatus.FULLY_PAID;
-    } else {
-      order.status = OrderStatus.PARTIALLY_PAID;
+  /**
+   * Applies a received (lumpsum / credit) payment to an order through the
+   * centralised, idempotent financial service. `paymentKey` must uniquely
+   * identify the gateway payment so that retries are never counted twice.
+   */
+  async applyPayment(
+    orderId: string,
+    amount: number,
+    paymentKey: string,
+    options: {
+      referenceId?: string;
+      creditId?: string;
+      lumpsumEntryId?: string;
+      paidAt?: Date;
+      paymentMode?: string;
+    } = {},
+  ) {
+    if (!paymentKey) {
+      throw new BadRequestException('A unique payment key is required to apply a payment');
     }
-
-    return await order.save();
+    return this.financialService.recordLinkPayment({
+      orderId,
+      amount,
+      gatewayPaymentKey: paymentKey,
+      ...options,
+    });
   }
 
   async getAllEmi(query: any, user: any) {
@@ -10603,27 +10733,8 @@ async monthlyRevenueGraph(
     // Only actual revenue orders
     // -------------------------------------------------------
 
-    $or: [
-      {
-        paymentMode:
-          PaymentMode.LUMPSUM,
-
-        'lumpsumDetails.totalReceived': {
-          $gt: 0,
-        },
-      },
-
-      {
-        paymentMode:
-          PaymentMode.LOAN,
-
-        'loanDetails.disbursementAmount': {
-          $gt: 0,
-        },
-      },
-
-      // Subscription will be added later.
-    ],
+    // Only orders with actual received revenue (centralised definition)
+    ...hasActualRevenueMatch(),
   };
 
   // ---------------------------------------------------------
@@ -10633,8 +10744,14 @@ async monthlyRevenueGraph(
   if (
     allowedUserIds !== null
   ) {
+    // aggregate() does not cast: match ObjectId and legacy string ids
     orderMatch.counsellorId = {
-      $in:allowedUserIds
+      $in: [
+        ...allowedUserIds,
+        ...allowedUserIds
+          .filter((id) => Types.ObjectId.isValid(id))
+          .map((id) => new Types.ObjectId(id)),
+      ],
     };
   }
 
@@ -10655,64 +10772,11 @@ async monthlyRevenueGraph(
 
       {
         $addFields: {
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LUMPSUM,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      PaymentMode.LOAN,
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription revenue later.
-              ],
-
-              default: 0,
-            },
-          },
+          ...buildRevenueAddFields(),
 
           monthNumber: {
             $month:
-              '$orderDate',
+              { date: '$orderDate', timezone: getServerTimezone() },
           },
         },
       },

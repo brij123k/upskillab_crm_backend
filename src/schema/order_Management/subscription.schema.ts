@@ -5,84 +5,92 @@ export type SubscriptionDocument = Subscription & Document;
 
 @Schema({ timestamps: true })
 export class Subscription {
-    @Prop({ type: Types.ObjectId, ref: 'Order' })
-    orderId: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Order' })
+  orderId: Types.ObjectId;
 
-    @Prop()
-    subscriptionId: string;
+  /** _id of the Order.subscriptions[] entry this gateway subscription pays. */
+  @Prop({ type: Types.ObjectId })
+  orderSubscriptionEntryId: Types.ObjectId;
 
-    @Prop()
-    planId: string;
+  @Prop()
+  subscriptionId: string;
 
-    @Prop()
-    studentName: string;
+  @Prop()
+  planId: string;
 
-    @Prop()
-    mobile: string;
+  @Prop()
+  studentName: string;
 
-    @Prop()
-    email: string;
-    
-    @Prop()
-    counselorName: string;
+  @Prop()
+  mobile: string;
 
-    @Prop()
-    totalAmount: number;
+  @Prop()
+  email: string;
 
-    @Prop()
-    installmentAmount: number;
+  @Prop()
+  counselorName: string;
 
-    @Prop()
-    numberOfInstallments: number;
+  @Prop()
+  totalAmount: number;
 
-    @Prop()
-    firstInstallmentDate: Date;
+  @Prop()
+  installmentAmount: number;
 
-    @Prop()
-    lastInstallmentDate: Date;
+  @Prop()
+  numberOfInstallments: number;
 
-    // 🔥 TRACK PAYMENTS
-    @Prop({
-        type: [
-            {
-                installmentNo: Number,
-                dueDate: Date,
-                amount: Number,
-                isPaid: { type: Boolean, default: false },
-                paidAt: Date,
-                reminderSent: { type: Boolean, default: false },
-                paymentRecordId: { type: Types.ObjectId, ref: 'SubscriptionPayment' },
-                failedAt: Date,
-                failureReason: String,
-                paymentStatus: String,
-                lastEventType: String,
-            },
-        ],
-        default: [],
-    })
-    installments: any[];
+  @Prop()
+  firstInstallmentDate: Date;
 
-    @Prop()
-    paymentMethod: string;
+  @Prop()
+  lastInstallmentDate: Date;
 
-    @Prop({ type: Object })
-    paymentDetails: any;
+  // 🔥 TRACK PAYMENTS
+  @Prop({
+    type: [
+      {
+        installmentNo: Number,
+        dueDate: Date,
+        amount: Number,
+        isPaid: { type: Boolean, default: false },
+        paidAt: Date,
+        reminderSent: { type: Boolean, default: false },
+        paymentRecordId: { type: Types.ObjectId, ref: 'SubscriptionPayment' },
+        failedAt: Date,
+        failureReason: String,
+        paymentStatus: String,
+        lastEventType: String,
+      },
+    ],
+    default: [],
+  })
+  installments: any[];
 
-    @Prop()
-    cashfreeSubscriptionId: string;
+  @Prop()
+  paymentMethod: string;
 
-    @Prop({ default: 'PENDING' })
-    authStatus: string;
+  @Prop({ type: Object })
+  paymentDetails: any;
 
-    @Prop({ type: Array, default: [] })
-    webhookLogs: any[];
+  @Prop()
+  cashfreeSubscriptionId: string;
 
-    @Prop({ type: [{ type: Types.ObjectId, ref: 'SubscriptionPayment' }], default: [] })
-    paymentRecords: Types.ObjectId[];
+  @Prop({ default: 'PENDING' })
+  authStatus: string;
 
-    @Prop({ default: 'PENDING_AUTH' })
-    status: string;
+  @Prop({ type: Array, default: [] })
+  webhookLogs: any[];
+
+  @Prop({
+    type: [{ type: Types.ObjectId, ref: 'SubscriptionPayment' }],
+    default: [],
+  })
+  paymentRecords: Types.ObjectId[];
+
+  @Prop({ default: 'PENDING_AUTH' })
+  status: string;
 }
 
-export const SubscriptionSchema =
-    SchemaFactory.createForClass(Subscription);
+export const SubscriptionSchema = SchemaFactory.createForClass(Subscription);
+SubscriptionSchema.index({ orderId: 1, orderSubscriptionEntryId: 1 });
+SubscriptionSchema.index({ subscriptionId: 1 });

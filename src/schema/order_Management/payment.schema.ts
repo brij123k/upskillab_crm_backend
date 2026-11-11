@@ -64,17 +64,31 @@ export class Payment {
   @Prop({ type: Types.ObjectId, ref: 'Order' })
   orderRef: Types.ObjectId;
 
- @Prop({ type: Types.ObjectId, ref: 'User', required: false })
-counsellorId?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  counsellorId?: Types.ObjectId;
 
-@Prop({ type: Types.ObjectId, ref: 'Lead', required: false })
-leadId?: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Lead', required: false })
+  leadId?: Types.ObjectId;
 
   @Prop()
   event_type: string;
 
   @Prop()
   event_time: Date;
+
+  /** Unique gateway payment key used for idempotent order application. */
+  @Prop()
+  idempotencyKey: string;
+
+  @Prop()
+  signatureVerified: boolean;
+
+  /** APPLIED | DUPLICATE | SKIPPED_UNVERIFIED | FAILED | NOT_APPLICABLE */
+  @Prop({ type: Object })
+  financialApplication: any;
 }
 
 export const PaymentSchema = SchemaFactory.createForClass(Payment);
+PaymentSchema.index({ link_id: 1, order_id: 1, transaction_status: 1 });
+PaymentSchema.index({ transaction_id: 1 }, { sparse: true });
+PaymentSchema.index({ orderRef: 1 });

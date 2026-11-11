@@ -1,10 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 
 import { UserLogic } from '../user/user.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
 import { Order } from 'src/schema/order_Management/order.schema';
+import {
+  buildRevenueAddFields,
+  hasActualRevenueMatch,
+} from 'src/api/order_management/financial/order-financial.util';
 import { LeadSchedule } from 'src/schema/lead_management/lead-schedule.schema';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
 import { LeadStageHistory } from 'src/schema/lead_management/LeadStageHistory.schema';
@@ -243,9 +247,10 @@ async getLeadStats(query: any, user: any) {
     // =======================================================
     // REVENUE
     //
-    // Lumpsum -> lumpsumDetails.totalReceived
-    // Loan    -> loanDetails.disbursementAmount
-    // Subscription -> ignored for now
+    // Actual received revenue (centralised definition in
+    // order_management/financial/order-financial.util):
+    // lumpsum received + loan disbursed + successful
+    // subscription payments + paid credits
     //
     // Uses selected date filter
     // =======================================================
@@ -253,7 +258,15 @@ async getLeadStats(query: any, user: any) {
     this.orderModel.aggregate([
       {
         $match: {
-          counsellorId: user.userId,
+          // aggregate() does not cast – match ObjectId and legacy string ids
+          counsellorId: {
+            $in: [
+              user.userId,
+              ...(Types.ObjectId.isValid(user.userId)
+                ? [new Types.ObjectId(user.userId)]
+                : []),
+            ],
+          },
 
           Approved: true,
 
@@ -263,26 +276,7 @@ async getLeadStats(query: any, user: any) {
           },
 
           // Only orders with actual revenue
-          $or: [
-            {
-              paymentMode: 'Lumpsum',
-
-              'lumpsumDetails.totalReceived': {
-                $gt: 0,
-              },
-            },
-
-            {
-              paymentMode: 'Loan',
-
-              'loanDetails.disbursementAmount': {
-                $gt: 0,
-              },
-            },
-
-            // Subscription intentionally excluded
-            // until its revenue calculation is added.
-          ],
+          ...hasActualRevenueMatch(),
         },
       },
 
@@ -292,61 +286,7 @@ async getLeadStats(query: any, user: any) {
 
       {
         $addFields: {
-          calculatedRevenue: {
-            $switch: {
-              branches: [
-
-                // -------------------------------------------
-                // LUMPSUM
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      'Lumpsum',
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$lumpsumDetails.totalReceived',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // LOAN
-                // -------------------------------------------
-
-                {
-                  case: {
-                    $eq: [
-                      '$paymentMode',
-                      'Loan',
-                    ],
-                  },
-
-                  then: {
-                    $ifNull: [
-                      '$loanDetails.disbursementAmount',
-                      0,
-                    ],
-                  },
-                },
-
-                // -------------------------------------------
-                // SUBSCRIPTION
-                // -------------------------------------------
-
-                // TODO:
-                // Subscription revenue calculation later.
-              ],
-
-              default: 0,
-            },
-          },
+          ...buildRevenueAddFields(),
         },
       },
 

@@ -9,68 +9,77 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { PaymentMode } from 'src/schema/order_Management/order.schema';
+import { OrderPaymentSourcesDto } from './order-payment.dto';
 
-export class CreateOrderDto {
-  @ApiProperty() 
-  @IsString() 
+/**
+ * Payment information can be sent in two ways:
+ *  - v2 (recommended): lumpsumPayments[] / loans[] / subscriptions[] / credits[]
+ *    (inherited from OrderPaymentSourcesDto)
+ *  - legacy: a single lumpsumDetails / loanDetails / subscriptionDetails
+ *    object selected by paymentMode (old clients – mapped to v2 server side).
+ * In both cases planned payment coverage + credits must equal finalFee.
+ */
+export class CreateOrderDto extends OrderPaymentSourcesDto {
+  @ApiProperty()
+  @IsString()
   mobile: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   email: string;
 
-  @ApiProperty() 
-  @IsString() 
+  @ApiProperty()
+  @IsString()
   studentName: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   fatherName: string;
 
-  @ApiPropertyOptional() 
-  @IsDateString() 
+  @ApiPropertyOptional()
+  @IsDateString()
   dob: Date;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   education: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   address: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   city: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   state: string;
 
-  @ApiProperty() 
+  @ApiProperty()
   @IsString()
   courseVertical: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   courseName: string;
 
-  @ApiPropertyOptional() 
-  @IsString() 
+  @ApiPropertyOptional()
+  @IsString()
   courseDuration: string;
 
-  @ApiProperty() 
-  @IsNumber() 
+  @ApiProperty()
+  @IsNumber()
   totalFee: number;
 
-  @ApiProperty() 
-  @IsNumber() 
+  @ApiProperty()
+  @IsNumber()
   finalFee: number;
 
-  @ApiPropertyOptional() 
-  @IsNumber() 
+  @ApiPropertyOptional()
+  @IsNumber()
   discount: number;
-  
+
   @ApiPropertyOptional()
   @IsBoolean()
   GSTEnabled: boolean;
@@ -79,47 +88,41 @@ export class CreateOrderDto {
   @IsNumber()
   GSTAmount: number;
 
-  @ApiProperty({ enum: PaymentMode })
+  @ApiPropertyOptional({
+    enum: PaymentMode,
+    description:
+      'Optional for v2 payloads (derived from the payment sources). Required to select the legacy *Details object.',
+  })
+  @IsOptional()
   @IsEnum(PaymentMode)
-  paymentMode: PaymentMode;
+  paymentMode?: PaymentMode;
 
-  @ApiPropertyOptional() 
-  @IsDateString() 
+  @ApiPropertyOptional()
+  @IsDateString()
   orderDate: Date;
 
-  @ApiPropertyOptional() 
-  @IsDateString() 
+  @ApiPropertyOptional()
+  @IsDateString()
   feeDepositDate: Date;
 
   @ApiPropertyOptional()
-  @IsString()  
+  @IsString()
   remarks: string;
 
-  // @ApiPropertyOptional()
-  // @IsNumber()
-  // totalReceived?: number;
-
-  // @ApiPropertyOptional()
-  // @IsNumber()
-  // pendingAmount?: number;
-
-  // @ApiPropertyOptional()
-  // @IsString()
-  // status?: string;
-  // Nested
-  @ApiPropertyOptional()
+  // Legacy single-object payment details (still accepted, mapped to v2)
+  @ApiPropertyOptional({ deprecated: true })
   @IsObject()
-  @IsOptional() 
+  @IsOptional()
   loanDetails?: any;
 
-  @ApiPropertyOptional()
-  @IsObject() 
-  @IsOptional() 
+  @ApiPropertyOptional({ deprecated: true })
+  @IsObject()
+  @IsOptional()
   subscriptionDetails?: any;
 
-  @ApiPropertyOptional() 
+  @ApiPropertyOptional({ deprecated: true })
   @IsObject()
-  @IsOptional()  
+  @IsOptional()
   lumpsumDetails?: any;
 }
 

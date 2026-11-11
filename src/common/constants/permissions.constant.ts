@@ -89,6 +89,12 @@ export const PERMISSIONS = {
       SENDREMINDERS:'send_reminders',
       PAYMENTLINKGENERATOR:'payment_link_generator',
       READPAYMENTHISTORY:'read_payment_history',
+      // Record a verified payment manually (mark credit paid / add received amount)
+      RECORD_PAYMENT:'record_payment',
+      // Revert a paid credit / reduce a disbursement / mark a payment refunded
+      REVERT_PAYMENT:'revert_payment',
+      // Pending-credit report and notification history
+      PENDING_CREDITS:'read_pending_credits',
     }
   },
   LOANPARTNER:{

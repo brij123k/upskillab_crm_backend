@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
@@ -28,6 +29,11 @@ import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { UserActivityLogic } from 'src/api/user-activity/user-activity.logic';
 import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
 import { LeadLogic } from 'src/api/lead_management/lead/lead.logic';
+import { OrderFinancialService } from '../financial/order-financial.service';
+import {
+  isWebhookSignatureRequired,
+  verifyCashfreeWebhook,
+} from 'src/common/utils/cashfree-webhook.util';
 
 
 export class CreatePlanDto {
@@ -38,6 +44,8 @@ export class CreatePlanDto {
 @ApiTags('Payment')
 @Controller('payment')
 export class PaymentController {
+  private readonly logger = new Logger(PaymentController.name);
+
   constructor(
     private readonly paymentService: PaymentService,
     private readonly orderService: OrderService,
@@ -52,6 +60,7 @@ export class PaymentController {
     @InjectModel(LeadStage.name)
     private readonly leadStageModel: Model<LeadStage>,
     private readonly Leadlogic: LeadLogic,
+    private readonly subscriptionFinancials: OrderFinancialService,
   ) { }
 
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
@@ -77,32 +86,46 @@ export class PaymentController {
     return this.paymentService.createleadPaymentLink(body, req.user.userId);
   }
 
+  /**
+   * Cashfree payment-link webhook (and the legacy subscription event).
+   *
+   * Money is applied to an order only through OrderFinancialService, which
+   * is idempotent on the gateway payment key – a retried webhook never adds
+   * the same payment twice. Unless CASHFREE_WEBHOOK_SIGNATURE_REQUIRED=false,
+   * payments are applied only when the Cashfree signature is valid; the raw
+   * event is always stored.
+   */
   @Post('webhook')
-  async webhook(@Body() body: any) {
+  async webhook(@Body() body: any, @Req() req: any) {
     try {
-      console.log('Webhook data:', body);
+      const verification = verifyCashfreeWebhook(req);
+      const canApplyMoney = verification.verified || !isWebhookSignatureRequired();
+      if (!verification.verified) {
+        this.logger.warn(`Payment webhook signature not verified: ${verification.reason}`);
+      }
+
       // ================= PAYMENT LINK EVENT =================
       if (body?.type === 'PAYMENT_LINK_EVENT') {
         const data = body?.data;
 
         const orderId =
           data?.link_notes?.orderId
-        // const orderId = body?.data?.order?.order_tags?.orderId;
 
         let order: any = null;
         let counsellorId: Types.ObjectId | undefined;
         let leadId: Types.ObjectId | undefined;
-        counsellorId=new Types.ObjectId(data?.link_notes?.userId)
-        if (orderId) {
+        if (data?.link_notes?.userId && Types.ObjectId.isValid(data.link_notes.userId)) {
+          counsellorId = new Types.ObjectId(data.link_notes.userId);
+        }
+        if (orderId && Types.ObjectId.isValid(orderId)) {
           order = await this.orderService.findById(orderId);
           if (order) {
-            counsellorId = order.counsellorId;
+            counsellorId = order.counsellorId?._id || order.counsellorId;
             // 🔥 LEAD MATCH BY EMAIL
             if (order.email) {
               const lead = await this.leadModel.findOne({
                 email: order.email,
               });
-              console.log('Matched Lead:', lead);
               if (lead) leadId = lead._id;
             }
           }
@@ -114,8 +137,10 @@ export class PaymentController {
             const lead = await this.leadModel.findOne({leadId:lId})
             if (!!lead){
               leadId = lead._id;
-              counsellorId=new Types.ObjectId(data?.link_notes?.userId)
-              if(data.link_purpose=="Registration Payment"){
+              if (userId && Types.ObjectId.isValid(userId)) {
+                counsellorId = new Types.ObjectId(userId);
+              }
+              if(data.link_purpose=="Registration Payment" && data?.order?.transaction_status === 'SUCCESS' && canApplyMoney){
                 const stage = await this.leadStageModel.findOne({name:"Registration Done"})
                 if(!!stage){
                   await this.Leadlogic.changeStagebyLeadId(lead.leadId,(stage._id).toString(),userId)
@@ -123,8 +148,10 @@ export class PaymentController {
               }
             }
           }
-        // ================= STORE PAYMENT =================
-        const res = await this.paymentModel.create({
+
+        // ================= STORE PAYMENT (idempotent per event) =================
+        const paymentKey = this.paymentService.buildLinkPaymentKey(data);
+        const paymentFields = {
           cf_link_id: data?.cf_link_id,
           link_id: data?.link_id,
           link_status: data?.link_status,
@@ -152,40 +179,99 @@ export class PaymentController {
 
           event_type: body?.type,
           event_time: body?.event_time,
+          idempotencyKey: paymentKey,
+          signatureVerified: verification.verified,
+        };
+        const existingPayment = await this.paymentModel.findOne({
+          link_id: data?.link_id,
+          order_id: data?.order?.order_id,
+          transaction_status: data?.order?.transaction_status,
+          ...(data?.order?.transaction_id !== undefined
+            ? { transaction_id: data?.order?.transaction_id }
+            : {}),
         });
-        console.log( res);
-        const saved = await this.paymentModel
-  .findById(res._id)
-  .lean();
-        console.log("Saved from DB:", saved);
-        console.log('Payment record created for link event.', data?.order?.transaction_status);
+        const res = existingPayment
+          ? await this.paymentModel.findByIdAndUpdate(existingPayment._id, paymentFields, { new: true })
+          : await this.paymentModel.create(paymentFields);
+
         // ================= APPLY PAYMENT =================
-        if (data?.order?.transaction_status === 'SUCCESS' && orderId) {
-          console.log('Applying payment to Order ID:', orderId);
-          await this.orderService.applyPayment(
-            orderId,
-            Number(data?.order?.order_amount),
-          );
-          const paymentCount = await this.paymentModel.countDocuments({
-            orderRef: order._id,
-            transaction_status: 'SUCCESS',
-          });
-
-          if (paymentCount === 1 && leadId) {
-            const registrationStage =
-              await this.leadStageModel.findOne({
-                name: 'Registration Done',
-              });
-
-            if (registrationStage) {
-              await this.leadModel.updateOne(
-                { _id: leadId },
+        if (data?.order?.transaction_status === 'SUCCESS' && orderId && order) {
+          let application: any;
+          if (!canApplyMoney) {
+            application = {
+              status: 'SKIPPED_UNVERIFIED',
+              message: `Webhook signature not verified (${verification.reason})`,
+            };
+          } else {
+            try {
+              const result = await this.orderService.applyPayment(
+                orderId,
+                Number(data?.order?.order_amount ?? data?.link_amount_paid),
+                paymentKey,
                 {
-                  $set: {
-                    stageId: registrationStage._id,
-                  },
+                  referenceId: data?.order?.transaction_id
+                    ? String(data.order.transaction_id)
+                    : data?.order?.order_id,
+                  creditId: data?.link_notes?.creditId,
+                  lumpsumEntryId: data?.link_notes?.lumpsumEntryId,
+                  paidAt: body?.event_time ? new Date(body.event_time) : undefined,
+                  paymentMode: 'Payment Link',
                 },
               );
+              application = { status: result.status, allocations: result.allocations, key: result.key };
+            } catch (error: any) {
+              application = {
+                status: 'FAILED',
+                message: error?.response?.errors?.join?.('; ') || error?.message,
+              };
+              this.logger.error(
+                `Failed to apply payment ${paymentKey} to order ${orderId}: ${application.message}`,
+              );
+            }
+          }
+          // A retried delivery of an already applied payment keeps the
+          // APPLIED record and only counts the duplicate delivery.
+          if (
+            application.status === 'DUPLICATE' &&
+            existingPayment?.financialApplication?.status === 'APPLIED'
+          ) {
+            await this.paymentModel.updateOne(
+              { _id: res!._id },
+              {
+                $inc: { 'financialApplication.duplicateDeliveries': 1 },
+                $set: { 'financialApplication.lastDuplicateAt': new Date() },
+              },
+            );
+          } else {
+            await this.paymentModel.updateOne(
+              { _id: res!._id },
+              { $set: { financialApplication: { ...application, at: new Date() } } },
+            );
+          }
+
+          if (application.status === 'APPLIED' && leadId) {
+            const paymentCount = await this.paymentModel.countDocuments({
+              orderRef: order._id,
+              transaction_status: 'SUCCESS',
+              'financialApplication.status': 'APPLIED',
+            });
+
+            if (paymentCount === 1) {
+              const registrationStage =
+                await this.leadStageModel.findOne({
+                  name: 'Registration Done',
+                });
+
+              if (registrationStage) {
+                await this.leadModel.updateOne(
+                  { _id: leadId },
+                  {
+                    $set: {
+                      stageId: registrationStage._id,
+                    },
+                  },
+                );
+              }
             }
           }
         }
@@ -203,36 +289,60 @@ export class PaymentController {
         return { message: 'Payment link event stored' };
       }
 
-      // ================= SUBSCRIPTION =================
+      // ================= SUBSCRIPTION (legacy event shape) =================
+      // The signed /subscription/webhook/cashfree endpoint is the primary
+      // handler. Both paths use the same idempotency key (gateway payment id)
+      // so a payment delivered to both endpoints is counted once.
       if (body?.type === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
-        const subId = body?.data?.subscription?.subscription_id;
-        const amount = body?.data?.payment?.payment_amount;
+        if (!canApplyMoney) {
+          return { message: 'Subscription event ignored: signature not verified' };
+        }
+        const subId =
+          body?.data?.subscription?.subscription_id ||
+          body?.data?.subscription_details?.subscription_id;
+        const amount = Number(
+          body?.data?.payment?.payment_amount ?? body?.data?.payment_amount,
+        );
+        const gatewayPaymentId =
+          body?.data?.payment?.cf_payment_id ||
+          body?.data?.payment?.payment_id ||
+          body?.data?.cf_payment_id ||
+          body?.data?.payment_id ||
+          (subId && body?.event_time ? `${subId}:${body.event_time}` : undefined);
 
         const sub = await this.subscriptionModel.findOne({
           subscriptionId: subId,
         });
 
-        if (sub) {
-          for (const inst of sub.installments) {
-            if (!inst.isPaid) {
-              inst.isPaid = true;
-              inst.paidAt = new Date();
-              break;
-            }
-          }
-
-          const allPaid = sub.installments.every(i => i.isPaid);
-          if (allPaid) sub.status = 'COMPLETED';
-
-          await sub.save();
-
-          await this.orderService.applyPayment(
-            sub.orderId.toString(),
+        if (sub && gatewayPaymentId) {
+          const result = await this.subscriptionFinancials.recordSubscriptionPayment({
+            orderId: sub.orderId?.toString(),
+            gatewaySubscriptionId: subId,
+            cashfreeSubscriptionId: sub.cashfreeSubscriptionId,
+            subscriptionEntryId: (sub as any).orderSubscriptionEntryId?.toString(),
+            gatewayPaymentId: String(gatewayPaymentId),
             amount,
-          );
+            paidAt: body?.event_time ? new Date(body.event_time) : undefined,
+          });
+
+          if (result.status === 'APPLIED') {
+            for (const inst of sub.installments) {
+              if (!inst.isPaid) {
+                inst.isPaid = true;
+                inst.paidAt = new Date();
+                break;
+              }
+            }
+
+            const allPaid = sub.installments.every(i => i.isPaid);
+            if (allPaid) sub.status = 'COMPLETED';
+
+            await sub.save();
+          }
+          return { message: 'Subscription handled', status: result.status };
         }
 
-        return { message: 'Subscription handled' };
+        return { message: 'Subscription not found or payment id missing, event ignored' };
       }
 
       return { message: 'Ignored event' };

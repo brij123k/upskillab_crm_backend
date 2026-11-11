@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Lead, LeadStatus } from 'src/schema/lead_management/lead.schema';
 import { CallLog } from 'src/schema/call-log.schema';
 import { Order, OrderStatus } from 'src/schema/order_Management/order.schema';
+import { buildActualRevenueExpression } from 'src/api/order_management/financial/order-financial.util';
 import { User } from 'src/schema/user.schema';
 import { LeadHistory, LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 
@@ -290,6 +291,7 @@ export class UserReportService {
 
     const orderCounts = await this.orderModel.aggregate([
       { $match: orderMatch },
+      { $addFields: { calculatedRevenue: buildActualRevenueExpression() } },
       {
         $group: {
           _id: {
@@ -298,7 +300,12 @@ export class UserReportService {
             },
           },
           acceptedOrderCount: { $sum: 1 },
+          // Booked value of accepted orders (unchanged).
           acceptedRevenue: { $sum: '$finalFee' },
+          // Actual received revenue of approved orders (centralised definition).
+          receivedRevenue: {
+            $sum: { $cond: [{ $eq: ['$Approved', true] }, '$calculatedRevenue', 0] },
+          },
         },
       },
     ]);
@@ -360,6 +367,7 @@ export class UserReportService {
       orderStatsMap.set(userId, {
         acceptedOrderCount: entry.acceptedOrderCount || 0,
         acceptedRevenue: entry.acceptedRevenue || 0,
+        receivedRevenue: entry.receivedRevenue || 0,
       });
     });
 
@@ -414,7 +422,7 @@ export class UserReportService {
       const campaignEntries = campaignMap.get(userId) || new Map();
       const stageEntries = stageChangesMap.get(userId) || new Map();
       const callEntry = callStatsMap.get(userId) || { totalDialed: 0, totalAnswered: 0, totalTalkTime: 0 };
-      const orderEntry = orderStatsMap.get(userId) || { acceptedOrderCount: 0, acceptedRevenue: 0 };
+      const orderEntry = orderStatsMap.get(userId) || { acceptedOrderCount: 0, acceptedRevenue: 0, receivedRevenue: 0 };
 
       return {
         userId,
@@ -434,6 +442,7 @@ export class UserReportService {
         stageChanges: Array.from(stageEntries.entries()).map(([stage, count]) => ({ stage, count })),
         acceptedOrderCount: orderEntry.acceptedOrderCount,
         acceptedRevenue: orderEntry.acceptedRevenue,
+        receivedRevenue: orderEntry.receivedRevenue,
       };
     });
 

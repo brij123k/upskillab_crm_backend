@@ -9,7 +9,8 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { Subscription } from 'src/schema/order_Management/subscription.schema';
 import { CreateSubscriptionDto } from 'src/dto/order_management/createsubscription.dto';
-import { Order, OrderStatus } from 'src/schema/order_Management/order.schema';
+import { Order } from 'src/schema/order_Management/order.schema';
+import { OrderFinancialService } from '../financial/order-financial.service';
 import { SubscriptionsPlan } from 'src/schema/order_Management/subscriptions-plan.schema';
 import {
   SubscriptionPayment,
@@ -24,6 +25,7 @@ export class SubscriptionService {
     @InjectModel('Order') private orderModel: Model<Order>,
     @InjectModel('SubscriptionsPlan')
     private planModel: Model<SubscriptionsPlan>,
+    private readonly financialService: OrderFinancialService,
   ) {}
 
   // 🔥 VALIDATION
@@ -193,10 +195,36 @@ export class SubscriptionService {
 
   // 🚀 CREATE SUBSCRIPTION
   async create(dto: CreateSubscriptionDto) {
+    if (!Types.ObjectId.isValid(dto.orderId)) {
+      throw new BadRequestException('Order not found');
+    }
     const order = await this.orderModel.findById(dto.orderId);
     if (!order) throw new BadRequestException('Order not found');
 
-    const exist = await this.subModel.findOne({ orderId: dto.orderId });
+    // 🔥 RESOLVE THE ORDER'S SUBSCRIPTION PLAN ENTRY (multi-plan support)
+    const view = await this.financialService.getFinancialSummary(dto.orderId);
+    const entries: any[] = view.subscriptions || [];
+    const entry = dto.subscriptionEntryId
+      ? entries.find((e) => e._id?.toString() === dto.subscriptionEntryId)
+      : entries.find((e) => !e.gatewaySubscriptionId && !e.cashfreeSubscriptionId) ||
+        (entries.length === 1 ? entries[0] : undefined);
+    if (!entry) {
+      throw new BadRequestException(
+        dto.subscriptionEntryId
+          ? 'Subscription plan entry not found on the order'
+          : 'Subscription installment details are missing on the order',
+      );
+    }
+
+    const exist = await this.subModel.findOne({
+      orderId: order._id,
+      $or: [
+        { orderSubscriptionEntryId: entry._id },
+        ...(entries.length === 1
+          ? [{ orderSubscriptionEntryId: { $exists: false } }]
+          : []),
+      ],
+    });
     if (exist) {
       return exist;
     }
@@ -207,6 +235,14 @@ export class SubscriptionService {
     if (dto.planId) {
       const plan = await this.planModel.findOne({ planId: dto.planId });
       if (!plan) throw new BadRequestException('Invalid plan');
+      if (
+        Number(plan.amount) !== Number(entry.installmentAmount) ||
+        Number(plan.max_cycles) !== Number(entry.numberOfInstallments)
+      ) {
+        throw new BadRequestException(
+          `Plan ${dto.planId} (${plan.amount} x ${plan.max_cycles}) does not match the order's subscription plan (${entry.installmentAmount} x ${entry.numberOfInstallments})`,
+        );
+      }
 
       planDetails = {
         plan_name: plan.planName,
@@ -218,10 +254,7 @@ export class SubscriptionService {
         plan_currency: 'INR',
       };
     } else {
-      if (
-        !order.subscriptionDetails?.installmentAmount ||
-        !order.subscriptionDetails?.numberOfInstallments
-      ) {
+      if (!entry.installmentAmount || !entry.numberOfInstallments) {
         throw new BadRequestException(
           'Subscription installment details are missing on the order',
         );
@@ -229,11 +262,9 @@ export class SubscriptionService {
 
       planDetails = {
         plan_name: `plan_${Date.now()}`,
-        plan_amount: order.subscriptionDetails?.installmentAmount,
-        plan_max_amount:
-          order.subscriptionDetails?.installmentAmount *
-          order.subscriptionDetails?.numberOfInstallments,
-        plan_max_cycles: order.subscriptionDetails?.numberOfInstallments,
+        plan_amount: entry.installmentAmount,
+        plan_max_amount: entry.installmentAmount * entry.numberOfInstallments,
+        plan_max_cycles: entry.numberOfInstallments,
         plan_intervals: 1,
         plan_interval_type: 'MONTH',
         plan_currency: 'INR',
@@ -309,6 +340,7 @@ export class SubscriptionService {
     // 🔥 SAVE SUBSCRIPTION
     const subscription = await this.subModel.create({
       orderId: order._id,
+      orderSubscriptionEntryId: entry._id,
       subscriptionId,
       cashfreeSubscriptionId,
       studentName: order.studentName,
@@ -329,23 +361,23 @@ export class SubscriptionService {
       webhookLogs: [],
     });
 
-    // 🔥 UPDATE ORDER
-    order.subscriptionDetails = {
-      cashfreeSubscriptionId,
-      gateway: 'Cashfree',
-      installmentAmount: planDetails.plan_amount,
-      firstInstallmentDate: firstChargeDate,
-      lastInstallmentDate: installments.length
-        ? installments[installments.length - 1].dueDate
-        : undefined,
-      numberOfInstallments: planDetails.plan_max_cycles,
-      status: 'PENDING_AUTH',
-    };
-    await order.save();
+    // 🔥 LINK THE ORDER'S SUBSCRIPTION ENTRY (legacy subscriptionDetails is
+    // maintained as a mirror by the financial service)
+    await this.financialService.linkSubscriptionEntry(
+      order._id.toString(),
+      entry._id.toString(),
+      {
+        gatewaySubscriptionId: subscriptionId,
+        cashfreeSubscriptionId,
+        subscriptionRef: subscription._id,
+        status: 'PENDING_AUTH',
+      },
+    );
 
     return {
       cashfreeSubscriptionId,
       subscriptionId,
+      subscriptionEntryId: entry._id.toString(),
     };
   }
 
@@ -406,8 +438,6 @@ export class SubscriptionService {
     const subscriptionDetails = data?.subscription_details || {};
     const authorizationDetails = data?.authorization_details || {};
 
-    let order = await this.orderModel.findById(subscription.orderId);
-
     if (eventType === 'SUBSCRIPTION_STATUS_CHANGED') {
       const paymentRecord = await this.createPaymentRecord(subscription, body, eventType);
       subscription.status =
@@ -459,6 +489,39 @@ export class SubscriptionService {
 
     if (eventType === 'SUBSCRIPTION_PAYMENT_SUCCESS') {
       const target = this.getInstallmentTarget(subscription, body);
+
+      // 🔒 Apply the money to the order first (idempotent on the gateway
+      // payment id). A retried webhook returns DUPLICATE and is not counted
+      // again, nor does it mark another installment as paid.
+      const gatewayPaymentId =
+        data?.cf_payment_id ||
+        data?.payment_id ||
+        data?.cf_txn_id ||
+        `${identifiers.subscriptionId || subscription.subscriptionId}:${data?.payment_schedule_date || body?.event_time}`;
+      const financial = await this.financialService.recordSubscriptionPayment({
+        orderId: subscription.orderId?.toString(),
+        gatewaySubscriptionId: subscription.subscriptionId,
+        cashfreeSubscriptionId: subscription.cashfreeSubscriptionId,
+        subscriptionEntryId: subscription.orderSubscriptionEntryId?.toString(),
+        gatewayPaymentId: String(gatewayPaymentId),
+        amount: Number(
+          data?.payment_amount ?? target?.amount ?? subscription.installmentAmount,
+        ),
+        paidAt: this.toDate(body?.event_time) || new Date(),
+        installmentNo: target?.installmentNo,
+      });
+
+      if (financial.status === 'DUPLICATE') {
+        subscription.webhookLogs = subscription.webhookLogs || [];
+        subscription.webhookLogs.push({ duplicate: true, receivedAt: new Date(), body });
+        await (subscription as any).save();
+        return {
+          message: 'Duplicate payment event ignored',
+          eventType,
+          subscriptionId: subscription.subscriptionId,
+        };
+      }
+
       const paymentRecord = await this.createPaymentRecord(subscription, body, eventType, target);
 
       if (target) {
@@ -481,25 +544,8 @@ export class SubscriptionService {
       paymentRecord.subscriptionStatus = subscription.status;
       paymentRecord.installmentStatus = target?.isPaid ? 'PAID' : 'SUCCESS';
       await (paymentRecord as any).save();
-
-      if (order) {
-        order.subscriptionDetails = {
-          ...(order.subscriptionDetails || {}),
-          cashfreeSubscriptionId:
-            subscription.cashfreeSubscriptionId ||
-            order.subscriptionDetails?.cashfreeSubscriptionId,
-          gateway: 'Cashfree',
-          installmentAmount: subscription.installmentAmount,
-          numberOfInstallments: subscription.numberOfInstallments,
-          firstInstallmentDate: subscription.firstInstallmentDate,
-          lastInstallmentDate: subscription.lastInstallmentDate,
-          status: subscription.status,
-          lastPaymentAt: paymentRecord.eventTime || new Date(),
-        };
-        order.status = allPaid
-          ? OrderStatus.FULLY_PAID
-          : OrderStatus.PARTIALLY_PAID;
-      }
+      // Order received amounts, status and the legacy subscriptionDetails
+      // mirror were updated by recordSubscriptionPayment above.
     }
 
     if (eventType === 'SUBSCRIPTION_PAYMENT_FAILED') {
@@ -588,9 +634,14 @@ export class SubscriptionService {
 
     await (subscription as any).save();
 
-    if (order) {
-      await (order as any).save();
-    }
+    // Keep the order's subscription entry status in sync (no money movement).
+    await this.financialService.updateSubscriptionEntryStatus(
+      {
+        gatewaySubscriptionId: subscription.subscriptionId,
+        cashfreeSubscriptionId: subscription.cashfreeSubscriptionId,
+      },
+      subscription.status,
+    );
 
     return {
       message: 'Webhook processed',
