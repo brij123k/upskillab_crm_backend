@@ -1,4 +1,9 @@
-import { Injectable, HttpException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import axios from 'axios';
 import { Model, Types } from 'mongoose';
@@ -10,6 +15,11 @@ import { UserActivityLogic } from '../user-activity/user-activity.logic';
 import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { User } from 'src/schema/user.schema';
+import { EnrolledLead } from 'src/schema/enrolled_leads/enrolled-lead.schema';
+
+/** Last 10 digits of a phone number (Indian mobile without country code). */
+const lastTenDigits = (num?: string | number | null) =>
+  String(num ?? '').replace(/\D/g, '').slice(-10);
 
 @Injectable()
 export class SmartfloService {
@@ -28,6 +38,9 @@ export class SmartfloService {
 
         @InjectModel(CallLogReview.name)
         private readonly model: Model<CallLogReview>,
+
+    @InjectModel(EnrolledLead.name)
+    private readonly enrolledLeadModel: Model<EnrolledLead>,
     ) { }
    
 
@@ -154,6 +167,61 @@ async clickToCall(dto:any,user:any) {
 return response
 }
 
+/**
+ * Click to call an enrolled lead (Upskillab student). Same Smartflo flow as
+ * sales leads; the call log is linked with enrolledLeadId instead of leadId.
+ */
+async clickToCallEnrolled(
+  enrolled: { _id: any; mobileNumber?: string; fullName?: string },
+  user: any,
+) {
+  const destination = lastTenDigits(enrolled.mobileNumber);
+  if (destination.length !== 10) {
+    throw new BadRequestException('This student has no valid mobile number');
+  }
+  const agent = lastTenDigits(user?.number);
+  if (agent.length !== 10) {
+    throw new BadRequestException(
+      'Your mobile number is not set on your user profile, so the call cannot be connected',
+    );
+  }
+  const response = await this.makeRequest2('POST', '/click_to_call', {
+    async: 1,
+    agent_number: Number(agent),
+    destination_number: Number(destination),
+    caller_id: process.env.CALLERID,
+  });
+  const call = await this.callLogModel.create({
+    refId: response?.ref_id,
+    enrolledLeadId: new Types.ObjectId(String(enrolled._id)),
+    userId: user.userId,
+    agentNumber: agent,
+    customerNumber: destination,
+    isFormSubmitted: false,
+  });
+  return { ...response, callId: call._id };
+}
+
+/** Socket payload for a finished call (sales lead or enrolled lead). */
+private async callCompletedPayload(call: any) {
+  const payload: any = {
+    callId: call._id,
+    leadId: call.leadId,
+    duration: call.duration,
+    call,
+  };
+  if (call.enrolledLeadId) {
+    const enrolled: any = await this.enrolledLeadModel
+      .findById(call.enrolledLeadId)
+      .select('fullName mobileNumber stageId stageName')
+      .lean();
+    payload.type = 'enrolled';
+    payload.enrolledLeadId = call.enrolledLeadId;
+    payload.enrolledLead = enrolled;
+  }
+  return payload;
+}
+
 async hanldeWebhook(body:any){
   let {
       ref_id,   
@@ -176,12 +244,7 @@ async hanldeWebhook(body:any){
   this.socketGateway.emitCallEvent(
     call.userId.toString(),
     'call-completed',
-    {
-      callId: call._id,
-      leadId: call.leadId,
-      duration: call.duration,
-      call:call
-    },
+    await this.callCompletedPayload(call),
   );
     return true
 }
@@ -242,6 +305,40 @@ console.log(agentNumber)
   let lead = await this.leadModel.findOne({
     phone: { $in: [fullNumber, callerNumber] },
   });
+
+  // 🎓 Not a sales lead → maybe an enrolled student (Upskillab)
+  if (!lead) {
+    const digits = lastTenDigits(fullNumber || callerNumber);
+    const enrolled: any =
+      digits.length === 10
+        ? await this.enrolledLeadModel
+            .findOne({
+              mobileNumber: {
+                $in: [digits, `91${digits}`, `+91${digits}`, fullNumber, callerNumber].filter(Boolean),
+              },
+            })
+            .select('_id assignedTo')
+            .lean()
+        : null;
+    if (enrolled?.assignedTo) {
+      const call = await this.callLogModel.create({
+        enrolledLeadId: enrolled._id,
+        userId: enrolled.assignedTo.toString(),
+        agentNumber: normalize(agentNumber),
+        customerNumber: callerNumber,
+        duration: duration,
+        isFormSubmitted: false,
+        recording_url,
+        startedAt: new Date(startStamp),
+      });
+      this.socketGateway.emitCallEvent(
+        call.userId.toString(),
+        'call-completed',
+        await this.callCompletedPayload(call),
+      );
+      return true;
+    }
+  }
 
   // ❌ Lead not found → unknown call
   if (!lead) {
@@ -304,6 +401,12 @@ async updateCallLog(body:any){
   const call = await this.callLogModel.findById(callId);
 
     if (!call) throw new Error('Call not found');
+    if (call.enrolledLeadId || !call.leadId) {
+      // Enrolled-lead calls use POST /enrolled-leads/calls/:callId/feedback
+      throw new BadRequestException(
+        'This call is with an enrolled student; submit its details from the Enrolled Leads page',
+      );
+    }
 
     call.outcome = outcome;
     call.stageId = stageId;

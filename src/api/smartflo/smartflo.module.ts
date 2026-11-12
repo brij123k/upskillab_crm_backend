@@ -12,6 +12,10 @@ import { SocketModule } from '../socket/socket.module';
 import { LeadHistoryModule } from '../lead_management/lead-history/lead-history.module';
 import { CallLogReview, CallLogReviewSchema } from 'src/schema/all-log-review.schema';
 import { User, UserSchema } from 'src/schema/user.schema';
+import {
+  EnrolledLead,
+  EnrolledLeadSchema,
+} from 'src/schema/enrolled_leads/enrolled-lead.schema';
 
 @Module({
   imports: [
@@ -21,6 +25,7 @@ import { User, UserSchema } from 'src/schema/user.schema';
       { name: Lead.name, schema: LeadSchema },
       { name: User.name, schema: UserSchema },
       { name: CallLogReview.name, schema: CallLogReviewSchema },
+      { name: EnrolledLead.name, schema: EnrolledLeadSchema },
     ]),
     SocketModule,
     LeadHistoryModule,

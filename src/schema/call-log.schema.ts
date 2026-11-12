@@ -6,8 +6,21 @@ export class CallLog extends Document {
   @Prop({required:false})
   refId?: string;
   
-  @Prop({ required: true })
+  /** Numeric sales leadId. Not set for enrolled-lead (student) calls. */
+  @Prop({
+    required: function (this: any) {
+      return !this.enrolledLeadId;
+    },
+  })
   leadId: number; // numeric leadId
+
+  /** Set when the call is with an enrolled lead (Upskillab student). */
+  @Prop({ type: Types.ObjectId, ref: 'EnrolledLead', index: true })
+  enrolledLeadId?: Types.ObjectId;
+
+  /** Enrolled-lead stage chosen in the call feedback (separate from sales stages). */
+  @Prop({ type: Types.ObjectId, ref: 'EnrolledLeadStage' })
+  enrolledStageId?: Types.ObjectId;
 
   @Prop({ref: 'User', required: true })
   userId: string;

@@ -37,6 +37,7 @@ import { LeadStatsModule } from './api/leadStats/leadStats.module';
 import { CampaignsModule } from './api/campaigns/campaigns.module';
 import { HolidayModule } from './api/holiday/holiday.module';
 import { BootcampModule } from './bootcamp/bootcamp.module';
+import { EnrolledLeadModule } from './api/enrolled_leads/enrolled-lead.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -77,6 +78,7 @@ ConfigModule.forRoot({
     CampaignsModule,
     HolidayModule,
     BootcampModule,
+    EnrolledLeadModule,
   ],
   controllers: [AppController],
   providers: [AppService],

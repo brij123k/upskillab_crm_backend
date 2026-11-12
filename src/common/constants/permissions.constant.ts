@@ -1,4 +1,18 @@
 export const PERMISSIONS = {
+  ENROLLED_LEADS: {
+    MODULE: 'enrolled_leads',
+    ACTIONS: {
+      READ: 'read',
+      READ_ALL: 'read_all',
+      UPDATE: 'update',
+      ASSIGN: 'assign',
+      SYNC: 'sync',
+      MANAGE_STAGES: 'manage_stages',
+      CALL: 'call',
+      /** Everything on the page, for the leads assigned to the user (and their team). */
+      FULL_ACCESS: 'full_access',
+    },
+  },
   LEAD: {
     MODULE: 'leads',
     ACTIONS: {
