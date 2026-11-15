@@ -21,8 +21,12 @@ import { ChangeUserDto } from 'src/dto/user/userupdate.dto';
 export class UserController {
   constructor(private readonly logic: UserLogic) {}
 
-  @UseGuards(JwtAuthGuard, RoleGuard)
-  @Roles('Admin')
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(
+    PERMISSIONS.USER.MODULE,
+    PERMISSIONS.USER.ACTIONS.CREATE,
+  )
   @Post('register')
   register(@Body() dto: RegisterUserDto) {
     return this.logic.register(dto);
@@ -73,8 +77,12 @@ toggleBlock(@Param('id') userId: string) {
 }
 
 
-@UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('Admin')
+@UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+@Roles('Admin', 'bd')
+@RequirePermission(
+  PERMISSIONS.USER.MODULE,
+  PERMISSIONS.USER.ACTIONS.UPDATE,
+)
 @Patch(':id/toggle-dashboard')
 @ApiOperation({
   summary: 'Admin enables dashboard & creates profile',
@@ -82,8 +90,9 @@ toggleBlock(@Param('id') userId: string) {
 toggleDashboard(
   @Param('id') userId: string,
   @Body() dto: ToggleDashboardDto,
+  @Req() req: any,
 ) {
-  return this.logic.toggleDashboard(userId, dto);
+  return this.logic.toggleDashboard(userId, dto, req.user);
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
@@ -146,7 +155,7 @@ getLastActivities(@Req() req: any, @Query('limit') limit?: string) {
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin')
+@Roles('Admin', 'bd')
 @RequirePermission(
 PERMISSIONS.USER.MODULE,
 PERMISSIONS.USER.ACTIONS.UPDATE,
@@ -158,8 +167,9 @@ summary:"update any User"
 UpdateUser(
 @Param('id') userId: string,
 @Body() dto: ChangeUserDto,
+@Req() req: any,
 ){
-return this.logic.updateUserAndProfile(userId,dto)
+return this.logic.updateUserAndProfile(userId,dto, req.user)
 }
 
 

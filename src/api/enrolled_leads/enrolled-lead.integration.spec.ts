@@ -28,7 +28,7 @@ import { Lead, LeadSchema } from 'src/schema/lead_management/lead.schema';
 import { Reflector } from '@nestjs/core';
 import { SmartfloService } from '../smartflo/smartflo.service';
 import { EnrolledPermissionGuard } from './enrolled-permission.guard';
-import { EnrolledLeadStageService } from './enrolled-lead-stage.service';
+import { EnrolledLeadStageService, STATIC_ENROLLED_STAGES } from './enrolled-lead-stage.service';
 import { EnrolledLeadSyncService } from './enrolled-lead-sync.service';
 import { EnrolledLeadService } from './enrolled-lead.service';
 
@@ -254,7 +254,7 @@ describe('enrolled leads', () => {
       studentId: 's0001',
     }).lean();
     const called: any = await m.EnrolledLeadStage.findOne({
-      name: 'Called',
+      name: 'Callback Scheduled',
     }).lean();
     await service.logActivity(
       String(lead._id),
@@ -292,7 +292,7 @@ describe('enrolled leads', () => {
     const after: any = await m.EnrolledLead.findOne({
       studentId: 's0001',
     }).lean();
-    expect(after.stageName).toBe('Called'); // CRM stage kept
+    expect(after.stageName).toBe('Callback Scheduled'); // CRM stage kept
     expect(after.isActive).toBe(false); // upstream status refreshed
     const statusHistory: any = await m.EnrolledLeadHistory.findOne({
       enrolledLeadId: after._id,
@@ -379,7 +379,7 @@ describe('enrolled leads', () => {
 
   it('bulk stage change and a second concurrent sync is refused', async () => {
     const followUp: any = await m.EnrolledLeadStage.findOne({
-      name: 'Follow Up',
+      name: 'Follow-up Required',
     }).lean();
     const leads: any[] = await m.EnrolledLead.find().select('_id').lean();
     const res: any = await service.bulkStage(
@@ -388,7 +388,7 @@ describe('enrolled leads', () => {
     );
     expect(res.updated).toBe(4);
     expect(
-      await m.EnrolledLead.countDocuments({ stageName: 'Follow Up' }),
+      await m.EnrolledLead.countDocuments({ stageName: 'Follow-up Required' }),
     ).toBe(4);
 
     await m.EnrolledLeadSyncRun.create({
@@ -399,14 +399,22 @@ describe('enrolled leads', () => {
     await expect(sync.run('MANUAL')).rejects.toThrow('already running');
   });
 
-  it('renaming a stage updates the leads', async () => {
-    const followUp: any = await m.EnrolledLeadStage.findOne({
-      name: 'Follow Up',
-    }).lean();
-    await stages.update(String(followUp._id), { name: 'Follow-up Call' });
-    expect(
-      await m.EnrolledLead.countDocuments({ stageName: 'Follow-up Call' }),
-    ).toBe(4);
+  it('stages are a fixed list: Enrolled + feedback outcomes, cannot be added or edited', async () => {
+    const active = await stages.list();
+    expect(active.map((st: any) => st.name)).toEqual(STATIC_ENROLLED_STAGES.map((st) => st.name));
+    expect(active.find((st: any) => st.isDefault)?.name).toBe('Enrolled');
+    const followUp: any = await m.EnrolledLeadStage.findOne({ name: 'Follow-up Required' }).lean();
+    await expect(stages.update(String(followUp._id), { name: 'X' })).rejects.toThrow('fixed');
+    await expect(stages.create({ name: 'New' } as any)).rejects.toThrow('fixed');
+  });
+
+  it('old (non-static) stages are deactivated and their students move to Enrolled', async () => {
+    const legacy: any = await m.EnrolledLeadStage.create({ name: 'Legacy Stage', order: 99, isActive: true });
+    const lead: any = await m.EnrolledLead.findOne().lean();
+    await m.EnrolledLead.updateOne({ _id: lead._id }, { $set: { stageId: legacy._id, stageName: 'Legacy Stage' } });
+    await stages.ensureDefaults();
+    expect((await m.EnrolledLeadStage.findById(legacy._id).lean() as any).isActive).toBe(false);
+    expect((await m.EnrolledLead.findById(lead._id).lean() as any).stageName).toBe('Enrolled');
   });
 });
 
@@ -476,7 +484,7 @@ describe('enrolled lead calls (Smartflo)', () => {
     ).rejects.toThrow('enrolled student');
 
     const interested: any = await m.EnrolledLeadStage.findOne({
-      name: 'Interested',
+      name: 'Learner Satisfied',
     }).lean();
     await service.submitCallFeedback(
       String(pending[0].callId),
@@ -497,14 +505,14 @@ describe('enrolled lead calls (Smartflo)', () => {
     ).rejects.toThrow('already submitted');
 
     const detail: any = await service.getOne(leadId, BD);
-    expect(detail.stageName).toBe('Interested');
+    expect(detail.stageName).toBe('Learner Satisfied');
     expect(detail.lastActivityType).toBe('call');
     const callHistory = detail.history.find(
       (h: any) => h.actionType === 'call',
     );
     expect(callHistory).toMatchObject({
       note: 'Wants the advanced batch',
-      toStage: 'Interested',
+      toStage: 'Learner Satisfied',
     });
     expect(callHistory.changes).toMatchObject({
       outcome: 'Connected',

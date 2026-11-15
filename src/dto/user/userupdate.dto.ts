@@ -1,3 +1,6 @@
+import { Type } from 'class-transformer';
+import { ValidateNested } from 'class-validator';
+import { PersonalDetailsDto } from 'src/dto/user/personal-details.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsEmail, isEmail, IsEnum, IsMongoId, IsOptional, IsString,IsObject, Length, Matches } from 'class-validator';
 
@@ -12,6 +15,7 @@ export class ChangeUserDto {
     name?: string;
 
     @ApiPropertyOptional()
+    @IsOptional()
     @IsEmail({}, { message: 'Invalid email format' })
     email?: string;
 
@@ -119,4 +123,10 @@ export class ChangeUserDto {
       panCard?: string;
       educationalCertificates?: string[];
     };
+
+  @ApiPropertyOptional({ type: PersonalDetailsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PersonalDetailsDto)
+  personalDetails?: PersonalDetailsDto;
 }

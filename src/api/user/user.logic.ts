@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -367,6 +368,39 @@ export class UserLogic {
       throw error;
     }
   }
+  private isAdminActor(actor: any) {
+    return (
+      actor?.roleName?.toLowerCase() === 'admin' ||
+      actor?.role?.name?.toLowerCase() === 'admin' ||
+      actor?.isSuperAdmin === true
+    );
+  }
+
+  /**
+   * Admin can manage everyone. A bd user can manage users in their own
+   * hierarchy, plus freshly created users that are not yet assigned to
+   * any department / reporting senior (so they can complete onboarding).
+   */
+  async assertCanManageUser(actor: any, targetUserId: string) {
+    if (!actor || this.isAdminActor(actor)) return;
+
+    const actorId = (actor._id || actor.userId)?.toString();
+    if (actorId === targetUserId) return;
+
+    const targetProfile = await this.profileData.findByUserId(targetUserId);
+    if (!targetProfile || (!targetProfile.departmentId && !targetProfile.reportingSeniorId)) {
+      return;
+    }
+
+    const visible = await this.getUsersUnder(actor, 'all').catch(() => []);
+    const allowed = (visible as any[]).some(
+      (u) => u?._id?.toString() === targetUserId,
+    );
+    if (!allowed) {
+      throw new ForbiddenException('You can only manage users in your team');
+    }
+  }
+
   async changeStatus(userId: string, status: string) {
     const user = await this.userData.updateStatus(userId, status);
     if (!user) {
@@ -402,7 +436,9 @@ export class UserLogic {
   async toggleDashboard(
     userId: string,
     dto: ToggleDashboardDto,
+    actor?: any,
   ) {
+    await this.assertCanManageUser(actor, userId);
 
     const user = await this.userData.findById(userId);
     if (!user) {
@@ -423,21 +459,46 @@ export class UserLogic {
     const poolIds = dto.poolIds?.length
       ? dto.poolIds.map((id) => new Types.ObjectId(id))
       : [];
-    // 2️⃣ Create profile with admin-provided data
-    await this.profileLogic.createProfile({
+    // 2️⃣ Create profile with admin-provided data.
+    // The employee may already have a profile from the onboarding link –
+    // in that case merge admin data into it instead of creating a duplicate.
+    const profilePayload: any = {
       userId,
-      departmentId: new Types.ObjectId(dto.departmentId),
-      reportingSeniorId: new Types.ObjectId(dto.reportingSeniorId),
+      departmentId: dto.departmentId ? new Types.ObjectId(dto.departmentId) : undefined,
+      reportingSeniorId: dto.reportingSeniorId ? new Types.ObjectId(dto.reportingSeniorId) : undefined,
       education: dto.education,
       salary: dto.salary,
       extraAccessControls: dto.extraAccessControls,
       profileImage: dto.profileImage,
-      address:dto.address,
-      bankDetails:dto.bankDetails,
-      educationalDetails:dto.educationalDetails,
-      documents:dto.documents,
-      poolIds
-    });
+      address: dto.address,
+      bankDetails: dto.bankDetails,
+      educationalDetails: dto.educationalDetails,
+      documents: dto.documents,
+      personalDetails: dto.personalDetails,
+      poolIds,
+    };
+    Object.keys(profilePayload).forEach(
+      (key) => profilePayload[key] === undefined && delete profilePayload[key],
+    );
+
+    const existingProfile = await this.profileData.findByUserId(userId);
+    if (existingProfile) {
+      // keep employee-entered values when admin left a section empty
+      for (const key of ['address', 'bankDetails', 'documents', 'personalDetails']) {
+        if (profilePayload[key] && !Object.values(profilePayload[key]).some((v: any) => (Array.isArray(v) ? v.length : v))) {
+          delete profilePayload[key];
+        }
+      }
+      if (Array.isArray(profilePayload.educationalDetails) && !profilePayload.educationalDetails.length) {
+        delete profilePayload.educationalDetails;
+      }
+      if (!profilePayload.profileImage) delete profilePayload.profileImage;
+      if (!profilePayload.education) delete profilePayload.education;
+      delete profilePayload.userId;
+      await this.profileData.updateByUserId(userId, profilePayload);
+    } else {
+      await this.profileLogic.createProfile(profilePayload);
+    }
     await this.emailService.dashboardUpdate(user.email, user.employeeId);
     return {
       message: 'Dashboard enabled and profile created successfully',
@@ -483,7 +544,9 @@ export class UserLogic {
   async updateUserAndProfile(
     userId: string,
     dto: ChangeUserDto,
+    actor?: any,
   ) {
+    await this.assertCanManageUser(actor, userId);
     const user = await this.userData.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
@@ -538,6 +601,9 @@ export class UserLogic {
 
     if (dto.documents)
       profilePayload.documents = dto.documents;
+
+    if (dto.personalDetails)
+      profilePayload.personalDetails = dto.personalDetails;
 
     let profile = await this.profileData.findByUserId(
       userId,

@@ -1,3 +1,4 @@
+import { containsRegex, buildDateCondition } from 'src/common/utils/filter.util';
 import {
   BadRequestException,
   ForbiddenException,
@@ -589,17 +590,26 @@ export class OrderService {
     /* ================= COUNSELLOR FILTER ================= */
 
     if (counsellorId) {
-      query.counsellorId = counsellorId;
+      const wanted = String(counsellorId);
+      if (accessibleUserIds.length) {
+        // team mode: only counsellors inside the user's team
+        query.counsellorId = accessibleUserIds.includes(wanted) ? wanted : { $in: [] };
+      } else if (user.roleName === 'bd') {
+        // own orders only
+        query.counsellorId = wanted === String(user.userId) ? wanted : { $in: [] };
+      } else {
+        query.counsellorId = wanted;
+      }
     }
 
     /* ================= SEARCH ================= */
 
     if (search) {
       query.$or = [
-        { studentName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } },
+        { studentName: containsRegex(search) },
+        { email: containsRegex(search) },
+        { phone: containsRegex(search) },
+        { mobile: containsRegex(search) },
       ];
     }
 
@@ -614,115 +624,9 @@ export class OrderService {
     if (status) query.status = status;
 
     /* ================= DATE FILTER ================= */
-
-    const now = new Date();
-
-if (dateFilter) {
-  const filter = String(dateFilter).toLowerCase();
-
-  if (filter === 'today') {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-
-    query.orderDate = {
-      $gte: start,
-      $lte: end,
-    };
-  }
-
-  else if (filter === 'week') {
-    // Last 7 days - same rolling logic
-    // used by the Leads API
-    const start = new Date();
-    start.setDate(start.getDate() - 7);
-
-    const end = new Date();
-
-    query.orderDate = {
-      $gte: start,
-      $lte: end,
-    };
-  }
-
-  else if (filter === 'month') {
-    // Current calendar month
-    const start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    const end = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
-
-    query.orderDate = {
-      $gte: start,
-      $lte: end,
-    };
-  }
-
-  else if (filter === 'year') {
-    // Current calendar year
-    const start = new Date(
-      now.getFullYear(),
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    const end = new Date(
-      now.getFullYear(),
-      11,
-      31,
-      23,
-      59,
-      59,
-      999,
-    );
-
-    query.orderDate = {
-      $gte: start,
-      $lte: end,
-    };
-  }
-}
-
-/* ================= CUSTOM DATE ================= */
-
-if (fromDate && toDate) {
-  const from = new Date(fromDate);
-  const to = new Date(toDate);
-
-  if (
-    !Number.isNaN(from.getTime()) &&
-    !Number.isNaN(to.getTime())
-  ) {
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
-
-    query.orderDate = {
-      $gte: from,
-      $lte: to,
-    };
-  }
-}
+    // preset (today/week/month/year) or custom range; "to" is inclusive
+    const orderDateCond = buildDateCondition(dateFilter, fromDate, toDate);
+    if (orderDateCond) query.orderDate = orderDateCond;
 
     /* ================= PAGINATION ================= */
 
@@ -8227,7 +8131,7 @@ async sourceCampaignWiseLeadRevenueReport(query: any) {
     };
 
     if (query.state) {
-      leadMatch.state = { $regex: query.state, $options: 'i' };
+      leadMatch.state = containsRegex(query.state);
     }
 
     const leads = await this.leadModel
@@ -10420,7 +10324,14 @@ return {
     /* ================= COUNSELLOR FILTER ================= */
 
     if (counsellorId) {
-      filter.couselorId = counsellorId;
+      const wanted = String(counsellorId);
+      if (accessibleUserIds.length) {
+        filter.couselorId = accessibleUserIds.includes(wanted) ? wanted : { $in: [] };
+      } else if (user.roleName === 'bd') {
+        filter.couselorId = wanted === String(user.userId) ? wanted : { $in: [] };
+      } else {
+        filter.couselorId = wanted;
+      }
     }
 
     /* ================= LOAN PARTNER FILTER ================= */
@@ -10433,9 +10344,9 @@ return {
 
     if (search) {
       filter.$or = [
-        { learnerName: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } },
-        { counselorName: { $regex: search, $options: 'i' } },
+        { learnerName: containsRegex(search) },
+        { mobile: containsRegex(search) },
+        { counselorName: containsRegex(search) },
       ];
     }
 
@@ -10445,44 +10356,8 @@ return {
     if (status) filter.status = status;
 
     /* ================= DATE FILTER ================= */
-
-    if (dateFilter) {
-      let start: Date | null = null;
-      let end: Date = new Date();
-
-      if (dateFilter === 'today') {
-        start = new Date();
-        start.setHours(0, 0, 0, 0);
-      }
-      else if (dateFilter === 'week') {
-        start = new Date();
-        start.setDate(start.getDate() - 7);
-      }
-      else if (dateFilter === 'month') {
-        start = new Date();
-        start.setMonth(start.getMonth() - 1);
-      }
-      else if (dateFilter === 'year') {
-        start = new Date();
-        start.setFullYear(start.getFullYear() - 1);
-      }
-
-      if (start) {
-        filter.createdAt = {
-          $gte: start,
-          $lte: end,
-        };
-      }
-    }
-
-    /* ================= CUSTOM DATE ================= */
-
-    if (fromDate && toDate) {
-      filter.createdAt = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
+    const createdCond = buildDateCondition(dateFilter, fromDate, toDate);
+    if (createdCond) filter.createdAt = createdCond;
 
     /* ================= PAGINATION ================= */
 

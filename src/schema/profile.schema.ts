@@ -81,6 +81,21 @@ class Documents {
   educationalCertificates?: string[];
 }
 
+@Schema({ _id: false })
+class PersonalDetails {
+  @Prop()
+  dateOfBirth?: string; // YYYY-MM-DD
+
+  @Prop()
+  gender?: string;
+
+  @Prop()
+  aadhaarNumber?: string;
+
+  @Prop()
+  panNumber?: string;
+}
+
 @Schema({ timestamps: true })
 export class Profile extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
@@ -121,6 +136,9 @@ export class Profile extends Document {
     module: string;
     actions: string[];
   }[];
+
+  @Prop({ type: PersonalDetails, default: {} })
+  personalDetails?: PersonalDetails;
 
   @Prop({ type: Address, default: {} })
   address?: Address;

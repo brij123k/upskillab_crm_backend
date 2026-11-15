@@ -1,5 +1,6 @@
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { buildDateCondition, containsRegex, parsePagination } from 'src/common/utils/filter.util';
 import { CallLogData } from 'src/api/call-logs/call-log.data';
 import { UserLogic } from 'src/api/user/user.logic';
 import { Lead } from 'src/schema/lead_management/lead.schema';
@@ -34,7 +35,15 @@ export class LeadData {
   }
 
 
-  async findAllWithFilters(filters: any) {
+  /**
+   * Builds the lead list query. Every filter group is ANDed together so
+   * combining filters always narrows results. `access` (team/pool scope for
+   * non-admins) is its own $and clause so search/location can never widen it.
+   */
+  private async buildLeadListQuery(
+    filters: any,
+    access?: { userIds: string[]; pool?: string },
+  ) {
     const {
       search,
       bulkSearch,
@@ -56,350 +65,121 @@ export class LeadData {
       assignedDateFilter,
       assignedDateFrom,
       assignedDateTo,
-      sort = 'new',
-      page = 1,
-      limit = 10,
     } = filters;
 
-    const query: any = {};
-   if (bulkSearch) {
-  const values = bulkSearch
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean);
+    const and: any[] = [];
+    const toId = (id: any) =>
+      Types.ObjectId.isValid(String(id)) ? new Types.ObjectId(String(id)) : id;
 
-  const leadIds = values
-    .filter((v) => !isNaN(Number(v)))
-    .map(Number);
+    /**
+     * assignedTo may be stored as an ObjectId (current schema) or as a plain
+     * string (older data). Mongoose casts query values to ObjectId, which never
+     * matches string-stored ids – so match both forms explicitly. The string
+     * branch uses $expr, which Mongoose does not cast.
+     */
+    const assignedToIn = (ids: any[]) => {
+      const strings = ids.map((id) => String(id));
+      return {
+        $or: [
+          { assignedTo: { $in: ids.map(toId) } },
+          {
+            $and: [
+              { assignedTo: { $type: 'string' } },
+              { $expr: { $in: ['$assignedTo', strings] } },
+            ],
+          },
+        ],
+      };
+    };
 
-  query.$or = [
-    { leadId: { $in: leadIds } },
-    { phone: { $in: values } },
-  ];
-}
-    const sourceCampaign = source_campaign ?? source_compain;
+    // 🔐 access scope
+    if (access) {
+      and.push(
+        access.pool
+          ? { $or: [assignedToIn(access.userIds), { poolId: toId(access.pool) }] }
+          : assignedToIn(access.userIds),
+      );
+    }
 
-    if (search) {
+    // 📋 bulk search (comma separated lead ids / phones)
+    if (bulkSearch) {
+      const values = String(bulkSearch).split(',').map((v) => v.trim()).filter(Boolean);
+      const leadIds = values.filter((v) => !isNaN(Number(v))).map(Number);
+      and.push({ $or: [{ leadId: { $in: leadIds } }, { phone: { $in: values } }] });
+    }
+
+    // 🔍 search
+    if (search && String(search).trim()) {
+      const term = String(search).trim();
+      const rx = containsRegex(term);
       const searchConditions: any[] = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
-        { state: { $regex: search, $options: 'i' } },
+        { name: rx },
+        { phone: rx },
+        { email: rx },
+        { address: rx },
+        { city: rx },
+        { state: rx },
       ];
-
-      // 🔢 employeeId lives in assignedTo (User collection)
-      if (!isNaN(Number(search))) {
-        searchConditions.push({ leadId: Number(search) });
-        const users = await this.userLogic.findbyEmpId(Number(search));
-        const userIds = users.map((u) => u._id.toString());
-
-        if (userIds.length) {
-          searchConditions.push({ assignedTo: { $in: userIds } });
+      if (!isNaN(Number(term))) {
+        searchConditions.push({ leadId: Number(term) });
+        const users = await this.userLogic.findbyEmpId(Number(term));
+        let empUserIds = users.map((u: any) => u._id.toString());
+        if (access) empUserIds = empUserIds.filter((id: string) => access.userIds.includes(id));
+        if (empUserIds.length) {
+          searchConditions.push(assignedToIn(empUserIds));
         }
       }
-
-      query.$or = searchConditions;
+      and.push({ $or: searchConditions });
     }
 
-    if (status) query.status = status;
-    if (source) query.source = source;
-    if (stageId) query.stageId = new Types.ObjectId(stageId);
-    if (poolId) query.poolId = new Types.ObjectId(poolId);
-    if (assignedTo) query.assignedTo = assignedTo;
-    if (modifiedBy) query.modifiedBy = modifiedBy;
-    if (isActive !== undefined)
-      query.isActive = isActive === 'true';
+    // 🎯 basic filters
+    // multi-select filters: single value, CSV or array → $in
+    const list = (v: any): any[] =>
+      v === undefined || v === null || v === ''
+        ? []
+        : (Array.isArray(v) ? v : String(v).split(',')).map((x: any) => String(x).trim()).filter(Boolean);
+    const statuses = list(status);
+    const sources = list(source);
+    const stageIds = list(stageId);
+    const poolIds = list(poolId);
+    const assignees = list(assignedTo);
+    if (statuses.length) and.push({ status: { $in: statuses } });
+    if (sources.length) and.push({ source: { $in: sources } });
+    if (stageIds.length) and.push({ stageId: { $in: stageIds.map(toId) } });
+    if (poolIds.length) and.push({ poolId: { $in: poolIds.map(toId) } });
+    if (assignees.length) and.push(assignedToIn(assignees));
+    if (modifiedBy) and.push({ modifiedBy: toId(modifiedBy) });
+    if (isActive !== undefined && isActive !== '') {
+      and.push({ isActive: isActive === true || isActive === 'true' });
+    }
 
-    // 🏙️ LOCATION FILTERS
-    if (city) query.city = { $regex: city, $options: 'i' };
-    if (state) query.state = { $regex: state, $options: 'i' };
+    // 🏙️ location
+    if (city) and.push({ city: containsRegex(city) });
+    if (state) and.push({ state: containsRegex(state) });
     if (location) {
-      query.$or = query.$or || [];
-      query.$or.push(
-        { city: { $regex: location, $options: 'i' } },
-        { state: { $regex: location, $options: 'i' } },
-      );
-    }
-    if (sourceCampaign) {
-      query.$or = query.$or || [];
-      query.$or.push(
-        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
-      );
+      and.push({ $or: [{ city: containsRegex(location) }, { state: containsRegex(location) }] });
     }
 
-   // 📅 DATE FILTERS
-const now = new Date();
+    // 📣 source campaign
+    const sourceCampaign = source_campaign ?? source_compain;
+    if (sourceCampaign) and.push({ source_campaign: containsRegex(sourceCampaign) });
 
-if (dateFilter) {
-  let start: Date | null = null;
-  let end: Date | null = null;
+    // 📅 dates (custom range overrides preset; "to" is inclusive)
+    const created = buildDateCondition(dateFilter, fromDate, toDate);
+    if (created) and.push({ createdAt: created });
+    const assigned = buildDateCondition(assignedDateFilter, assignedDateFrom, assignedDateTo);
+    if (assigned) and.push({ assignedDate: assigned });
 
-  if (dateFilter === 'today') {
-    // Today: 00:00:00 → 23:59:59.999
-    start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-
-    end = new Date(now);
-    end.setHours(23, 59, 59, 999);
+    return and.length ? { $and: and } : {};
   }
 
-  else if (dateFilter === 'week') {
-    // Rolling last 7 days
-    start = new Date(now);
-    start.setDate(start.getDate() - 7);
-
-    end = new Date(now);
-    end.setHours(23, 59, 59, 999);
-  }
-
-  else if (dateFilter === 'month') {
-    // Current calendar month
-    start = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    end = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (dateFilter === 'year') {
-    // Current calendar year
-    start = new Date(
-      now.getFullYear(),
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    end = new Date(
-      now.getFullYear(),
-      11,
-      31,
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  if (start) {
-    query.createdAt = {
-      $gte: start,
-    };
-
-    if (end) {
-      query.createdAt.$lte = end;
-    }
-  }
-}
-
-
-// =========================================================
-// 📅 ASSIGNED DATE FILTER
-// =========================================================
-
-if (assignedDateFilter) {
-  let assignedDatestart: Date | null = null;
-  let assignedDateEnd: Date | null = null;
-
-  if (assignedDateFilter === 'today') {
-    // Today: 00:00:00 → 23:59:59.999
-    assignedDatestart = new Date(now);
-    assignedDatestart.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
-
-    assignedDateEnd = new Date(now);
-    assignedDateEnd.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (assignedDateFilter === 'week') {
-    // Rolling last 7 days
-    assignedDatestart = new Date(now);
-    assignedDatestart.setDate(
-      assignedDatestart.getDate() - 7,
-    );
-
-    assignedDateEnd = new Date(now);
-    assignedDateEnd.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (assignedDateFilter === 'month') {
-    // Current calendar month
-    assignedDatestart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    assignedDateEnd = new Date(
-      now.getFullYear(),
-      now.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  else if (assignedDateFilter === 'year') {
-    // Current calendar year
-    assignedDatestart = new Date(
-      now.getFullYear(),
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
-    assignedDateEnd = new Date(
-      now.getFullYear(),
-      11,
-      31,
-      23,
-      59,
-      59,
-      999,
-    );
-  }
-
-  if (assignedDatestart) {
-    query.assignedDate = {
-      $gte: assignedDatestart,
-    };
-
-    if (assignedDateEnd) {
-      query.assignedDate.$lte =
-        assignedDateEnd;
-    }
-  }
-}
-
-
-// =========================================================
-// 📅 CUSTOM CREATED DATE RANGE
-// Custom range overrides dateFilter
-// =========================================================
-
-if (fromDate || toDate) {
-  query.createdAt = {};
-
-  if (fromDate) {
-    const from = new Date(fromDate);
-
-    from.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
-
-    query.createdAt.$gte = from;
-  }
-
-  if (toDate) {
-    const to = new Date(toDate);
-
-    to.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-
-    query.createdAt.$lte = to;
-  }
-}
-
-
-// =========================================================
-// 📅 CUSTOM ASSIGNED DATE RANGE
-// Custom range overrides assignedDateFilter
-// =========================================================
-
-if (
-  assignedDateFrom ||
-  assignedDateTo
-) {
-  query.assignedDate = {};
-
-  if (assignedDateFrom) {
-    const assignedFrom =
-      new Date(
-        assignedDateFrom,
-      );
-
-    assignedFrom.setHours(
-      0,
-      0,
-      0,
-      0,
-    );
-
-    query.assignedDate.$gte =
-      assignedFrom;
-  }
-
-  if (assignedDateTo) {
-    const assignedTo =
-      new Date(
-        assignedDateTo,
-      );
-
-    assignedTo.setHours(
-      23,
-      59,
-      59,
-      999,
-    );
-
-    query.assignedDate.$lte =
-      assignedTo;
-  }
-}
+  async findAllWithFilters(filters: any) {
+    const { sort = 'new' } = filters;
+    const { page, limit, skip } = parsePagination(filters.page, filters.limit);
+    const query: any = await this.buildLeadListQuery(filters);
 
     // 📊 SORTING
     const sortOrder = sort === 'old' ? 1 : -1;
-    // 📄 PAGINATION
-    const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
       this.leadModel
@@ -467,163 +247,20 @@ const leadsWithCallInfo = data.map((lead: any) => {
   }
 
   async findAllWithFiltersUserIds(filters: any, userIds: string[], pool?: string,) {
-    const {
-      search,
-      bulkSearch,
-      status,
-      source,
-      source_compain,
-      source_campaign,
-      stageId,
-      poolId,
-      assignedTo,
-      modifiedBy,
-      isActive,
-      dateFilter,
-      fromDate,
-      toDate,
-      city,
-      state,
-      location,
-      assignedDateFilter,
-      assignedDateFrom,
-      assignedDateTo,
-      connected,
-      scheduler,
-      sort = 'new',
-      page = 1,
-      limit = 10,
-    } = filters;
+    const { connected, scheduler, sort = 'new' } = filters;
+    const { page, limit, skip } = parsePagination(filters.page, filters.limit);
 
-    // 🔐 Base query (access control)
-    const query: any = {};
-    if (bulkSearch) {
-  const values = bulkSearch
-    .split(',')
-    .map((v) => v.trim())
-    .filter(Boolean);
-
-  const leadIds = values
-    .filter((v) => !isNaN(Number(v)))
-    .map(Number);
-
-  query.$or = [
-    { leadId: { $in: leadIds } },
-    { phone: { $in: values } },
-  ];
-}
-    const sourceCampaign = source_campaign ?? source_compain;
-
-    if (pool) {
-      query.$or = [
-        { assignedTo: { $in: userIds } },
-        { poolId: pool },
-      ];
-    } else {
-      query.assignedTo = { $in: userIds };
-    }
-
-    /* ================= SEARCH ================= */
-    if (search) {
-      const searchConditions: any[] = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
-        { state: { $regex: search, $options: 'i' } },
-      ];
-      if (!isNaN(Number(search))) {
-        searchConditions.push({ leadId: Number(search) });
-        const users = await this.userLogic.findbyEmpId(Number(search));
-        const empUserIds = users.map((u) => u._id.toString());
-        const allowedIds = empUserIds.filter((id) => userIds.includes(id));
-
-        if (allowedIds.length) {
-          searchConditions.push({ assignedTo: { $in: allowedIds } });
-        }
-      }
-
-      query.$or = searchConditions;
-    }
-
-    /* ================= BASIC FILTERS ================= */
-    if (assignedTo) {
-      query.$and = query.$and || [];
-      query.$and.push({ assignedTo });
-    };
-    if (status) query.status = status;
-    if (source) query.source = source;
-    if (stageId) query.stageId = new Types.ObjectId(stageId);
-    if (poolId) query.poolId = new Types.ObjectId(poolId);
-    if (modifiedBy) query.modifiedBy = modifiedBy;
-    if (isActive !== undefined) query.isActive = isActive === 'true';
-
-    // 🏙️ LOCATION FILTERS
-    if (city) query.city = { $regex: city, $options: 'i' };
-    if (state) query.state = { $regex: state, $options: 'i' };
-    if (location) {
-      query.$or = query.$or || [];
-      query.$or.push(
-        { city: { $regex: location, $options: 'i' } },
-        { state: { $regex: location, $options: 'i' } },
-      );
-    }
-    if (sourceCampaign) {
-      query.$or = query.$or || [];
-      query.$or.push(
-        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
-      );
-    }
-
-    const now = new Date();
-
-    if (dateFilter) {
-      let start: Date | null = null;
-
-      if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
-      else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
-      else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
-      else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
-
-      if (start) query.createdAt = { $gte: start };
-    }
-
-    if (assignedDateFilter) {
-      let assignedDatestart: Date | null = null;
-
-      if (assignedDateFilter === 'today') assignedDatestart = new Date(now.setHours(0, 0, 0, 0));
-      else if (assignedDateFilter === 'week') assignedDatestart = new Date(now.setDate(now.getDate() - 7));
-      else if (assignedDateFilter === 'month') assignedDatestart = new Date(now.setMonth(now.getMonth() - 1));
-      else if (assignedDateFilter === 'year') assignedDatestart = new Date(now.setFullYear(now.getFullYear() - 1));
-
-      if (assignedDatestart) query.assignedDate = { $gte: assignedDatestart };
-    }
-
-
-    if (fromDate && toDate) {
-      query.createdAt = {
-        $gte: new Date(fromDate),
-        $lte: new Date(toDate),
-      };
-    }
-
-    // 📅 ASSIGNED DATE RANGE
-    if (assignedDateFrom || assignedDateTo) {
-      query.assignedDate = {};
-      if (assignedDateFrom) query.assignedDate.$gte = new Date(assignedDateFrom);
-      if (assignedDateTo) query.assignedDate.$lte = new Date(assignedDateTo);
-    }
+    // 🔐 access scope + all filters, ANDed together
+    const query: any = await this.buildLeadListQuery(filters, { userIds, pool });
 
     /* ================= DERIVED FILTERS ================= */
 
     // Step 1: get all leadIds matching base query (before connected/scheduler)
-    let baseLeadIds = await this.leadModel
-      .find(query)
-      .select('leadId')
-      .lean();
-
-    let filteredLeadIds = baseLeadIds.map((l) => l.leadId);
+    // Only needed for the derived filters – skip the full scan otherwise.
+    const needsDerived = connected !== undefined || scheduler !== undefined;
+    let filteredLeadIds: number[] = needsDerived
+      ? (await this.leadModel.find(query).select('leadId').lean()).map((l: any) => l.leadId)
+      : [];
 
     // 🔌 CONNECTED FILTER
     if (connected !== undefined) {
@@ -656,11 +293,10 @@ const leadsWithCallInfo = data.map((lead: any) => {
 
     // Apply final leadId filter
     if (connected !== undefined || scheduler !== undefined) {
-      query.leadId = filteredLeadIds.length ? { $in: filteredLeadIds } : [-1];
+      query.leadId = { $in: filteredLeadIds };
     }
 
     /* ================= PAGINATION ================= */
-    const skip = (page - 1) * limit;
     const sortOrder = sort === 'old' ? 1 : -1;
 
     const [data, total] = await Promise.all([
@@ -769,11 +405,11 @@ async findOne(filters: any) {
     // 🔍 SEARCH
     if (search) {
       const searchConditions: any[] = [
-        { name: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
-        { state: { $regex: search, $options: 'i' } },
+        { name: containsRegex(search) },
+        { phone: containsRegex(search) },
+        { email: containsRegex(search) },
+        { city: containsRegex(search) },
+        { state: containsRegex(search) },
       ];
       // ✅ Add leadId search
       if (!isNaN(Number(search))) {
@@ -795,19 +431,19 @@ async findOne(filters: any) {
       query.isActive = isActive === 'true';
 
     // 🏙️ LOCATION FILTERS
-    if (city) query.city = { $regex: city, $options: 'i' };
-    if (state) query.state = { $regex: state, $options: 'i' };
+    if (city) query.city = containsRegex(city);
+    if (state) query.state = containsRegex(state);
     if (location) {
       query.$or = query.$or || [];
       query.$or.push(
-        { city: { $regex: location, $options: 'i' } },
-        { state: { $regex: location, $options: 'i' } },
+        { city: containsRegex(location) },
+        { state: containsRegex(location) },
       );
     }
     if (sourceCampaign) {
       query.$or = query.$or || [];
       query.$or.push(
-        { source_campaign: { $regex: sourceCampaign, $options: 'i' } }
+        { source_campaign: containsRegex(sourceCampaign) }
       );
     }
 

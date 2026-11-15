@@ -1,11 +1,25 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  IsArray,
   IsEnum,
   IsMongoId,
   IsOptional,
   IsString,
   IsBooleanString,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
+
+/**
+ * Multi-select filters accept a single value, a comma-separated list
+ * (`?status=a,b`) or repeated params (`?status=a&status=b`).
+ * Always normalised to a de-duplicated string array.
+ */
+const toList = ({ value }: { value: unknown }) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const raw = Array.isArray(value) ? value : String(value).split(',');
+  const list = Array.from(new Set(raw.map((v) => String(v).trim()).filter((v) => v && v !== 'all')));
+  return list.length ? list : undefined;
+};
 import { LeadSource, LeadStatus } from 'src/schema/lead_management/lead.schema';
 
 export class LeadFilterDto {
@@ -19,15 +33,19 @@ export class LeadFilterDto {
   @IsString()
 bulkSearch?: string;
 
-  @ApiPropertyOptional({ enum: LeadStatus })
+  @ApiPropertyOptional({ enum: LeadStatus, isArray: true, description: 'One or more, comma separated' })
   @IsOptional()
-  @IsEnum(LeadStatus)
-  status?: LeadStatus;
+  @Transform(toList)
+  @IsArray()
+  @IsEnum(LeadStatus, { each: true })
+  status?: LeadStatus[];
 
-  @ApiPropertyOptional({ enum: LeadSource })
+  @ApiPropertyOptional({ enum: LeadSource, isArray: true, description: 'One or more, comma separated' })
   @IsOptional()
-  @IsEnum(LeadSource)
-  source?: LeadSource;
+  @Transform(toList)
+  @IsArray()
+  @IsEnum(LeadSource, { each: true })
+  source?: LeadSource[];
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -39,20 +57,26 @@ bulkSearch?: string;
   @IsMongoId()
   departmentId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: [String], description: 'One or more ids, comma separated' })
   @IsOptional()
-  @IsMongoId()
-  stageId?: string;
+  @Transform(toList)
+  @IsArray()
+  @IsMongoId({ each: true })
+  stageId?: string[];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: [String], description: 'One or more ids, comma separated' })
   @IsOptional()
-  @IsMongoId()
-  poolId?: string;
+  @Transform(toList)
+  @IsArray()
+  @IsMongoId({ each: true })
+  poolId?: string[];
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ type: [String], description: 'One or more ids, comma separated' })
   @IsOptional()
-  @IsMongoId()
-  assignedTo?: string;
+  @Transform(toList)
+  @IsArray()
+  @IsMongoId({ each: true })
+  assignedTo?: string[];
 
   @ApiPropertyOptional()
   @IsOptional()

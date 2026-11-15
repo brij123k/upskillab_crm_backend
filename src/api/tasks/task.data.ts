@@ -1,3 +1,4 @@
+import { buildDateCondition, containsRegex } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Task } from 'src/schema/task.schema';
@@ -46,66 +47,19 @@ async findAll(filters: any = {}) {
   if (filters.status) query.status = filters.status;
   if (filters.reletedLeadId) query.reletedLeadIds = Number(filters.reletedLeadId);
 
-  // 🔥 FIXED: dueDate filter
-  if (filters.fromDate || filters.toDate) {
-    query.dueDate = {};
-
-    if (filters.fromDate && filters.toDate) {
-      const from = new Date(filters.fromDate);
-      const to = new Date(filters.toDate);
-
-      // ✅ Same date → full day range
-      if (from.toDateString() === to.toDateString()) {
-        from.setHours(0, 0, 0, 0);
-        to.setHours(23, 59, 59, 999);
-      }
-
-      query.dueDate.$gte = from;
-      query.dueDate.$lte = to;
-    } else {
-      if (filters.fromDate) {
-        const from = new Date(filters.fromDate);
-        from.setHours(0, 0, 0, 0);
-        query.dueDate.$gte = from;
-      }
-
-      if (filters.toDate) {
-        const to = new Date(filters.toDate);
-        to.setHours(23, 59, 59, 999);
-        query.dueDate.$lte = to;
-      }
-    }
+  // 🔍 search title / description
+  if (filters.search && String(filters.search).trim()) {
+    query.$or = [
+      { title: containsRegex(filters.search) },
+      { description: containsRegex(filters.search) },
+    ];
   }
 
-  // 🔥 SAME FIX for createdAt
-  if (filters.createdFromDate || filters.createdToDate) {
-    query.createdAt = {};
-
-    if (filters.createdFromDate && filters.createdToDate) {
-      const from = new Date(filters.createdFromDate);
-      const to = new Date(filters.createdToDate);
-
-      if (from.toDateString() === to.toDateString()) {
-        from.setHours(0, 0, 0, 0);
-        to.setHours(23, 59, 59, 999);
-      }
-
-      query.createdAt.$gte = from;
-      query.createdAt.$lte = to;
-    } else {
-      if (filters.createdFromDate) {
-        const from = new Date(filters.createdFromDate);
-        from.setHours(0, 0, 0, 0);
-        query.createdAt.$gte = from;
-      }
-
-      if (filters.createdToDate) {
-        const to = new Date(filters.createdToDate);
-        to.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = to;
-      }
-    }
-  }
+  // 📅 due date & created date ranges ("to" is inclusive, either side optional)
+  const due = buildDateCondition(undefined, filters.fromDate, filters.toDate);
+  if (due) query.dueDate = due;
+  const created = buildDateCondition(undefined, filters.createdFromDate, filters.createdToDate);
+  if (created) query.createdAt = created;
 
   // Pagination
   const page = Number(filters.page) || 1;

@@ -1,8 +1,6 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
-  NotFoundException,
   OnModuleInit,
   Logger,
 } from '@nestjs/common';
@@ -18,15 +16,28 @@ import {
   UpdateEnrolledStageDto,
 } from 'src/dto/enrolled_leads/enrolled-lead.dto';
 
-const DEFAULT_STAGES = [
-  { name: DEFAULT_ENROLLED_STAGE, color: '#f97316', isDefault: true },
-  { name: 'Called', color: '#3b82f6' },
-  { name: 'WhatsApp Sent', color: '#22c55e' },
-  { name: 'Follow Up', color: '#eab308' },
-  { name: 'Not Reachable', color: '#94a3b8' },
-  { name: 'Interested', color: '#8b5cf6' },
-  { name: 'Not Interested', color: '#ef4444' },
-  { name: 'Completed', color: '#0d9488' },
+/**
+ * Fixed (static) enrolled-lead stages: "Enrolled" for new students plus the
+ * learner feedback outcomes. Synced on every start – any other stage is
+ * deactivated and its students are moved back to "Enrolled".
+ */
+export const STATIC_ENROLLED_STAGES: { name: string; color: string; description: string; isDefault?: boolean }[] = [
+  { name: DEFAULT_ENROLLED_STAGE, color: '#f97316', description: 'Newly enrolled student – no feedback recorded yet.', isDefault: true },
+  { name: 'Learner Satisfied', color: '#16a34a', description: 'Happy with the overall experience.' },
+  { name: 'Learner Partially Satisfied', color: '#84cc16', description: 'Has some concerns but is generally satisfied.' },
+  { name: 'Learner Dissatisfied', color: '#dc2626', description: 'Not satisfied with the experience.' },
+  { name: 'Issue Resolved', color: '#0d9488', description: 'Previously reported issue has been resolved.' },
+  { name: 'Issue Pending', color: '#f59e0b', description: 'Issue reported and resolution is awaited.' },
+  { name: 'Follow-up Required', color: '#3b82f6', description: 'Further communication is needed.' },
+  { name: 'Escalation Required', color: '#b91c1c', description: 'Requires intervention from management.' },
+  { name: 'Callback Scheduled', color: '#8b5cf6', description: 'Learner has requested another call.' },
+  { name: 'No Further Action Required', color: '#64748b', description: 'Feedback collected and no pending concerns.' },
+  { name: 'Course / Academic Support Required', color: '#0ea5e9', description: 'Requires academic assistance.' },
+  { name: 'Placement Support Required', color: '#6366f1', description: 'Requires training or placement assistance.' },
+  { name: 'Fee / Payment Support Required', color: '#d97706', description: 'Requires assistance regarding fees or payments.' },
+  { name: 'Learner Considering Discontinuation', color: '#e11d48', description: 'Retention intervention required.' },
+  { name: 'Feedback Not Received', color: '#94a3b8', description: 'Learner declined to share feedback.' },
+  { name: 'Others', color: '#475569', description: 'Any other outcome.' },
 ];
 
 /** Stages used for enrolled leads (separate from sales lead stages). */
@@ -51,16 +62,51 @@ export class EnrolledLeadStageService implements OnModuleInit {
     }
   }
 
-  /** Creates the default stages once (when there are none). */
+  /**
+   * Makes the stage collection match STATIC_ENROLLED_STAGES exactly:
+   * upserts each fixed stage (order, colour, description, active),
+   * deactivates every other stage and moves its students to "Enrolled".
+   */
   async ensureDefaults() {
-    if ((await this.stageModel.estimatedDocumentCount()) > 0) return;
-    await this.stageModel.insertMany(
-      DEFAULT_STAGES.map((stage, index) => ({
-        isDefault: false,
-        ...stage,
-        order: index + 1,
-      })),
-      { ordered: false },
+    const keepIds: Types.ObjectId[] = [];
+    let defaultStage: any = null;
+
+    for (const [index, def] of STATIC_ENROLLED_STAGES.entries()) {
+      const stage = await this.stageModel.findOneAndUpdate(
+        { name: new RegExp(`^${escapeRegex(def.name)}$`, 'i') },
+        {
+          $set: {
+            name: def.name,
+            order: index,
+            color: def.color,
+            description: def.description,
+            isActive: true,
+            isDefault: !!def.isDefault,
+          },
+        },
+        { upsert: true, new: true },
+      );
+      keepIds.push(stage._id as Types.ObjectId);
+      if (def.isDefault) defaultStage = stage;
+    }
+
+    const removed = await this.stageModel
+      .find({ _id: { $nin: keepIds }, $or: [{ isActive: true }, { isDefault: true }] })
+      .select('_id name')
+      .lean();
+    if (!removed.length) return;
+
+    const removedIds = removed.map((r) => r._id);
+    await this.stageModel.updateMany(
+      { _id: { $in: removedIds } },
+      { $set: { isActive: false, isDefault: false } },
+    );
+    const moved = await this.leadModel.updateMany(
+      { stageId: { $in: removedIds } },
+      { $set: { stageId: defaultStage._id, stageName: defaultStage.name } },
+    );
+    this.logger.log(
+      `Enrolled stages synced: deactivated ${removed.map((r) => r.name).join(', ')}; moved ${moved.modifiedCount} students to "${defaultStage.name}"`,
     );
   }
 
@@ -100,65 +146,14 @@ export class EnrolledLeadStageService implements OnModuleInit {
     return stage;
   }
 
-  async create(dto: EnrolledStageDto) {
-    const name = dto.name.trim();
-    if (
-      await this.stageModel.exists({
-        name: new RegExp(`^${escapeRegex(name)}$`, 'i'),
-      })
-    ) {
-      throw new ConflictException('A stage with this name already exists');
-    }
-    const last = await this.stageModel.findOne().sort({ order: -1 }).lean();
-    return this.stageModel.create({
-      name,
-      color: dto.color || '#64748b',
-      order: dto.order ?? (last?.order ?? 0) + 1,
-    });
+  /** Stages are a fixed list (STATIC_ENROLLED_STAGES) – adding is disabled. */
+  async create(_dto: EnrolledStageDto): Promise<never> {
+    throw new BadRequestException('Enrolled lead stages are fixed and cannot be added');
   }
 
-  async update(id: string, dto: UpdateEnrolledStageDto) {
-    if (!Types.ObjectId.isValid(id))
-      throw new BadRequestException('Invalid stage id');
-    const stage = await this.stageModel.findById(id);
-    if (!stage) throw new NotFoundException('Stage not found');
-
-    if (dto.isActive === false && (stage.isDefault || dto.isDefault)) {
-      throw new BadRequestException('The default stage cannot be deactivated');
-    }
-
-    const oldName = stage.name;
-    if (dto.name !== undefined) {
-      const name = dto.name.trim();
-      const clash = await this.stageModel.exists({
-        _id: { $ne: stage._id },
-        name: new RegExp(`^${escapeRegex(name)}$`, 'i'),
-      });
-      if (clash)
-        throw new ConflictException('A stage with this name already exists');
-      stage.name = name;
-    }
-    if (dto.order !== undefined) stage.order = dto.order;
-    if (dto.color !== undefined) stage.color = dto.color;
-    if (dto.isActive !== undefined) stage.isActive = dto.isActive;
-    if (dto.isDefault === true) {
-      await this.stageModel.updateMany(
-        { _id: { $ne: stage._id } },
-        { $set: { isDefault: false } },
-      );
-      stage.isDefault = true;
-      stage.isActive = true;
-    }
-    await stage.save();
-
-    // Keep the denormalised stage name on leads in step.
-    if (stage.name !== oldName) {
-      await this.leadModel.updateMany(
-        { stageId: stage._id },
-        { $set: { stageName: stage.name } },
-      );
-    }
-    return stage.toObject();
+  /** Stages are a fixed list (STATIC_ENROLLED_STAGES) – editing is disabled. */
+  async update(_id: string, _dto: UpdateEnrolledStageDto): Promise<never> {
+    throw new BadRequestException('Enrolled lead stages are fixed and cannot be changed');
   }
 }
 

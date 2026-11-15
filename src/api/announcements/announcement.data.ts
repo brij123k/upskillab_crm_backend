@@ -1,3 +1,4 @@
+import { containsRegex } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Announcement } from 'src/schema/announcement.schema';
@@ -57,8 +58,8 @@ export class AnnouncementData {
     if (filters.search) {
       andConditions.push({
         $or: [
-        { title: { $regex: filters.search, $options: 'i' } },
-        { message: { $regex: filters.search, $options: 'i' } },
+        { title: containsRegex(filters.search) },
+        { message: containsRegex(filters.search) },
         ],
       });
     }
@@ -118,8 +119,8 @@ export class AnnouncementData {
     if (filters.search) {
       andConditions.push({
         $or: [
-        { title: { $regex: filters.search, $options: 'i' } },
-        { message: { $regex: filters.search, $options: 'i' } },
+        { title: containsRegex(filters.search) },
+        { message: containsRegex(filters.search) },
         ],
       });
     }

@@ -1,3 +1,4 @@
+import { containsRegex, buildDateCondition, idInAnyForm } from 'src/common/utils/filter.util';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
@@ -386,82 +387,48 @@ async getAllPayments(filters: any, user: any) {
 
   const query: any = {};
 
-  /* ================= GET ACCESSIBLE COUNSELLORS ================= */
-
-  let accessibleUserIds: any[] = [];
+  /* ================= ACCESS SCOPE ================= */
+  // null = no counsellor restriction (admin, non-group)
+  const isAdmin = user?.isSuperAdmin || String(user?.roleName).toLowerCase() === 'admin';
+  let scopeIds: string[] | null = null;
 
   if (group === true || group === 'true') {
     const users = await this.userLogic.getUsersUnder(user);
-    accessibleUserIds = users.map((u) => new Types.ObjectId(u._id));
-    accessibleUserIds.push(user.userId);
-  } else if (user.roleName === 'bd') {
-    accessibleUserIds = [new Types.ObjectId(user.userId)];
-    console.log(accessibleUserIds)
+    scopeIds = users.map((u: any) => u._id.toString());
+    scopeIds.push(String(user.userId));
+  } else if (!isAdmin) {
+    scopeIds = [String(user.userId)];
   }
 
-  // If counsellorId explicitly passed → override everything
+  // a picked counsellor must stay inside that scope
   if (counsellorId) {
-    accessibleUserIds = [new Types.ObjectId(counsellorId)];
+    const wanted = String(counsellorId);
+    scopeIds = scopeIds === null || scopeIds.includes(wanted) ? [wanted] : [];
   }
 
-  /* ================= GET ORDERS FIRST ================= */
-
-
-  if (orderId) {
-    query.link_notes.orderId = orderId;
+  if (scopeIds !== null && !scopeIds.length) {
+    return { data: [], total: 0, page: Number(page) || 1, limit: Number(limit) || 10, totalPages: 0 };
+  }
+  if (scopeIds !== null) {
+    query.counsellorId = { $in: scopeIds.map((id) => new Types.ObjectId(id)) };
   }
 
-  // If no orders → return empty
-  if (!accessibleUserIds.length) {
-    return {
-      data: [],
-      total: 0,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: 0,
-    };
-  }
-  query['counsellorId'] = {$in:accessibleUserIds}
+  if (orderId) query['link_notes.orderId'] = { $in: idInAnyForm([orderId]) };
   if (leadId) query.leadId = leadId;
 
   /* ================= SEARCH ================= */
 
   if (search) {
     query.$or = [
-      { 'customer_details.customer_name': { $regex: search, $options: 'i' } },
-      { 'customer_details.customer_email': { $regex: search, $options: 'i' } },
-      { 'customer_details.customer_phone': { $regex: search, $options: 'i' } },
+      { 'customer_details.customer_name': containsRegex(search) },
+      { 'customer_details.customer_email': containsRegex(search) },
+      { 'customer_details.customer_phone': containsRegex(search) },
     ];
   }
 
   /* ================= DATE FILTER ================= */
-
-  if (dateFilter) {
-    let start: Date | null = null;
-
-    if (dateFilter === 'today') {
-      start = new Date();
-      start.setHours(0, 0, 0, 0);
-    } else if (dateFilter === 'week') {
-      start = new Date();
-      start.setDate(start.getDate() - 7);
-    } else if (dateFilter === 'month') {
-      start = new Date();
-      start.setMonth(start.getMonth() - 1);
-    } else if (dateFilter === 'year') {
-      start = new Date();
-      start.setFullYear(start.getFullYear() - 1);
-    }
-
-    if (start) query.createdAt = { $gte: start };
-  }
-
-  if (fromDate && toDate) {
-    query.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
-    };
-  }
+  const createdCond = buildDateCondition(dateFilter, fromDate, toDate);
+  if (createdCond) query.createdAt = createdCond;
 
   /* ================= PAGINATION ================= */
 

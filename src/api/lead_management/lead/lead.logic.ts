@@ -1,3 +1,4 @@
+import { buildDateCondition, endOfDay, idInAnyForm } from 'src/common/utils/filter.util';
 import { BadRequestException, Injectable, NotFoundException, InternalServerErrorException, ForbiddenException } from '@nestjs/common';
 import axios from 'axios';
 import { LeadData } from './lead.data';
@@ -446,88 +447,44 @@ await this.notificationEngine.handleEvent({
   }
 
   async stageSummaryReport(query: any, user: any) {
-    const now = new Date();
-    let startDate: Date | null = null;
-    let endDate: Date | null = null;
+    // custom range > single day > preset; default today
+    const range =
+      buildDateCondition(undefined, query.assignedDateFrom, query.assignedDateTo) ||
+      buildDateCondition(undefined, query.assignedDate, query.assignedDate) ||
+      buildDateCondition(query.assignedDateFilter) ||
+      buildDateCondition('today')!;
+    const startDate = range.$gte ?? new Date(0);
+    const endDate = range.$lte ?? endOfDay(new Date());
 
-    if (query.assignedDate) {
-      const singleDate = new Date(query.assignedDate);
-      if (!Number.isNaN(singleDate.getTime())) {
-        startDate = new Date(singleDate);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(singleDate);
-        endDate.setHours(23, 59, 59, 999);
-      }
-    } else if (query.assignedDateFilter) {
-      const dateFilter = query.assignedDateFilter.toString().toLowerCase();
-      if (dateFilter === 'today') {
-        startDate = new Date(now);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (dateFilter === 'week') {
-        startDate = new Date(now);
-        startDate.setDate(startDate.getDate() - 6);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(now);
-        endDate.setHours(23, 59, 59, 999);
-      } else if (dateFilter === 'month') {
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-      } else if (dateFilter === 'year') {
-        startDate = new Date(now.getFullYear(), 0, 1);
-        endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
-      }
-    }
+    const and: any[] = [{ assignedDate: { $gte: startDate, $lte: endDate } }];
+    const asId = (id: any) => (Types.ObjectId.isValid(String(id)) ? new Types.ObjectId(String(id)) : id);
 
-    if (query.assignedDateFrom && query.assignedDateTo) {
-      const from = new Date(query.assignedDateFrom);
-      const to = new Date(query.assignedDateTo);
-      if (!Number.isNaN(from.getTime()) && !Number.isNaN(to.getTime())) {
-        startDate = new Date(from);
-        startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(to);
-        endDate.setHours(23, 59, 59, 999);
-      }
-    }
-
-    if (!startDate || !endDate) {
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
-    }
-
-    let match: any = {
-      assignedDate: { $gte: startDate, $lte: endDate },
-    };
-
-    if (query.status) match.status = query.status;
-    if (query.source) match.source = query.source;
-    if (query.stageId) match.stageId = new Types.ObjectId(query.stageId);
-    if (query.poolId) match.poolId = new Types.ObjectId(query.poolId);
-    if (query.assignedTo) match.assignedTo = query.assignedTo;
-    if (query.counsellorId) match.assignedTo = query.counsellorId;
+    const list = (v: any): any[] =>
+      v === undefined || v === null || v === ''
+        ? []
+        : (Array.isArray(v) ? v : String(v).split(',')).map((x: any) => String(x).trim()).filter(Boolean);
+    if (list(query.status).length) and.push({ status: { $in: list(query.status) } });
+    if (list(query.source).length) and.push({ source: { $in: list(query.source) } });
+    if (list(query.stageId).length) and.push({ stageId: { $in: list(query.stageId).map(asId) } });
+    if (list(query.poolId).length) and.push({ poolId: { $in: list(query.poolId).map(asId) } });
+    const counsellors = [...list(query.counsellorId), ...list(query.assignedTo)];
+    if (counsellors.length) and.push({ assignedTo: { $in: idInAnyForm(counsellors) } });
 
     if (!user.isSuperAdmin) {
       const Pool = await this.poolModel.findOne({ pool_owner: user.userId }).select('_id');
       const users = await this.userLogic.getUsersUnder(user);
       const accessibleUserIds = users.map((u) => u._id.toString());
       accessibleUserIds.push(user.userId);
+      const scopeIds = idInAnyForm(accessibleUserIds);
 
-      if (Pool?._id) {
-        match.$or = [
-          { assignedTo: { $in: accessibleUserIds } },
-          { poolId: Pool._id },
-        ];
-      } else {
-        match.assignedTo = { $in: accessibleUserIds };
-      }
+      and.push(
+        Pool?._id
+          ? { $or: [{ assignedTo: { $in: scopeIds } }, { poolId: Pool._id }] }
+          : { assignedTo: { $in: scopeIds } },
+      );
     }
 
-//     if (!user.isSuperAdmin) {
-//   match.assignedTo = user.userId;
-// }
+    const match: any = { $and: and };
 
     const stageResults = await this.leadModel.aggregate([
       { $match: match },
@@ -3219,7 +3176,7 @@ async poolWiseDataReport(query: any) {
     },
 
     assignedTo: {
-      $in: userIds,
+      $in: idInAnyForm(userIds),
     },
   };
 
@@ -3761,7 +3718,7 @@ async poolWiseLeadsReport(query: any) {
     },
 
     assignedTo: {
-      $in: userIds,
+      $in: idInAnyForm(userIds),
     },
 
     poolId: new Types.ObjectId(poolId),

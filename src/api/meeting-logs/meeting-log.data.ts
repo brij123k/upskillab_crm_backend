@@ -1,3 +1,4 @@
+import { buildDateCondition, containsRegex, idInAnyForm, parsePagination } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, PipelineStage, Types } from 'mongoose';
 import { MeetingFeedback } from 'src/schema/meeting-feedback.schema';
@@ -45,7 +46,11 @@ async meetingsWithFeedbacks(filters: any, userIds: string[]) {
   const {
     search,
     stageId,
-    userId,
+    userId: userIdParam,
+    byUserId,
+    meetingType,
+    outcome,
+    status,
     leadId,
     dateFilter,
     fromDate,
@@ -55,49 +60,49 @@ async meetingsWithFeedbacks(filters: any, userIds: string[]) {
     limit = 10,
   } = filters;
 
-  const match: any = {};
+  const and: any[] = [];
 
-  if (leadId) match.leadId = Number(leadId);
-  if (stageId) match.stageId = stageId;
+  if (leadId) and.push({ leadId: Number(leadId) });
+  // aggregate pipelines don't cast – match ObjectId and string forms
+  if (stageId) and.push({ stageId: { $in: idInAnyForm([stageId]) } });
+  if (meetingType) and.push({ meetingType });
+  if (outcome) and.push({ outcome: containsRegex(outcome) });
+  // no stored status – derive it from the meeting time
+  if (status === 'scheduled') and.push({ startedAt: { $gt: new Date() } });
+  else if (status === 'completed') {
+    and.push({ $or: [{ startedAt: { $lte: new Date() } }, { startedAt: { $exists: false } }, { startedAt: null }] });
+  }
 
-  // 👥 MULTI USER FILTER
+  // frontend sends byUserId (older callers: userId)
+  const userId = byUserId || userIdParam;
+
+  // 👥 USER FILTER – must stay inside the caller's scope
   if (userId) {
-    match.userId = userId;
+    const allowed = userIds.map(String).includes(String(userId));
+    and.push({ userId: { $in: allowed ? idInAnyForm([userId]) : [] } });
   } else {
-    match.userId = { $in: userIds };
+    and.push({ userId: { $in: idInAnyForm(userIds) } });
   }
 
   // 🔍 SEARCH
   if (search) {
-    match.$or = [
-      { meetingType: { $regex: search, $options: 'i' } },
-      { outcome: { $regex: search, $options: 'i' } },
-      { notes: { $regex: search, $options: 'i' } },
-    ];
+    and.push({
+      $or: [
+        { meetingType: containsRegex(search) },
+        { outcome: containsRegex(search) },
+        { notes: containsRegex(search) },
+      ],
+    });
   }
 
-  // 📅 DATE FILTER
-  const now = new Date();
-  if (dateFilter) {
-    let start: Date | null = null;
+  // 📅 DATE FILTER (custom range overrides preset; "to" is inclusive)
+  const created = buildDateCondition(dateFilter, fromDate, toDate);
+  if (created) and.push({ createdAt: created });
 
-    if (dateFilter === 'today') start = new Date(now.setHours(0, 0, 0, 0));
-    else if (dateFilter === 'week') start = new Date(now.setDate(now.getDate() - 7));
-    else if (dateFilter === 'month') start = new Date(now.setMonth(now.getMonth() - 1));
-    else if (dateFilter === 'year') start = new Date(now.setFullYear(now.getFullYear() - 1));
-
-    if (start) match.createdAt = { $gte: start };
-  }
-
-  if (fromDate && toDate) {
-    match.createdAt = {
-      $gte: new Date(fromDate),
-      $lte: new Date(toDate),
-    };
-  }
+  const match: any = and.length ? { $and: and } : {};
 
   const sortOrder = sort === 'old' ? 1 : -1;
-  const skip = (page - 1) * limit;
+  const { skip } = parsePagination(page, limit);
 
   const pipeline: PipelineStage[] = [
     { $match: match },

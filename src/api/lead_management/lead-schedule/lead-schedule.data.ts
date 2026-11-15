@@ -1,3 +1,4 @@
+import { buildDateCondition, parsePagination } from 'src/common/utils/filter.util';
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -70,14 +71,27 @@ export class LeadScheduleData {
       dateFilter,
       from,
       to,
-      leadId
+      leadId,
+      search,
     } = filters;
 
     const query: any = {};
-    const leadIds = leads.map(l => l.leadId);
+    const allLeadIds = leads.map(l => l.leadId);
     const now = new Date();
 
-    const skip = (page - 1) * limit;
+    // 🔍 search by lead name / phone / lead id (within accessible leads)
+    const term = String(search ?? '').trim().toLowerCase();
+    const leadIds = term
+      ? leads
+          .filter((l: any) =>
+            String(l.name ?? '').toLowerCase().includes(term) ||
+            String(l.phone ?? '').includes(term) ||
+            String(l.leadId ?? '') === term,
+          )
+          .map((l: any) => l.leadId)
+      : allLeadIds;
+
+    const { skip } = parsePagination(page, limit);
 
     // 🎯 Lead filter
     if (leadId) {
@@ -97,7 +111,7 @@ export class LeadScheduleData {
     // 🚨 FIX DB
     await this.model.updateMany(
       {
-        leadId: { $in: leadIds },
+        leadId: { $in: allLeadIds },
         scheduledAt: { $lt: now },
         status: { $in: [LeadScheduleStatus.UPCOMING, null, ""] }
       },
@@ -121,22 +135,22 @@ export class LeadScheduleData {
       query.status = LeadScheduleStatus.COMPLETED;
     }
 
-    // 📅 DATE FILTER
-    if (dateFilter === 'today') {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-
-      const end = new Date();
-      end.setHours(23, 59, 59, 999);
-
-      query.scheduledAt = { $gte: start, $lte: end };
-    }
-
-    if (dateFilter === 'custom') {
-      query.scheduledAt = {
-        $gte: new Date(from),
-        $lte: new Date(to)
-      };
+    // 📅 DATE FILTER – intersect with any time condition set by status
+    const dateCond =
+      dateFilter === 'custom'
+        ? buildDateCondition(undefined, from, to)
+        : dateFilter === 'today'
+          ? buildDateCondition('today')
+          : undefined;
+    if (dateCond) {
+      query.scheduledAt = { ...(query.scheduledAt || {}), ...dateCond };
+      // keep the stricter bound when status already set one
+      if (status === 'upcoming' && (!dateCond.$gte || dateCond.$gte < now)) query.scheduledAt.$gt = now;
+      if (status === 'overdue' && (!dateCond.$lte || dateCond.$lte > now)) {
+        delete query.scheduledAt.$lte;
+        query.scheduledAt.$lt = now;
+        if (dateCond.$lte && dateCond.$lte < now) query.scheduledAt.$lt = dateCond.$lte;
+      }
     }
 
     // ❗ DEFAULT

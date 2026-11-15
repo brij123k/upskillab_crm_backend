@@ -18,6 +18,10 @@ export class EnrolledLeadStage {
   @Prop({ default: '#f97316' })
   color: string;
 
+  /** Short explanation shown next to the stage (static feedback outcomes). */
+  @Prop({ default: '' })
+  description: string;
+
   /** New students get the default stage. */
   @Prop({ default: false })
   isDefault: boolean;

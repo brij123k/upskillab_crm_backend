@@ -1,3 +1,4 @@
+import { containsRegex } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { LeadInteractionLog } from 'src/schema/lead-interaction-log.schema';
@@ -91,8 +92,8 @@ async findAllWithUserIds(
 
   if (search) {
     const conditions: any[] = [
-      { source: { $regex: search, $options: 'i' } },
-      { outcome: { $regex: search, $options: 'i' } },
+      { source: containsRegex(search) },
+      { outcome: containsRegex(search) },
     ];
 
     if (!isNaN(Number(search))) {
@@ -360,8 +361,8 @@ async findInteractionLogsWithPagination(filters: any, userId?: string, user?: an
   if (search) {
 
     const searchConditions: any[] = [
-      { note: { $regex: search, $options: 'i' } },
-      { source: { $regex: search, $options: 'i' } },
+      { note: containsRegex(search) },
+      { source: containsRegex(search) },
     ];
 
     if (!isNaN(Number(search))) {

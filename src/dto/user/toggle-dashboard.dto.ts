@@ -1,7 +1,16 @@
+import { Type } from 'class-transformer';
+import { ValidateNested } from 'class-validator';
+import { PersonalDetailsDto } from 'src/dto/user/personal-details.dto';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsArray, IsMongoId, IsOptional, IsString,IsObject } from 'class-validator';
 
 export class ToggleDashboardDto {
+  @ApiPropertyOptional({ type: PersonalDetailsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PersonalDetailsDto)
+  personalDetails?: PersonalDetailsDto;
+
   @ApiPropertyOptional({
     description: 'Department ID',
   })

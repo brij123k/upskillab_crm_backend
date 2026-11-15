@@ -8,6 +8,45 @@ export enum UserStatus {
   RESIGNED = 'resigned',
 }
 
+export enum OnboardingStatus {
+  NOT_SHARED = 'not_shared',
+  PENDING = 'pending', // link shared, waiting for employee
+  SUBMITTED = 'submitted', // employee submitted, waiting for review
+  APPROVED = 'approved', // reviewed & approved by admin / bd
+}
+
+@Schema({ _id: false })
+export class Onboarding {
+  @Prop({ index: true, sparse: true })
+  token?: string;
+
+  @Prop({ enum: OnboardingStatus, default: OnboardingStatus.NOT_SHARED })
+  status: OnboardingStatus;
+
+  @Prop({ default: false })
+  linkActive: boolean;
+
+  @Prop()
+  sharedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  sharedBy?: Types.ObjectId;
+
+  @Prop()
+  submittedAt?: Date;
+
+  @Prop({ default: 0 })
+  submissionCount: number;
+
+  @Prop()
+  approvedAt?: Date;
+
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  approvedBy?: Types.ObjectId;
+}
+
+export const OnboardingSchema = SchemaFactory.createForClass(Onboarding);
+
 @Schema({ timestamps: true })
 export class 
 User extends Document {
@@ -52,6 +91,9 @@ User extends Document {
   
   @Prop()
   otpExpiry: Date;
+
+  @Prop({ type: OnboardingSchema, default: () => ({}) })
+  onboarding: Onboarding;
 
   createdAt: Date;
   updatedAt: Date;

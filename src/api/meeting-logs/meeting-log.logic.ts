@@ -105,7 +105,9 @@ export class MeetingLogLogic {
 
 async getMeetingsByUsers(filter: any, user: any) {
   const userId = user.userId;
-  if (filter.group == 'true') {
+  // Group mode, or a specific user picked in the filter → use the team scope
+  // (the data layer only allows a picked user inside this scope).
+  if (filter.group == 'true' || filter.group === true || filter.byUserId || filter.userId) {
     const users = await this.userLogic.getUsersUnder(user);
 
     const accessibleUserIds = users.map(u => u._id.toString());

@@ -71,6 +71,18 @@ export class EmailService {
     return this.sendMail(email, 'CRM UPDATE', html);
   }
 
+  async onboardingLink(email: string, name: string, link: string) {
+    const safeName = String(name || '').replace(/[<>&"]/g, '');
+    const html = `
+    <h2>Complete your employee profile</h2>
+    <p>Hi ${safeName},</p>
+    <p>Please open the link below and fill in your personal, address, bank, education and document details.</p>
+    <p><a href="${link}">${link}</a></p>
+    <p>The link can be submitted once. If you need to change anything afterwards, contact your manager to re-open it.</p>
+    `;
+    return this.sendMail(email, 'Complete your onboarding profile', html);
+  }
+
   async sendReminder(email: string, reminderText: string) {
     const formattedText = reminderText.replace(/\n/g, '<br>');
     const html = `

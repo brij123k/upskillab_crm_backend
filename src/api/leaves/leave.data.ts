@@ -1,3 +1,4 @@
+import { parseDay } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { LeaveRequest, LeaveStatus, LeaveType } from 'src/schema/leave.schema';
@@ -82,13 +83,19 @@ export class LeaveData {
     if (filters.leaveType) query.leaveType = filters.leaveType;
 
     if (filters.fromDate || filters.toDate) {
-      const from = filters.fromDate ? new Date(filters.fromDate) : new Date('1970-01-01');
-      const to = filters.toDate ? new Date(filters.toDate) : new Date('2999-12-31');
+      const from = parseDay(filters.fromDate) || new Date(1970, 0, 1);
+      const to = parseDay(filters.toDate) || new Date(2999, 11, 31);
       from.setHours(0, 0, 0, 0);
       to.setHours(23, 59, 59, 999);
-      query.$or = [
-        { leaveFrom: { $lte: to }, leaveTo: { $gte: from } },
-        { leaveDate: { $gte: from, $lte: to } },
+      // AND with any existing $or (e.g. reportTo scope) instead of overwriting it
+      query.$and = [
+        ...(query.$and || []),
+        {
+          $or: [
+            { leaveFrom: { $lte: to }, leaveTo: { $gte: from } },
+            { leaveDate: { $gte: from, $lte: to } },
+          ],
+        },
       ];
     }
 

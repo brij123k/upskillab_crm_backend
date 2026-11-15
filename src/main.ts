@@ -1,3 +1,7 @@
+// All date filters ("today", "this month", custom ranges) and crons use local
+// time – pin it to India so results don't shift by 5h30m on a UTC server.
+process.env.TZ = process.env.TZ || 'Asia/Kolkata';
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';

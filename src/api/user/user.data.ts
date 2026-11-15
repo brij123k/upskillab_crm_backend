@@ -92,7 +92,7 @@ findByIds(userIds: string[], status?: string | string[]) {
       { name: 1, email: 1, number: 1, role: 1, employeeId: 1 },
     )
     .select(
-        'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
+        'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt onboarding.status onboarding.linkActive onboarding.sharedAt onboarding.submittedAt onboarding.approvedAt onboarding.submissionCount createdAt updatedAt',
       )
     .populate({
         path: 'role',
@@ -154,7 +154,7 @@ toggleBlock(userId: string, isBlocked: boolean) {
   return this.userModel
     .find(query)
     .select(
-      'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt createdAt updatedAt',
+      'name email number employeeId status isBlocked isDashboardEnabled IVREnabled role lastLoginAt onboarding.status onboarding.linkActive onboarding.sharedAt onboarding.submittedAt onboarding.approvedAt onboarding.submissionCount createdAt updatedAt',
     )
     .populate({
       path: 'role',

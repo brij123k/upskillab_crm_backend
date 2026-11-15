@@ -1,3 +1,4 @@
+import { containsRegex } from 'src/common/utils/filter.util';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { CallLogData } from './call-log.data';
 import { LeadHistoryLogic } from '../lead_management/lead-history/lead-history.logic';
@@ -374,13 +375,20 @@ async getByUsers(filter: any, user: any) {
         [loggedInUserId],
       );
     }
-    const user = await this.userLogic.findById(teamUserId)
-    if(!user){
+    // the picked team root must be inside the caller's own scope
+    const callerScope = (await this.userLogic.getUsersUnder(user, 'all')).map((u: any) => u._id.toString());
+    callerScope.push(loggedInUserId);
+    if (!callerScope.includes(String(teamUserId))) {
+      return this.callLogData.findAllWithUserIds({ ...normalizedFilter, byUserId: undefined }, []);
+    }
+
+    const teamRoot = await this.userLogic.findById(teamUserId)
+    if(!teamRoot){
       throw new NotFoundException("User Not Found")
     }
     console.log(user)
     const users = await this.userLogic.getUsersUnder(
-      user,
+      teamRoot,
     );
     const accessibleUserIds = users.map(
       (u: any) => u._id.toString(),
@@ -3526,24 +3534,15 @@ async employeePoolDailyUtilizationCalls(
           {
             $or: [
               {
-                customerNumber: {
-                  $regex: search,
-                  $options: 'i',
-                },
+                customerNumber: containsRegex(search),
               },
 
               {
-                phoneNumber: {
-                  $regex: search,
-                  $options: 'i',
-                },
+                phoneNumber: containsRegex(search),
               },
 
               {
-                mobile: {
-                  $regex: search,
-                  $options: 'i',
-                },
+                mobile: containsRegex(search),
               },
             ],
           },

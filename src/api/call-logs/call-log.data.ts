@@ -1,3 +1,4 @@
+import { containsRegex } from 'src/common/utils/filter.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CallLog } from 'src/schema/call-log.schema';
@@ -154,7 +155,7 @@ export class CallLogData {
 
     if (search) {
       const conditions: any[] = [
-        { outcome: { $regex: search, $options: 'i' } },
+        { outcome: containsRegex(search) },
       ];
 
       if (!isNaN(Number(search))) {
@@ -429,13 +430,21 @@ export class CallLogData {
     }
 
     if (outcome) {
-      callMatch.outcome = { $regex: outcome, $options: 'i' };
-      interactionMatch.outcome = { $regex: outcome, $options: 'i' };
+      callMatch.outcome = containsRegex(outcome);
+      interactionMatch.outcome = containsRegex(outcome);
     }
 
-    if (byUserId) {
-  callMatch.userId = byUserId;
-  interactionMatch.userId = byUserId;
+    // a picked user must stay inside the caller's scope
+    const scopedByUserId =
+      byUserId && accessibleUserIds.map(String).includes(String(byUserId))
+        ? String(byUserId)
+        : byUserId
+          ? '__no_access__'
+          : undefined;
+
+    if (scopedByUserId) {
+  callMatch.userId = scopedByUserId;
+  interactionMatch.userId = scopedByUserId;
 } else {
   callMatch.userId = {
     $in: accessibleUserIds,
@@ -452,12 +461,12 @@ export class CallLogData {
 
     if (search) {
       callMatch.$or = [
-        { outcome: { $regex: search, $options: 'i' } },
+        { outcome: containsRegex(search) },
       ];
 
       interactionMatch.$or = [
-        { outcome: { $regex: search, $options: 'i' } },
-        { source: { $regex: search, $options: 'i' } },
+        { outcome: containsRegex(search) },
+        { source: containsRegex(search) },
       ];
 
       if (!isNaN(Number(search))) {
@@ -677,8 +686,8 @@ export class CallLogData {
       },
     };
 
-    if (byUserId) {
-      callCountMatch.userId = byUserId;
+    if (scopedByUserId) {
+      callCountMatch.userId = scopedByUserId;
     } else {
       callCountMatch.userId = {
         $in: accessibleUserIds,
