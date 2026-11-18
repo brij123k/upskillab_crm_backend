@@ -22,7 +22,7 @@ export class UserController {
   constructor(private readonly logic: UserLogic) {}
 
   @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-  @Roles('Admin', 'bd')
+  @Roles('Admin', 'bd', 'hr')
   @RequirePermission(
     PERMISSIONS.USER.MODULE,
     PERMISSIONS.USER.ACTIONS.CREATE,
@@ -78,7 +78,7 @@ toggleBlock(@Param('id') userId: string) {
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin', 'bd')
+@Roles('Admin', 'bd', 'hr')
 @RequirePermission(
   PERMISSIONS.USER.MODULE,
   PERMISSIONS.USER.ACTIONS.UPDATE,
@@ -96,7 +96,7 @@ toggleDashboard(
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin','bd')
+@Roles('Admin', 'bd', 'hr')
 @RequirePermission(
   PERMISSIONS.USER.MODULE,
   PERMISSIONS.USER.ACTIONS.READ,
@@ -107,12 +107,12 @@ toggleDashboard(
 })
 getAllUsers(@Req() req:any){
   console.log(req.query)
-return this.logic.getUsersUnder(req.user, req.query?.status)
+return this.logic.getManageableUsers(req.user, req.query?.status)
 }
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin','bd')
+@Roles('Admin', 'bd', 'hr')
 @RequirePermission(
 PERMISSIONS.USER.MODULE,
 PERMISSIONS.USER.ACTIONS.READ,
@@ -155,7 +155,7 @@ getLastActivities(@Req() req: any, @Query('limit') limit?: string) {
 
 
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin', 'bd')
+@Roles('Admin', 'bd', 'hr')
 @RequirePermission(
 PERMISSIONS.USER.MODULE,
 PERMISSIONS.USER.ACTIONS.UPDATE,

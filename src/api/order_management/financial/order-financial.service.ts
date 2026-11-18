@@ -1126,11 +1126,20 @@ export class OrderFinancialService {
           source: 'API',
           performedAt: new Date(),
         });
-        await this.persist(order, guard, auditEntries, session, {
+        const now = new Date();
+        const extra: Record<string, any> = {
           Approved: true,
           // same representation as the previous approval workflow
           approvedBy,
-        });
+          approvedAt: now,
+        };
+        // Admin approval covers the manager step when the manager hasn't approved yet.
+        if (!order.managerApproved) {
+          extra.managerApproved = true;
+          extra.managerApprovedBy = new Types.ObjectId(approvedBy);
+          extra.managerApprovedAt = now;
+        }
+        await this.persist(order, guard, auditEntries, session, extra);
         return this.orderModel.findById(orderId).session(session ?? null);
       }),
     );

@@ -21,4 +21,29 @@ export class PersonalDetailsDto {
   @IsOptional()
   @Matches(/^$|^[A-Za-z]{5}\d{4}[A-Za-z]$/, { message: 'Invalid PAN number' })
   panNumber?: string;
+
+  @ApiPropertyOptional({ example: 'O+' })
+  @IsOptional()
+  @IsIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', ''])
+  bloodGroup?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(/^$|^[6-9]\d{9}$/, { message: 'Alternate mobile must be a valid 10-digit number' })
+  alternateMobile?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  emergencyContactName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Matches(/^$|^[6-9]\d{9}$/, { message: 'Emergency contact number must be a valid 10-digit number' })
+  emergencyContactNumber?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  emergencyContactRelation?: string;
 }

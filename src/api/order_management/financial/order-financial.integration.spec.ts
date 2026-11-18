@@ -72,6 +72,7 @@ import {
   startOfDayInTimezone,
   toDateKey,
 } from './order-financial.util';
+import { OrderInvoiceService } from '../invoice/order-invoice.service';
 import { OrderService } from '../order.service';
 import { PendingCreditService } from '../credits/pending-credit.service';
 import { PendingCreditNotificationService } from '../credits/pending-credit-notification.service';
@@ -127,6 +128,14 @@ const userLogicStub: any = {
   getDirectUsersUnder: async () => [],
 };
 const activityStub: any = { log: async () => undefined };
+/** Emails sent by the invoice service. */
+const sentEmails: { to: string; subject: string; attachments?: any[] }[] = [];
+const emailStub: any = {
+  sendMail: async (to: string, subject: string, _html: string, opts: any = {}) => {
+    sentEmails.push({ to, subject, attachments: opts.attachments });
+    return true;
+  },
+};
 
 const TZ = 'Asia/Kolkata';
 /** A Date at 12:00 business time, `offset` days from today. */
@@ -237,6 +246,7 @@ beforeAll(async () => {
     {} as any,
     activityStub,
     financial,
+    new OrderInvoiceService(m.Order, emailStub),
   );
   pendingCredits = new PendingCreditService(m.Order, userLogicStub);
   notificationCalls = [];
@@ -695,6 +705,95 @@ describe('order create / update / approve', () => {
     await expect(
       orderService.assertOrderAccess(foreign._id.toString(), adminUser),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('two-step approval (manager, then admin) and invoice email', () => {
+  const managerUser = { userId: BD, roleName: 'bd', permissions: [{ module: PERMISSIONS.Orders.MODULE, actions: ['manager_approve'] }] };
+  const created: any[] = [];
+  afterAll(async () => {
+    // keep later report tests independent of these orders / this user
+    await m.Order.deleteMany({ _id: { $in: created } });
+    await m.User.collection.deleteOne({ _id: new Types.ObjectId(BD_SUB) });
+  });
+  const waitForEmails = async (n: number) => {
+    for (let i = 0; i < 50 && sentEmails.length < n; i++) await new Promise((r) => setTimeout(r, 50));
+  };
+
+  it('manager approves a team order; admin approval then emails the invoice PDF to student and BDA once', async () => {
+    await m.User.collection.updateOne(
+      { _id: new Types.ObjectId(BD_SUB) },
+      { $set: { name: 'Sub BDA', email: 'sub-bda@example.com', number: '9111111111' } },
+      { upsert: true },
+    );
+    const order: any = await orderService.createOrder(baseOrderDto({ lumpsumPayments: [{ amount: 100000 }] }), BD_SUB);
+    created.push(order._id);
+    const id = order._id.toString();
+
+    await expect(orderService.managerApproveOrder(id, { ...managerUser, userId: BD_SUB })).rejects.toThrow('your own order');
+    await expect(orderService.managerApproveOrder(id, { ...managerUser, userId: OTHER_BD })).rejects.toThrow('senior of the order creator');
+
+    const afterManager: any = await orderService.managerApproveOrder(id, managerUser);
+    expect(afterManager.managerApproved).toBe(true);
+    expect(afterManager.Approved).toBe(false);
+    expect(String((await m.Order.findById(id).lean() as any).managerApprovedBy)).toBe(BD);
+    await expect(orderService.managerApproveOrder(id, managerUser)).rejects.toThrow('already HR approved');
+
+    sentEmails.length = 0;
+    await orderService.approveOrder(id, ADMIN);
+    await waitForEmails(2);
+    expect(sentEmails.map((e) => e.to).sort()).toEqual([order.email, 'sub-bda@example.com'].sort());
+    const pdf: Buffer = sentEmails[0].attachments![0].content;
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(sentEmails[0].attachments![0].filename).toMatch(/^Upskillab-Invoice-UPS-\d{6}-[0-9A-F]{6}\.pdf$/);
+
+    const stored: any = await m.Order.findById(id).lean();
+    expect(stored.invoiceNumber).toMatch(/^UPS-/);
+    expect(stored.invoiceSentAt).toBeTruthy();
+    // manager approver is kept, not overwritten by admin
+    expect(String(stored.managerApprovedBy)).toBe(BD);
+
+    // approving again never re-sends
+    sentEmails.length = 0;
+    await orderService.approveOrder(id, ADMIN);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(sentEmails).toHaveLength(0);
+    await expect(orderService.managerApproveOrder(id, managerUser)).rejects.toThrow('already approved by admin');
+  });
+
+  it('admin approval before the manager also marks the manager step approved', async () => {
+    const order: any = await orderService.createOrder(baseOrderDto({ lumpsumPayments: [{ amount: 100000 }] }), BD_SUB);
+    created.push(order._id);
+    await orderService.approveOrder(order._id.toString(), ADMIN);
+    const stored: any = await m.Order.findById(order._id).lean();
+    expect(stored.Approved).toBe(true);
+    expect(stored.managerApproved).toBe(true);
+    expect(String(stored.managerApprovedBy)).toBe(ADMIN);
+  });
+
+  it('HR approval: any senior with approve access; never the creator, never without permission', async () => {
+    const order: any = await orderService.createOrder(baseOrderDto({ lumpsumPayments: [{ amount: 100000 }] }), BD_SUB);
+    created.push(order._id);
+    const id = order._id.toString();
+    const noPerm = { userId: BD, roleName: 'bd', permissions: [{ module: PERMISSIONS.Orders.MODULE, actions: ['read'] }] };
+    await expect(orderService.managerApproveOrder(id, noPerm)).rejects.toThrow('do not have permission');
+    const approver = { userId: BD, roleName: 'bd', permissions: [{ module: PERMISSIONS.Orders.MODULE, actions: ['approve'] }] };
+    await expect(orderService.managerApproveOrder(id, { ...approver, userId: BD_SUB })).rejects.toThrow('your own order');
+    const done: any = await orderService.managerApproveOrder(id, approver);
+    expect(done.managerApproved).toBe(true);
+    expect(done.Approved).toBe(false);
+  });
+
+  it('manager approval refuses an unbalanced order', async () => {
+    const legacy = await m.Order.collection.insertOne({
+      mobile: '8000000009', email: 'unbalanced@example.com', studentName: 'Unbalanced', courseVertical: poolId.toString(),
+      counsellorId: BD_SUB, paymentMode: 'Loan', finalFee: 30001, status: 'Fully Paid', Approved: false, orderDate: new Date(),
+      loanDetails: { loanPartner: new Types.ObjectId(LOAN_PARTNER), loanAmount: 28000, disbursementAmount: 0 },
+    });
+    created.push(legacy.insertedId);
+    await expect(orderService.managerApproveOrder(legacy.insertedId.toString(), managerUser)).rejects.toMatchObject({
+      response: { errors: [expect.stringContaining('remaining amount')] },
+    });
   });
 });
 
@@ -1371,12 +1470,14 @@ describe('employee utilization activity filter', () => {
     const [l1, l2, l3] = Object.values(leads.insertedIds);
 
     await m.LeadStageHistory.collection.insertMany([
+      // moved to PCAT Scheduled, then on to Registration Done the same day:
+      // counts only as Registration Done (its last stage in the period)
       {
         leadId: l1,
         stageId: pcat.insertedId,
         stageName: 'PCAT Scheduled',
         userId: empId,
-        changedAt: now,
+        changedAt: new Date(now.getTime() - 1000),
       },
       {
         leadId: l1,
@@ -1454,13 +1555,12 @@ describe('employee utilization activity filter', () => {
       uniqDial: 2,
       answeredCall: 1,
       answeredTalkTime: 60,
-      pcatScheduled: 1,
+      pcatScheduled: 0,
       pcatDone: 0,
       registrationDone: 2,
       admissionDone: 0,
     });
     expect(asha.allStages).toEqual([
-      expect.objectContaining({ stageName: 'PCAT Scheduled', count: 1 }),
       expect.objectContaining({ stageName: 'Registration Done', count: 2 }),
     ]);
 
@@ -1493,6 +1593,39 @@ describe('employee utilization activity filter', () => {
     expect(result.data.map((l: any) => l.leadId).sort()).toEqual([
       990001, 990003,
     ]);
+  });
+
+  it('stage drill-down never lists a lead that moved on to a later stage in the period', async () => {
+    const pcat: any = await m.LeadStage.findOne({ name: 'PCAT Scheduled' }).lean();
+    const result: any = await orderService.employeeStageLeads({
+      employeeId: EMP,
+      stageId: pcat._id.toString(),
+      activityDateFilter: 'today',
+    });
+    expect(result.total).toBe(0);
+    const reg: any = await orderService.employeeStageLeads({ employeeId: EMP, stageId: regStageId, activityDateFilter: 'today' });
+    expect(reg.data.every((l: any) => l.stageMovedAt)).toBe(true);
+  });
+
+  it('activity presets are running IST periods: today from midnight, week from Monday, month from the 1st', () => {
+    const range = (activityDateFilter: string, now: Date) =>
+      (orderService as any).resolveActivityRange({ activityDateFilter }, now);
+    // Friday 20 Nov 2026, 01:30 IST (still 19 Nov in UTC)
+    const now = new Date('2026-11-19T20:00:00Z');
+    expect(range('today', now).startDate.toISOString()).toBe('2026-11-19T18:30:00.000Z'); // 20 Nov 00:00 IST
+    expect(range('today', now).endDate.toISOString()).toBe('2026-11-20T18:29:59.999Z');
+    expect(range('week', now).startDate.toISOString()).toBe('2026-11-15T18:30:00.000Z'); // Mon 16 Nov 00:00 IST
+    expect(range('month', now).startDate.toISOString()).toBe('2026-10-31T18:30:00.000Z'); // 1 Nov 00:00 IST
+    // Monday: the week is just today
+    const monday = new Date('2026-11-16T06:00:00Z');
+    expect(range('week', monday).startDate.toISOString()).toBe('2026-11-15T18:30:00.000Z');
+    // Sunday belongs to the week that started the previous Monday
+    const sunday = new Date('2026-11-22T06:00:00Z');
+    expect(range('week', sunday).startDate.toISOString()).toBe('2026-11-15T18:30:00.000Z');
+    // custom range = whole IST days
+    const custom = (orderService as any).resolveActivityRange({ activityDateFrom: '2026-11-01', activityDateTo: '2026-11-03' });
+    expect(custom.startDate.toISOString()).toBe('2026-10-31T18:30:00.000Z');
+    expect(custom.endDate.toISOString()).toBe('2026-11-03T18:29:59.999Z');
   });
 
   it('rejects an activity range over 31 days', async () => {

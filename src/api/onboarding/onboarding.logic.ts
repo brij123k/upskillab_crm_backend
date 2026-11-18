@@ -21,9 +21,9 @@ import {
 /** Profile fields an employee is allowed to fill from the public link. */
 const EMPLOYEE_EDITABLE_FIELDS = [
   'profileImage',
-  'education',
   'personalDetails',
   'address',
+  'currentAddress',
   'bankDetails',
   'educationalDetails',
   'documents',
@@ -37,6 +37,71 @@ const ALLOWED_UPLOAD_TYPES = [
   'application/pdf',
 ];
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
+/** Contact shown to the employee on the onboarding page and in the email. */
+export const ONBOARDING_HR_EMAIL = process.env.ONBOARDING_HR_EMAIL || 'hr@upskillab.com';
+
+/** The three qualifications every employee must add (with marksheet). */
+const REQUIRED_QUALIFICATIONS: { key: string; label: string; match: RegExp }[] = [
+  { key: '10th', label: '10th', match: /^10/ },
+  { key: '12th', label: '12th', match: /^12/ },
+  { key: "Bachelor's", label: "Bachelor's", match: /^bachelor/i },
+];
+
+const filled = (v: any) => typeof v === 'string' ? v.trim().length > 0 : v !== undefined && v !== null;
+
+/** Server-side copy of the public form's required-field rules. */
+function validateSubmission(dto: SubmitOnboardingDto): string | null {
+  const pd: any = dto.personalDetails || {};
+  const personal: [string, string][] = [
+    ['dateOfBirth', 'Date of birth'],
+    ['gender', 'Gender'],
+    ['bloodGroup', 'Blood group'],
+    ['emergencyContactName', 'Emergency contact name'],
+    ['emergencyContactNumber', 'Emergency contact number'],
+    ['emergencyContactRelation', 'Relation with emergency contact'],
+    ['aadhaarNumber', 'Aadhaar number'],
+    ['panNumber', 'PAN number'],
+  ];
+  for (const [k, label] of personal) if (!filled(pd[k])) return `${label} is required`;
+
+  const addr = (a: any, label: string) => {
+    if (!a || !filled(a.addressLine1) || !filled(a.city) || !filled(a.state) || !filled(a.pincode)) {
+      return `${label}: address line 1, city, state and pincode are required`;
+    }
+    if (!/^\d{6}$/.test(String(a.pincode))) return `${label}: pincode must be 6 digits`;
+    return null;
+  };
+  const addrErr = addr(dto.address, 'Permanent address') || addr(dto.currentAddress, 'Current address');
+  if (addrErr) return addrErr;
+
+  const docs: any = dto.documents || {};
+  if (!filled(docs.aadhaarFront) || !filled(docs.aadhaarBack)) return 'Aadhaar front and back are required';
+  if (!filled(docs.panCard)) return 'PAN card document is required';
+
+  const b: any = dto.bankDetails || {};
+  for (const [k, label] of [
+    ['accountHolderName', 'Account holder name'],
+    ['bankName', 'Bank name'],
+    ['accountNumber', 'Account number'],
+    ['ifscCode', 'IFSC code'],
+    ['branchName', 'Branch name'],
+    ['accountType', 'Account type'],
+  ]) if (!filled(b[k])) return `${label} is required`;
+  if (!/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/.test(String(b.ifscCode))) return 'IFSC code is invalid';
+  if (!filled(docs.passbook)) return 'Bank passbook / cancelled cheque is required';
+
+  const edu: any[] = Array.isArray(dto.educationalDetails) ? dto.educationalDetails : [];
+  for (const q of REQUIRED_QUALIFICATIONS) {
+    const row = edu.find((e) => q.match.test(String(e?.qualification || '')));
+    if (!row) return `${q.label} education details are required`;
+    if (!filled(row.instituteName) || !filled(row.boardOrUniversity) || !row.passingYear || !filled(row.percentageOrCGPA)) {
+      return `Please complete all ${q.label} education fields`;
+    }
+    if (!filled(row.certificate)) return `${q.label} marksheet is required`;
+  }
+  return null;
+}
 
 @Injectable()
 export class OnboardingLogic {
@@ -67,6 +132,15 @@ export class OnboardingLogic {
     return `${base}/onboarding/${token}`;
   }
 
+  /** Admin, or a role granted `user:onboarding` (e.g. HR). */
+  private assertOnboardingAccess(actor: any) {
+    if (!this.userLogic.hasFullUserAccess(actor)) {
+      throw new ForbiddenException(
+        'You do not have permission to manage employee onboarding',
+      );
+    }
+  }
+
   private async findUserOrThrow(userId: string) {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('Invalid user id');
@@ -90,7 +164,7 @@ export class OnboardingLogic {
   private assertLinkActive(user: User) {
     if (!user.onboarding?.linkActive) {
       throw new ForbiddenException(
-        'This onboarding link is not active. Please contact your manager to re-open it.',
+        'This onboarding link is not active. Please contact HR to re-open it.',
       );
     }
   }
@@ -134,6 +208,7 @@ export class OnboardingLogic {
     dto: GenerateOnboardingLinkDto,
     req?: any,
   ) {
+    this.assertOnboardingAccess(actor);
     await this.userLogic.assertCanManageUser(actor, userId);
     const user = await this.findUserOrThrow(userId);
 
@@ -172,6 +247,7 @@ export class OnboardingLogic {
   }
 
   async revokeLink(actor: any, userId: string, req?: any) {
+    this.assertOnboardingAccess(actor);
     await this.userLogic.assertCanManageUser(actor, userId);
     await this.findUserOrThrow(userId);
     const updated = await this.userModel.findByIdAndUpdate(
@@ -186,6 +262,7 @@ export class OnboardingLogic {
   }
 
   async getForStaff(actor: any, userId: string, req?: any) {
+    this.assertOnboardingAccess(actor);
     await this.userLogic.assertCanManageUser(actor, userId);
     const user = await this.userModel
       .findById(userId)
@@ -210,6 +287,7 @@ export class OnboardingLogic {
 
   /** Review → optionally edit → approve. Closes the link. */
   async approve(actor: any, userId: string, dto: ApproveOnboardingDto, req?: any) {
+    this.assertOnboardingAccess(actor);
     await this.userLogic.assertCanManageUser(actor, userId);
     const user = await this.findUserOrThrow(userId);
 
@@ -220,6 +298,17 @@ export class OnboardingLogic {
     }
 
     const { activateUser, ...edits } = dto;
+
+    // Employment details are set by staff at approval time.
+    const existing: any = await this.profileModel.findOne({ userId: user._id }).lean();
+    const departmentId = edits.departmentId || existing?.departmentId;
+    const reportingSeniorId = edits.reportingSeniorId || existing?.reportingSeniorId;
+    const salary = edits.salary ?? existing?.salary;
+    if (!departmentId) throw new BadRequestException('Please choose a department before approving');
+    if (!reportingSeniorId) throw new BadRequestException('Please choose a reporting senior before approving');
+    if (!salary || Number(salary) <= 0) throw new BadRequestException('Please enter the CTC before approving');
+    if (edits.salary !== undefined) (edits as any).salary = Number(edits.salary);
+
     const hasEdits = Object.values(edits).some((v) => v !== undefined);
     if (hasEdits) {
       await this.userLogic.updateUserAndProfile(userId, edits as any, actor);
@@ -259,6 +348,7 @@ export class OnboardingLogic {
       status: user.onboarding?.status,
       submittedAt: user.onboarding?.submittedAt,
       user: { name: user.name },
+      hrEmail: ONBOARDING_HR_EMAIL,
     };
 
     // Don't expose any details once the link is closed.
@@ -280,6 +370,7 @@ export class OnboardingLogic {
         email: user.email,
         number: user.number,
         employeeId: user.employeeId,
+        onboardingId: user.employeeId,
         role: user.role?.name,
         department: profile?.departmentId?.name,
         reportingSenior: profile?.reportingSeniorId?.name,
@@ -292,6 +383,9 @@ export class OnboardingLogic {
   async submit(token: string, dto: SubmitOnboardingDto) {
     const user = await this.findByTokenOrThrow(token);
     this.assertLinkActive(user);
+
+    const invalid = validateSubmission(dto);
+    if (invalid) throw new BadRequestException(invalid);
 
     const payload = this.pickEmployeeFields(dto);
 
@@ -320,7 +414,7 @@ export class OnboardingLogic {
 
     return {
       message:
-        'Your details have been submitted. Your manager will review and activate your profile.',
+        'Your details have been submitted. The HR / administration team will review them and get back to you.',
     };
   }
 

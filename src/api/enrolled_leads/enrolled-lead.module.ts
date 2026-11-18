@@ -27,6 +27,7 @@ import { EnrolledLeadService } from './enrolled-lead.service';
 import { EnrolledLeadSyncService } from './enrolled-lead-sync.service';
 import { EnrolledLeadStageService } from './enrolled-lead-stage.service';
 import { UpskillabClient } from './upskillab.client';
+import { EnrolledLeadReportService } from './enrolled-lead-report.service';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { UpskillabClient } from './upskillab.client';
     EnrolledLeadService,
     EnrolledLeadSyncService,
     EnrolledLeadStageService,
+    EnrolledLeadReportService,
     UpskillabClient,
   ],
   exports: [EnrolledLeadSyncService],

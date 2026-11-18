@@ -5,7 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { isAdminUser } from 'src/common/utils/has-permission.util';
+import { hasPermission, isAdminUser } from 'src/common/utils/has-permission.util';
+import { OrderInvoiceService } from './invoice/order-invoice.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order } from 'src/schema/order_Management/order.schema';
@@ -31,11 +32,14 @@ import {
   buildRevenueAddFields,
   buildUnrealisedRevenueExpression,
   calculateActualRevenue,
+  getBusinessTimezone,
   getServerTimezone,
   hasActualRevenueMatch,
   hasLegacyFinancialInput,
   hasV2FinancialInput,
   recalculateOrderFinancials,
+  startOfDayInTimezone,
+  toDateKey,
   toMoney,
 } from './financial/order-financial.util';
 
@@ -70,6 +74,7 @@ export class OrderService {
     private readonly emailService: EmailService,
     private readonly userActivityLogic: UserActivityLogic,
     private readonly financialService: OrderFinancialService,
+    private readonly invoiceService: OrderInvoiceService,
   ) { }
 
   private resolveLevel(level: any): number | null {
@@ -160,15 +165,23 @@ export class OrderService {
   }
 
   /**
-   * Activity period for the utilization reports: activityDateFilter
-   * (today | week | month) or activityDateFrom + activityDateTo (max 31 days).
+   * Activity period for the utilization reports, in business time (IST):
+   * - today: 12:00 AM today → now
+   * - week:  Monday 12:00 AM of the current week → now (even if only a few days in)
+   * - month: 1st of the current month 12:00 AM → now
+   * - activityDateFrom + activityDateTo: whole days (max 31)
    * Returns null when no activity filter is sent.
    */
   private resolveActivityRange(
     query: any,
+    now = new Date(),
   ): { startDate: Date; endDate: Date } | null {
     const { activityDateFilter, activityDateFrom, activityDateTo } =
       query || {};
+    const tz = getBusinessTimezone();
+    const DAY = 86_400_000;
+    const isKey = (v: any) => /^\d{4}-\d{2}-\d{2}/.test(String(v || ''));
+    const endOfDay = (key: string) => new Date(startOfDayInTimezone(key, tz).getTime() + DAY - 1);
 
     if (activityDateFrom || activityDateTo) {
       if (!activityDateFrom || !activityDateTo) {
@@ -176,75 +189,53 @@ export class OrderService {
           'activityDateFrom and activityDateTo are both required',
         );
       }
+      if (!isKey(activityDateFrom)) throw new BadRequestException('Invalid activityDateFrom');
+      if (!isKey(activityDateTo)) throw new BadRequestException('Invalid activityDateTo');
+      const fromKey = String(activityDateFrom).slice(0, 10);
+      const toKey = String(activityDateTo).slice(0, 10);
+      if (Number.isNaN(startOfDayInTimezone(fromKey, tz).getTime())) throw new BadRequestException('Invalid activityDateFrom');
+      if (Number.isNaN(startOfDayInTimezone(toKey, tz).getTime())) throw new BadRequestException('Invalid activityDateTo');
 
-      const startDate = new Date(activityDateFrom);
-      const endDate = new Date(activityDateTo);
-
-      if (Number.isNaN(startDate.getTime())) {
-        throw new BadRequestException('Invalid activityDateFrom');
-      }
-      if (Number.isNaN(endDate.getTime())) {
-        throw new BadRequestException('Invalid activityDateTo');
-      }
-
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
-
+      const startDate = startOfDayInTimezone(fromKey, tz);
+      const endDate = endOfDay(toKey);
       if (startDate > endDate) {
         throw new BadRequestException(
           'activityDateFrom cannot be greater than activityDateTo',
         );
       }
-
-      const diffDays =
-        Math.floor(
-          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
-        ) + 1;
+      const diffDays = Math.round((startOfDayInTimezone(toKey, tz).getTime() - startDate.getTime()) / DAY) + 1;
       if (diffDays > 31) {
         throw new BadRequestException(
           'activity date range cannot be more than 31 days',
         );
       }
-
       return { startDate, endDate };
     }
 
     if (!activityDateFilter || activityDateFilter === 'none') return null;
 
     const type = String(activityDateFilter).toLowerCase();
-    const now = new Date();
-    let startDate: Date;
-    let endDate: Date;
+    const todayKey = toDateKey(now, tz);
+    const [y, m, d] = todayKey.split('-').map(Number);
+    let startKey: string;
 
     if (type === 'today') {
-      startDate = new Date(now);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
+      startKey = todayKey;
     } else if (type === 'week') {
-      startDate = new Date(now);
-      startDate.setDate(startDate.getDate() - 6);
-      startDate.setHours(0, 0, 0, 0);
-      endDate = new Date(now);
-      endDate.setHours(23, 59, 59, 999);
+      // ISO week: Monday is the first day
+      const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0 = Sunday
+      const back = (weekday + 6) % 7;
+      startKey = new Date(Date.UTC(y, m - 1, d) - back * DAY).toISOString().slice(0, 10);
     } else if (type === 'month') {
-      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      endDate = new Date(
-        now.getFullYear(),
-        now.getMonth() + 1,
-        0,
-        23,
-        59,
-        59,
-        999,
-      );
+      startKey = `${y}-${String(m).padStart(2, '0')}-01`;
     } else {
       throw new BadRequestException(
         'Invalid activityDateFilter. Allowed values: today, week, month',
       );
     }
 
-    return { startDate, endDate };
+    // Running period: ends now (the rest of today is in the future anyway).
+    return { startDate: startOfDayInTimezone(startKey, tz), endDate: endOfDay(todayKey) };
   }
 
   /**
@@ -327,6 +318,7 @@ export class OrderService {
         },
       ]),
 
+      // Latest stage each user moved each lead into during the period.
       this.leadStageHistoryModel.aggregate([
         {
           $match: {
@@ -334,14 +326,13 @@ export class OrderService {
             changedAt: period,
           },
         },
+        { $sort: { changedAt: -1 } },
         {
           $group: {
-            _id: {
-              userId: toStr('$userId'),
-              stageId: toStr('$stageId'),
-              stageName: '$stageName',
-            },
-            leadIds: { $addToSet: toStr('$leadId') },
+            _id: { userId: toStr('$userId'), leadId: toStr('$leadId') },
+            stageId: { $first: toStr('$stageId') },
+            stageName: { $first: '$stageName' },
+            changedAt: { $first: '$changedAt' },
           },
         },
       ]),
@@ -363,6 +354,7 @@ export class OrderService {
     const stagesByUser = new Map<string, any[]>();
     for (const row of stageRows) {
       const userId = row._id?.userId;
+      if (!row._id?.leadId) continue;
       if (!userId) continue;
       const list = stagesByUser.get(userId) || [];
       list.push(row);
@@ -384,6 +376,9 @@ export class OrderService {
         string,
         { stageId: string; stageName: string; leads: Set<string> }
       >();
+      // A lead counts only in the LAST stage it reached in the period
+      // (moved to PCAT Schedule, then PCAT Done → counts as PCAT Done).
+      const latestByLead = new Map<string, { stageId: string; stageName: string; at: number }>();
 
       for (const memberId of memberIds) {
         for (const lead of leadsByUser.get(memberId) || []) {
@@ -400,16 +395,23 @@ export class OrderService {
         }
 
         for (const row of stagesByUser.get(memberId) || []) {
-          const stageName = row._id.stageName || 'Unknown';
-          const key = row._id.stageId || stageName;
-          const entry = stageMap.get(key) || {
-            stageId: row._id.stageId,
-            stageName,
-            leads: new Set<string>(),
-          };
-          (row.leadIds || []).forEach((id: string) => id && entry.leads.add(id));
-          stageMap.set(key, entry);
+          const at = new Date(row.changedAt).getTime() || 0;
+          const prev = latestByLead.get(row._id.leadId);
+          if (!prev || at > prev.at) {
+            latestByLead.set(row._id.leadId, { stageId: row.stageId, stageName: row.stageName || 'Unknown', at });
+          }
         }
+      }
+
+      for (const [leadId, latest] of latestByLead) {
+        const key = latest.stageId || latest.stageName;
+        const entry = stageMap.get(key) || {
+          stageId: latest.stageId,
+          stageName: latest.stageName,
+          leads: new Set<string>(),
+        };
+        entry.leads.add(leadId);
+        stageMap.set(key, entry);
       }
 
       const countLeads = (test: (stageName: string) => boolean) => {
@@ -637,6 +639,8 @@ export class OrderService {
         .populate('courseVertical', 'name revenue_percentage')
         .populate('counsellorId', 'name email')
         .populate('approvedBy', 'name email')
+      .populate('managerApprovedBy', 'name email')
+        .populate('managerApprovedBy', 'name email')
         .populate('loanDetails.loanPartner', 'name type submissionCharge')
         .populate('loanDetails.loanId')
         .populate('loans.loanPartner', 'name type submissionCharge')
@@ -662,6 +666,7 @@ export class OrderService {
       .populate('courseVertical', 'name revenue_percentage')
       .populate('counsellorId', 'name email')
       .populate('approvedBy', 'name email')
+      .populate('managerApprovedBy', 'name email')
       .populate('loanDetails.loanPartner', 'name type submissionCharge')
       .populate('loanDetails.loanId')
       .populate('loans.loanPartner', 'name type submissionCharge')
@@ -802,8 +807,69 @@ export class OrderService {
    * Approval keeps the existing workflow and additionally requires the order
    * to be balanced (planned coverage + credits = finalFee).
    */
+  /**
+   * First-level approval by the counsellor's manager (anyone above them with
+   * orders:manager_approve). The order still waits for the final admin approval.
+   */
+  async managerApproveOrder(id: string, user: any) {
+    if (!Types.ObjectId.isValid(id)) throw new BadRequestException('Invalid order id');
+    const order: any = await this.orderModel.findById(id).select('counsellorId Approved managerApproved').lean();
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.Approved) throw new BadRequestException('This order is already approved by admin');
+    if (order.managerApproved) throw new BadRequestException('This order is already HR approved');
+
+    const userId = String(user?.userId || '');
+    if (!isAdminUser(user)) {
+      const canApprove =
+        hasPermission(user, 'orders', 'approve') || hasPermission(user, 'orders', 'manager_approve');
+      if (!canApprove) throw new ForbiddenException('You do not have permission to approve orders');
+      // The creator never approves their own order – only their seniors do.
+      if (String(order.counsellorId) === userId) {
+        throw new ForbiddenException('You cannot approve your own order. Your senior must approve it.');
+      }
+      const team = await this.getUserAndSubordinateIds(userId);
+      if (!team.includes(String(order.counsellorId))) {
+        throw new ForbiddenException('Only a senior of the order creator can approve it');
+      }
+    }
+
+    // Same rule as the final approval: sources + credits must equal the final fee.
+    await this.financialService.prepareApproval(id);
+
+    const now = new Date();
+    await this.orderModel.updateOne(
+      { _id: id, Approved: { $ne: true }, managerApproved: { $ne: true } },
+      {
+        $set: { managerApproved: true, managerApprovedBy: new Types.ObjectId(userId), managerApprovedAt: now },
+        $push: {
+          financialAuditLog: {
+            action: 'ORDER_MANAGER_APPROVED',
+            entryType: 'order',
+            entryId: id,
+            performedBy: new Types.ObjectId(userId),
+            source: 'API',
+            performedAt: now,
+          },
+        },
+      },
+    );
+    await this.userActivityLogic.log({
+      userId,
+      action: 'Order HR Approved',
+      referenceType: 'ORDER',
+      meta: { message: 'Order approved by HR', orderId: id },
+    });
+    return this.findById(id);
+  }
+
+  invoicePdf(id: string) {
+    return this.invoiceService.pdf(id);
+  }
+
   async approveOrder(id: string, approvedBy: string) {
     const order = await this.financialService.approve(id, approvedBy);
+    // Invoice mail to student + counsellor (background, once per order).
+    void this.invoiceService.sendApprovalInvoice(id);
     await this.userActivityLogic.log({
       userId: approvedBy,
       action: 'Order Approved',
@@ -6857,24 +6923,32 @@ async employeeStageLeads(query: any) {
   const activityRange =
     this.resolveActivityRange(query);
 
+  // leadId → when it was moved into this stage (activity mode only)
+  const movedAtByLead = new Map<string, Date>();
+
   if (activityRange) {
-    const leadIds =
-      await this.leadStageHistoryModel.distinct(
-        'leadId',
-        {
-          stageId:
-            new Types.ObjectId(stageId),
-          userId: {
-            $in: this.toIdVariants(
-              assignedUserIds,
-            ),
-          },
-          changedAt: {
-            $gte: activityRange.startDate,
-            $lte: activityRange.endDate,
-          },
+    // Only leads whose LAST stage reached in the period is this stage – a lead
+    // moved to PCAT Schedule and later to PCAT Done in the period is a
+    // PCAT Done lead, not a PCAT Schedule one.
+    const latest = await this.leadStageHistoryModel.aggregate([
+      {
+        $match: {
+          userId: { $in: this.toIdVariants(assignedUserIds) },
+          changedAt: { $gte: activityRange.startDate, $lte: activityRange.endDate },
         },
-      );
+      },
+      { $sort: { changedAt: -1 } },
+      {
+        $group: {
+          _id: '$leadId',
+          stageId: { $first: '$stageId' },
+          changedAt: { $first: '$changedAt' },
+        },
+      },
+      { $match: { stageId: new Types.ObjectId(stageId) } },
+    ]);
+    const leadIds = latest.map((r: any) => r._id);
+    for (const r of latest) movedAtByLead.set(String(r._id), r.changedAt);
 
     Object.keys(match).forEach(
       (key) => delete match[key],
@@ -7180,7 +7254,10 @@ async employeeStageLeads(query: any) {
           }
         : null,
 
-    data,
+    // activity mode: when the lead was moved into this stage
+    data: movedAtByLead.size
+      ? data.map((row: any) => ({ ...row, stageMovedAt: movedAtByLead.get(String(row._id)) || null }))
+      : data,
   };
 }
 

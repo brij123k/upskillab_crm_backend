@@ -75,6 +75,15 @@ export class LeadController {
         return this.logic.findAll(query,req.user);
     }
 
+  @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+  @Roles('Admin', 'bd')
+  @RequirePermission(PERMISSIONS.LEAD.MODULE, PERMISSIONS.LEAD.ACTIONS.READ)
+  @Get('source-campaigns/suggest')
+  @ApiOperation({ summary: 'Source campaign names (from all leads) matching ?q=, for filter suggestions' })
+  suggestSourceCampaigns(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.logic.suggestSourceCampaigns(q, Math.min(Math.max(Number(limit) || 20, 1), 100));
+  }
+
   @UseGuards(JwtAuthGuard, RoleGuard)
   @Roles('Admin', 'bd')
   @Post(':leadId/pcat-register')

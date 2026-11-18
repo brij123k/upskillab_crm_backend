@@ -13,6 +13,10 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { EnrolledPermissionGuard } from './enrolled-permission.guard';
+import {
+  EnrolledLeadReportService,
+} from './enrolled-lead-report.service';
+import type { EnrolledStageReportQuery, EnrolledStageStudentsQuery } from './enrolled-lead-report.service';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
@@ -42,7 +46,32 @@ export class EnrolledLeadController {
     private readonly service: EnrolledLeadService,
     private readonly sync: EnrolledLeadSyncService,
     private readonly stages: EnrolledLeadStageService,
+    private readonly report: EnrolledLeadReportService,
   ) {}
+
+  // ---------------- report: enrolled students by stage ----------------
+  // No @RequirePermission: the service allows admins, `reports:enrolled-stages`
+  // and enrolled_leads read / read_all / full_access.
+
+  @Get('report/stage-options')
+  @ApiOperation({ summary: 'Courses, batches and stages for the enrolled stage report' })
+  reportOptions(@Req() req: any) {
+    return this.report.options(req.user);
+  }
+
+  @Get('report/stages')
+  @ApiOperation({
+    summary: 'Enrolled students by stage for one course + batch (rows = counsellors, optional level / team roll-up)',
+  })
+  stageReport(@Query() query: any, @Req() req: any) {
+    return this.report.stageReport(query as EnrolledStageReportQuery, req.user);
+  }
+
+  @Get('report/stages/students')
+  @ApiOperation({ summary: 'Students behind a cell of the enrolled stage report' })
+  stageReportStudents(@Query() query: any, @Req() req: any) {
+    return this.report.stageReportStudents(query as EnrolledStageStudentsQuery, req.user);
+  }
 
   // ---------------- static routes first ----------------
 

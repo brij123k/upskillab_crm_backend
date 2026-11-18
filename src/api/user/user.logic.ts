@@ -381,8 +381,29 @@ export class UserLogic {
    * hierarchy, plus freshly created users that are not yet assigned to
    * any department / reporting senior (so they can complete onboarding).
    */
+  /**
+   * Admins, and anyone granted `user:onboarding` (e.g. HR), manage every
+   * user – not just their own team.
+   */
+  hasFullUserAccess(actor: any) {
+    if (!actor) return false;
+    if (this.isAdminActor(actor)) return true;
+    const perms: { module: string; actions: string[] }[] = actor.permissions || [];
+    return perms.some(
+      (p) =>
+        (p.module === '*' && (p.actions.includes('*') || p.actions.includes('onboarding'))) ||
+        (p.module === 'user' && (p.actions.includes('*') || p.actions.includes('onboarding'))),
+    );
+  }
+
+  /** User list for the Users page: whole company for full-access actors, team otherwise. */
+  async getManageableUsers(actor: any, status?: string | string[]) {
+    if (this.hasFullUserAccess(actor)) return this.userData.getAllUsers(status);
+    return this.getUsersUnder(actor, status);
+  }
+
   async assertCanManageUser(actor: any, targetUserId: string) {
-    if (!actor || this.isAdminActor(actor)) return;
+    if (!actor || this.hasFullUserAccess(actor)) return;
 
     const actorId = (actor._id || actor.userId)?.toString();
     if (actorId === targetUserId) return;
@@ -471,6 +492,7 @@ export class UserLogic {
       extraAccessControls: dto.extraAccessControls,
       profileImage: dto.profileImage,
       address: dto.address,
+      currentAddress: (dto as any).currentAddress,
       bankDetails: dto.bankDetails,
       educationalDetails: dto.educationalDetails,
       documents: dto.documents,
@@ -484,7 +506,7 @@ export class UserLogic {
     const existingProfile = await this.profileData.findByUserId(userId);
     if (existingProfile) {
       // keep employee-entered values when admin left a section empty
-      for (const key of ['address', 'bankDetails', 'documents', 'personalDetails']) {
+      for (const key of ['address', 'currentAddress', 'bankDetails', 'documents', 'personalDetails']) {
         if (profilePayload[key] && !Object.values(profilePayload[key]).some((v: any) => (Array.isArray(v) ? v.length : v))) {
           delete profilePayload[key];
         }
@@ -507,7 +529,7 @@ export class UserLogic {
   }
 
   async getAllUsersWithProfile(user: any, status?: string | string[]) {
-    if (user.roleName.toLowerCase() == "admin") {
+    if (this.hasFullUserAccess(user)) {
       const users = await this.userData.getAllUsers(status);
 
       const userIds = users.map((u) => u._id);
@@ -592,6 +614,9 @@ export class UserLogic {
     }
     if (dto.address)
       profilePayload.address = dto.address;
+
+    if (dto.currentAddress)
+      profilePayload.currentAddress = dto.currentAddress;
 
     if (dto.bankDetails)
       profilePayload.bankDetails = dto.bankDetails;

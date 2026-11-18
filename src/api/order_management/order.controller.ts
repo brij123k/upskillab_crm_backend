@@ -7,7 +7,9 @@ import {
     Post,
     Query,
     Req,
+    Res,
     UseGuards,
+    ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { OrderService } from './order.service';
@@ -17,6 +19,7 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { OrderFilterDto } from 'src/dto/order_management/orderFilterDto.dto';
+import { isAdminUser } from 'src/common/utils/has-permission.util';
 import { RequirePermission } from 'src/common/decorators/permission.decorator';
 import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import {
@@ -213,8 +216,38 @@ export class OrderController {
         @Param('id') id: string,
         @Req() req: any,
     ) {
+        // Final approval is the Admin's step; other approvers use the HR approval.
+        if (!isAdminUser(req.user) && !req.user?.isSuperAdmin) {
+            throw new ForbiddenException('Only an admin can give the final approval. Use HR approval instead.');
+        }
         const approvedBy = req.user.userId;
         return this.service.approveOrder(id, approvedBy);
+    }
+
+    /**
+     * HR (first-level) approval by a senior of the order's creator – anyone with
+     * orders:approve or orders:manager_approve. Admin approval is still required.
+     */
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles('Admin', 'bd')
+    @Patch('manager-approve/:id')
+    managerApprove(@Param('id') id: string, @Req() req: any) {
+        return this.service.managerApproveOrder(id, req.user);
+    }
+
+    /** Invoice PDF (same document that is emailed after admin approval). */
+    @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
+    @Roles('Admin', 'bd')
+    @Get(':id/invoice')
+    @RequirePermission(PERMISSIONS.Orders.MODULE, PERMISSIONS.Orders.ACTIONS.READ)
+    async invoice(@Param('id') id: string, @Req() req: any, @Res() res: any) {
+        await this.service.assertOrderAccess(id, req.user);
+        const out = await this.service.invoicePdf(id);
+        if (!out) return res.status(404).json({ message: 'Order not found' });
+        const name = `Upskillab-Invoice-${out.order.invoiceNumber || String(out.order._id).slice(-6)}.pdf`;
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${name}"`);
+        return res.send(out.buffer);
     }
 
     @UseGuards(JwtAuthGuard, RoleGuard)

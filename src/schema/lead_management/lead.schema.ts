@@ -86,8 +86,17 @@ export class Lead extends Document {
   @Prop()
   source_campaign?: string;
 
+  /** Time of the latest call log for this lead (kept in sync by a CallLog hook). */
+  @Prop({ type: Date })
+  lastCallAt?: Date;
+
   createdAt: Date;
   updatedAt: Date;
 }
 
 export const LeadSchema = SchemaFactory.createForClass(Lead);
+
+// Column sorting on the Leads table.
+LeadSchema.index({ lastCallAt: -1 });
+LeadSchema.index({ createdAt: -1 });
+LeadSchema.index({ source_campaign: 1 });

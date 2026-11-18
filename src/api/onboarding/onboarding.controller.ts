@@ -16,8 +16,6 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
 import { PermissionGuard } from 'src/common/guards/permission.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
-import { RequirePermission } from 'src/common/decorators/permission.decorator';
-import { PERMISSIONS } from 'src/common/constants/permissions.constant';
 import {
   ApproveOnboardingDto,
   GenerateOnboardingLinkDto,
@@ -25,24 +23,25 @@ import {
 } from 'src/dto/onboarding/onboarding.dto';
 import { OnboardingLogic } from './onboarding.logic';
 
-/** Admin / BD endpoints for managing an employee's onboarding link. */
+/**
+ * Staff endpoints for an employee's onboarding. Only Admin (wildcard
+ * permissions) and roles granted `user:onboarding` (e.g. HR) can use them.
+ */
 @ApiTags('Employee Onboarding')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RoleGuard, PermissionGuard)
-@Roles('Admin', 'bd')
+@Roles('Admin', 'bd', 'hr')
 @Controller('users')
 export class OnboardingStaffController {
   constructor(private readonly logic: OnboardingLogic) {}
 
   @Get(':id/onboarding')
-  @RequirePermission(PERMISSIONS.USER.MODULE, PERMISSIONS.USER.ACTIONS.READ)
   @ApiOperation({ summary: 'Get onboarding status, link and submitted details' })
   get(@Param('id') userId: string, @Req() req: any) {
     return this.logic.getForStaff(req.user, userId, req);
   }
 
   @Post(':id/onboarding/link')
-  @RequirePermission(PERMISSIONS.USER.MODULE, PERMISSIONS.USER.ACTIONS.UPDATE)
   @ApiOperation({
     summary:
       'Generate the onboarding link, or re-activate the existing one so the employee can edit again',
@@ -56,14 +55,12 @@ export class OnboardingStaffController {
   }
 
   @Patch(':id/onboarding/revoke')
-  @RequirePermission(PERMISSIONS.USER.MODULE, PERMISSIONS.USER.ACTIONS.UPDATE)
   @ApiOperation({ summary: 'Deactivate the onboarding link' })
   revoke(@Param('id') userId: string, @Req() req: any) {
     return this.logic.revokeLink(req.user, userId, req);
   }
 
   @Patch(':id/onboarding/approve')
-  @RequirePermission(PERMISSIONS.USER.MODULE, PERMISSIONS.USER.ACTIONS.UPDATE)
   @ApiOperation({
     summary: 'Approve submitted onboarding details (optionally with edits) and activate',
   })

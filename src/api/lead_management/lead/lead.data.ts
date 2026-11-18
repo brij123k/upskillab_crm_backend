@@ -1,3 +1,4 @@
+import { Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { buildDateCondition, containsRegex, parsePagination } from 'src/common/utils/filter.util';
@@ -8,7 +9,35 @@ import { User } from 'src/schema/user.schema';
 import { LeadScheduleData } from '../lead-schedule/lead-schedule.data';
 import { CallLog } from 'src/schema/call-log.schema';
 
-export class LeadData {
+/**
+ * Leads table sort options:
+ *   new / old                 → created date
+ *   name_asc / name_desc      → lead name (case-insensitive)
+ *   last_call_desc / _asc     → latest call time (never-called leads sort as oldest)
+ */
+export function leadSortSpec(sort?: string): { sort: Record<string, 1 | -1>; collation: any } {
+  const simple = { locale: 'simple' };
+  switch (sort) {
+    case 'old':
+      return { sort: { createdAt: 1, _id: 1 }, collation: simple };
+    case 'name_asc':
+      return { sort: { name: 1, _id: 1 }, collation: { locale: 'en', strength: 2 } };
+    case 'name_desc':
+      return { sort: { name: -1, _id: -1 }, collation: { locale: 'en', strength: 2 } };
+    case 'last_call_desc':
+      return { sort: { lastCallAt: -1, createdAt: -1 }, collation: simple };
+    case 'last_call_asc':
+      return { sort: { lastCallAt: 1, createdAt: -1 }, collation: simple };
+    default:
+      return { sort: { createdAt: -1, _id: -1 }, collation: simple };
+  }
+}
+
+const CAMPAIGN_CACHE_MS = 5 * 60 * 1000;
+
+export class LeadData implements OnModuleInit {
+  private campaignCache: { at: number; values: string[] } | null = null;
+
   constructor(
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
@@ -17,6 +46,72 @@ export class LeadData {
     private readonly userLogic: UserLogic,
     private readonly leadScheduleData: LeadScheduleData,
   ) { }
+
+  onModuleInit() {
+    // Background: never block startup.
+    setTimeout(() => this.backfillLastCallAt().catch((e) => new Logger('LeadData').warn(`lastCallAt backfill failed: ${e?.message}`)), 5000);
+  }
+
+  /**
+   * One-off sync of Lead.lastCallAt from existing call logs (new calls are
+   * kept in sync by the CallLog post-save hook). Idempotent – only writes
+   * leads whose value is missing or older.
+   */
+  async backfillLastCallAt() {
+    const cursor = this.callLogModel
+      .aggregate([
+        { $match: { leadId: { $ne: null } } },
+        { $group: { _id: '$leadId', at: { $max: '$createdAt' } } },
+      ])
+      .allowDiskUse(true)
+      .cursor({ batchSize: 1000 });
+
+    let ops: any[] = [];
+    let written = 0;
+    const flush = async () => {
+      if (!ops.length) return;
+      const res = await this.leadModel.bulkWrite(ops, { ordered: false });
+      written += res.modifiedCount || 0;
+      ops = [];
+    };
+    for await (const row of cursor as any) {
+      if (row?._id === null || row?._id === undefined || !row.at) continue;
+      ops.push({
+        updateOne: {
+          filter: { leadId: row._id, $or: [{ lastCallAt: { $exists: false } }, { lastCallAt: null }, { lastCallAt: { $lt: row.at } }] },
+          update: { $set: { lastCallAt: row.at } },
+        },
+      });
+      if (ops.length >= 1000) await flush();
+    }
+    await flush();
+    if (written) new Logger('LeadData').log(`lastCallAt backfilled on ${written} leads`);
+  }
+
+  /**
+   * Distinct source campaigns across all leads, for filter suggestions.
+   * Cached in memory for 5 minutes; filtering happens on the cached list.
+   */
+  async suggestSourceCampaigns(q?: string, limit = 20) {
+    if (!this.campaignCache || Date.now() - this.campaignCache.at > CAMPAIGN_CACHE_MS) {
+      const values = (await this.leadModel.distinct('source_campaign'))
+        .filter((v: any) => typeof v === 'string' && v.trim())
+        .map((v: string) => v.trim());
+      this.campaignCache = { at: Date.now(), values: [...new Set(values)].sort((a, b) => a.localeCompare(b)) };
+    }
+    const term = String(q || '').trim().toLowerCase();
+    const all = this.campaignCache.values;
+    if (!term) return all.slice(0, limit);
+    const starts: string[] = [];
+    const contains: string[] = [];
+    for (const v of all) {
+      const lv = v.toLowerCase();
+      if (lv.startsWith(term)) starts.push(v);
+      else if (lv.includes(term)) contains.push(v);
+      if (starts.length >= limit) break;
+    }
+    return [...starts, ...contains].slice(0, limit);
+  }
 
   async create(data: any) {
     const lastLead = await this.leadModel
@@ -179,7 +274,7 @@ export class LeadData {
     const query: any = await this.buildLeadListQuery(filters);
 
     // 📊 SORTING
-    const sortOrder = sort === 'old' ? 1 : -1;
+    const sortSpec = leadSortSpec(sort);
 
     const [data, total] = await Promise.all([
       this.leadModel
@@ -187,7 +282,8 @@ export class LeadData {
         .populate('assignedTo', 'name email employeeId')
         .populate('stageId', 'name order')
         .populate('poolId', 'name')
-        .sort({ createdAt: sortOrder })
+        .sort(sortSpec.sort)
+        .collation(sortSpec.collation)
         .skip(skip)
         .limit(Number(limit)),
 
@@ -297,7 +393,7 @@ const leadsWithCallInfo = data.map((lead: any) => {
     }
 
     /* ================= PAGINATION ================= */
-    const sortOrder = sort === 'old' ? 1 : -1;
+    const sortSpec = leadSortSpec(sort);
 
     const [data, total] = await Promise.all([
       this.leadModel
@@ -305,7 +401,8 @@ const leadsWithCallInfo = data.map((lead: any) => {
         .populate('assignedTo', 'name email employeeId')
         .populate('stageId', 'name order')
         .populate('poolId', 'name')
-        .sort({ createdAt: sortOrder })
+        .sort(sortSpec.sort)
+        .collation(sortSpec.collation)
         .skip(skip)
         .limit(Number(limit)),
 
@@ -507,7 +604,7 @@ async findOne(filters: any) {
     }
 
     // 📊 SORTING
-    const sortOrder = sort === 'old' ? 1 : -1;
+    const sortSpec = leadSortSpec(sort);
 
     // 📄 PAGINATION
     const skip = (page - 1) * limit;
@@ -521,7 +618,8 @@ async findOne(filters: any) {
         .populate('assignedTo', 'name email employeeId')
         .populate('stageId', 'name order')
         .populate('poolId', 'name')
-        .sort({ createdAt: sortOrder })
+        .sort(sortSpec.sort)
+        .collation(sortSpec.collation)
         .skip(skip)
         .limit(Number(limit)),
 

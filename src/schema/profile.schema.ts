@@ -61,6 +61,10 @@ class EducationDetail {
 
   @Prop()
   percentageOrCGPA?: string;
+
+  /** Uploaded marksheet / certificate for this qualification. */
+  @Prop()
+  certificate?: string;
 }
 
 @Schema({ _id: false })
@@ -73,6 +77,10 @@ class Documents {
 
   @Prop()
   panCard?: string;
+
+  /** Bank passbook / cancelled cheque. */
+  @Prop()
+  passbook?: string;
 
   @Prop({
     type: [String],
@@ -94,6 +102,21 @@ class PersonalDetails {
 
   @Prop()
   panNumber?: string;
+
+  @Prop()
+  bloodGroup?: string;
+
+  @Prop()
+  alternateMobile?: string;
+
+  @Prop()
+  emergencyContactName?: string;
+
+  @Prop()
+  emergencyContactNumber?: string;
+
+  @Prop()
+  emergencyContactRelation?: string;
 }
 
 @Schema({ timestamps: true })
@@ -140,8 +163,12 @@ export class Profile extends Document {
   @Prop({ type: PersonalDetails, default: {} })
   personalDetails?: PersonalDetails;
 
+  /** Permanent address. */
   @Prop({ type: Address, default: {} })
   address?: Address;
+
+  @Prop({ type: Address, default: {} })
+  currentAddress?: Address;
 
   @Prop({ type: BankDetails, default: {} })
   bankDetails?: BankDetails;

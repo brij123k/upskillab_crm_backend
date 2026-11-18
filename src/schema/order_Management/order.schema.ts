@@ -519,6 +519,30 @@ export class Order {
   @Prop({ type: Types.ObjectId, ref: 'User', required: false })
   approvedBy: Types.ObjectId;
 
+  /** Final (admin) approval time. */
+  @Prop()
+  approvedAt?: Date;
+
+  /**
+   * First-level approval by the counsellor's manager. Admin approval also sets
+   * it when the manager has not approved yet.
+   */
+  @Prop({ default: false })
+  managerApproved?: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: false })
+  managerApprovedBy?: Types.ObjectId;
+
+  @Prop()
+  managerApprovedAt?: Date;
+
+  /** Invoice emailed to student + counsellor after admin approval. */
+  @Prop()
+  invoiceNumber?: string;
+
+  @Prop()
+  invoiceSentAt?: Date;
+
   /* ---------------- MULTI-SOURCE PAYMENT STRUCTURE (v2) ---------------- */
 
   @Prop({ default: undefined })

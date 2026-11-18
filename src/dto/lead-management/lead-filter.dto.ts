@@ -156,7 +156,7 @@ bulkSearch?: string;
   @IsOptional()
   assignedDateTo?: string;
 
-  @ApiPropertyOptional({ example: 'new | old' })
+  @ApiPropertyOptional({ example: 'new | old | name_asc | name_desc | last_call_desc | last_call_asc' })
   @IsOptional()
   sort?: string;
 

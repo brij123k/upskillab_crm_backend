@@ -415,6 +415,10 @@ await this.notificationEngine.handleEvent({
     return {"message":"Lead Added succefully"};
   }
 
+  suggestSourceCampaigns(q?: string, limit?: number) {
+    return this.leadData.suggestSourceCampaigns(q, limit);
+  }
+
   async findAll(filters: any, user: any) {
     if (user.isSuperAdmin) {
       console.log(filters)

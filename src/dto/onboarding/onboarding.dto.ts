@@ -22,11 +22,6 @@ export class SubmitOnboardingDto {
   @IsString()
   profileImage?: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  education?: string;
-
   @ApiPropertyOptional({ type: PersonalDetailsDto })
   @IsOptional()
   @ValidateNested()
@@ -37,6 +32,18 @@ export class SubmitOnboardingDto {
   @IsOptional()
   @IsObject()
   address?: {
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    pincode?: string;
+  };
+
+  @ApiPropertyOptional({ description: 'Current address (permanent address goes in `address`)' })
+  @IsOptional()
+  @IsObject()
+  currentAddress?: {
     addressLine1?: string;
     addressLine2?: string;
     city?: string;
@@ -66,6 +73,7 @@ export class SubmitOnboardingDto {
     boardOrUniversity?: string;
     passingYear?: number;
     percentageOrCGPA?: string;
+    certificate?: string;
   }[];
 
   @ApiPropertyOptional()
@@ -75,6 +83,7 @@ export class SubmitOnboardingDto {
     aadhaarFront?: string;
     aadhaarBack?: string;
     panCard?: string;
+    passbook?: string;
     educationalCertificates?: string[];
   };
 }

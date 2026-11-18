@@ -102,3 +102,25 @@ CallLogSchema.index({
   createdAt: -1,
   leadId: 1,
 });
+
+/**
+ * Keep Lead.lastCallAt current so the Leads table can sort by "Last Call"
+ * across all pages. Every call log is written with Model.create(), which runs
+ * this hook.
+ */
+CallLogSchema.post('save', function (doc: any) {
+  if (doc?.leadId === undefined || doc?.leadId === null) return;
+  const at = doc.createdAt || new Date();
+  try {
+    doc.db
+      .model('Lead')
+      .updateOne(
+        { leadId: doc.leadId, $or: [{ lastCallAt: { $exists: false } }, { lastCallAt: null }, { lastCallAt: { $lt: at } }] },
+        { $set: { lastCallAt: at } },
+      )
+      .exec()
+      .catch(() => undefined);
+  } catch {
+    /* Lead model not registered on this connection – nothing to sync */
+  }
+});

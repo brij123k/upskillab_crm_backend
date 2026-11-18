@@ -41,6 +41,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
 import { OrderFinancialModule } from './financial/order-financial.module';
 import { PendingCreditService } from './credits/pending-credit.service';
 import { PendingCreditNotificationService } from './credits/pending-credit-notification.service';
+import { OrderInvoiceService } from './invoice/order-invoice.service';
 @Module({
   imports: [
     UserModule,
@@ -69,6 +70,7 @@ import { PendingCreditNotificationService } from './credits/pending-credit-notif
     EmiCronService,
     PendingCreditService,
     PendingCreditNotificationService,
+    OrderInvoiceService,
   ],
   exports: [OrderService, EmiCronService, OrderFinancialModule],
 })

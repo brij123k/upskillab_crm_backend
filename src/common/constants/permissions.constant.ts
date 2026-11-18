@@ -47,6 +47,8 @@ export const PERMISSIONS = {
       DELETE: 'delete',
       BLOCK: 'block',
       USER_ACTIVITY: 'user_activity',
+      /** Run employee onboarding (links, review, approve) and manage every user. */
+      ONBOARDING: 'onboarding',
     },
   },
 
@@ -98,7 +100,10 @@ export const PERMISSIONS = {
       CREATE:'create',
       READ:'read',
       UPDATE:'update',
+      /** Final (admin) approval. */
       APPROVE:'approve',
+      /** First-level approval of orders of the user's team. */
+      MANAGER_APPROVE:'manager_approve',
       LOANS:'read_loans',
       SENDREMINDERS:'send_reminders',
       PAYMENTLINKGENERATOR:'payment_link_generator',

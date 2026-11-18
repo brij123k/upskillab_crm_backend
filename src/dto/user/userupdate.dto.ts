@@ -85,6 +85,18 @@ export class ChangeUserDto {
       country?: string;
       pincode?: string;
     };
+
+  @ApiPropertyOptional({ description: 'Current address (permanent address goes in `address`)' })
+  @IsOptional()
+  @IsObject()
+  currentAddress?: {
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    pincode?: string;
+  };
        @ApiPropertyOptional({
         example: "add bank Detail",
       })
@@ -110,6 +122,7 @@ export class ChangeUserDto {
       boardOrUniversity?: string;
       passingYear?: number;
       percentageOrCGPA?: string;
+      certificate?: string;
     }[];
     
      @ApiPropertyOptional({
@@ -121,6 +134,7 @@ export class ChangeUserDto {
       aadhaarFront?: string;
       aadhaarBack?: string;
       panCard?: string;
+      passbook?: string;
       educationalCertificates?: string[];
     };
 
