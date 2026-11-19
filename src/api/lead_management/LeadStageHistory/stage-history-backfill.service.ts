@@ -49,26 +49,15 @@ export class StageHistoryBackfillService implements OnModuleInit {
     const defaultStage = [...stages].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0))[0];
     const defaultStageId = defaultStage ? String(defaultStage._id) : '';
 
-    const cursor = this.leadHistoryModel
-      .aggregate([
-        {
-          $match: {
-            actionType: LeadActionType.CALL_LOG,
-            'changes.stageId': { $exists: true, $ne: null },
-          },
-        },
-        { $sort: { createdAt: 1 } },
-        {
-          $group: {
-            _id: '$leadId',
-            calls: {
-              $push: { stageId: '$changes.stageId', at: '$createdAt', by: '$actionBy', callId: '$changes._id' },
-            },
-          },
-        },
-      ])
-      .allowDiskUse(true)
-      .cursor({ batchSize: 200 });
+    // No big $group (Atlas shared tiers refuse spilling to disk): list the
+    // leads that have call logs, then read each lead's calls via the
+    // { leadId, createdAt } index, one lead at a time.
+    const callFilter = {
+      actionType: LeadActionType.CALL_LOG,
+      'changes.stageId': { $exists: true, $ne: null },
+    };
+    const leadKeys: string[] = (await this.leadHistoryModel.distinct('leadId', callFilter)).map(String);
+    this.logger.log(`Stage history backfill: checking ${leadKeys.length} leads with call logs`);
 
     let created = 0;
     let leadsTouched = 0;
@@ -79,9 +68,8 @@ export class StageHistoryBackfillService implements OnModuleInit {
       created += batch.length;
       batch = [];
     };
-
-    for await (const group of cursor as any) {
-      const numericId = Number(group._id);
+    for (const leadKey of leadKeys) {
+      const numericId = Number(leadKey);
       if (!Number.isFinite(numericId)) continue;
       const lead: any = await this.leadModel.findOne({ leadId: numericId }).select('_id').lean();
       if (!lead) continue;
@@ -93,11 +81,19 @@ export class StageHistoryBackfillService implements OnModuleInit {
         .lean();
       const known = existing.map((h: any) => ({ stageId: String(h.stageId), at: new Date(h.changedAt).getTime() }));
 
+      const calls = (
+        await this.leadHistoryModel
+          .find({ leadId: leadKey, ...callFilter })
+          .select('changes.stageId changes._id actionBy createdAt')
+          .sort({ createdAt: 1 })
+          .lean()
+      ).map((h: any) => ({ stageId: h.changes?.stageId, at: h.createdAt, by: h.actionBy, callId: h.changes?._id }));
+
       let prevCallStage: string | null = null;
       let prevCallAt = -Infinity;
       let addedForLead = 0;
 
-      for (const c of group.calls) {
+      for (const c of calls) {
         const stageId = c.stageId ? String(c.stageId) : '';
         const at = new Date(c.at).getTime();
         if (!stageId || !Types.ObjectId.isValid(stageId) || !c.by || !Number.isFinite(at)) continue;

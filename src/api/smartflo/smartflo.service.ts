@@ -56,6 +56,33 @@ export class SmartfloService {
   private baseUrl2 = process.env.SMARTFLO_BASE_URL2;
   private apiKey = process.env.SMARTFLO_API_KEY;
 
+  /**
+   * Smartflo failures, with the real cause logged. "Smartflo Error: undefined"
+   * used to hide network errors (timeout / DNS / refused) because only the
+   * response body was printed, and there is no body when Smartflo never answers.
+   */
+  private smartfloError(error: any, endpoint: string) {
+    const status = error?.response?.status;
+    const body = error?.response?.data;
+    console.error('Smartflo Error:', {
+      endpoint,
+      status: status ?? null,
+      code: error?.code ?? null, // e.g. ECONNABORTED (timeout), ENOTFOUND, ECONNREFUSED
+      message: error?.message,
+      response: body ?? null,
+    });
+    if (status) {
+      const detail = typeof body === 'string' ? body : body?.message || body?.error || body?.msg;
+      return new HttpException(
+        { message: `Smartflo rejected the call request${detail ? `: ${detail}` : ` (HTTP ${status})`}`, smartflo: body ?? null },
+        status,
+      );
+    }
+    const reason =
+      error?.code === 'ECONNABORTED' ? 'Smartflo did not answer in time' : `Could not reach Smartflo (${error?.code || error?.message || 'network error'})`;
+    return new HttpException({ message: `${reason}. Please try again.` }, 502);
+  }
+
   // ✅ COMMON REQUEST FUNCTION
   private async makeRequest(
     method: 'GET' | 'POST',
@@ -74,15 +101,12 @@ export class SmartfloService {
         },
         data,
         params,
+        timeout: 20_000,
       });
 
       return response.data;
     } catch (error) {
-      console.error('Smartflo Error:', error?.response?.data);
-      throw new HttpException(
-        error?.response?.data || 'Smartflo API Error',
-        error?.response?.status || 500,
-      );
+      throw this.smartfloError(error, endpoint);
     }
   }
 
@@ -103,15 +127,12 @@ export class SmartfloService {
         },
         data,
         params,
+        timeout: 20_000,
       });
 
       return response.data;
     } catch (error) {
-      console.error('Smartflo Error:', error?.response?.data);
-      throw new HttpException(
-        error?.response?.data || 'Smartflo API Error',
-        error?.response?.status || 500,
-      );
+      throw this.smartfloError(error, endpoint);
     }
   }
 
@@ -157,10 +178,20 @@ async clickToCall(dto:any,user:any) {
   if(!lead){
     throw new NotFoundException("Lead Not Found")
   }
+  const agent = lastTenDigits(user?.number);
+  if (agent.length !== 10) {
+    throw new BadRequestException(
+      'Your mobile number is not set on your user profile, so the call cannot be connected',
+    );
+  }
+  const destination = lastTenDigits(lead.phone);
+  if (destination.length !== 10) {
+    throw new BadRequestException('This lead has no valid 10-digit mobile number');
+  }
   const response = await this.makeRequest2('POST', '/click_to_call', {
     async: 1,
-    agent_number: Number(user.number),
-    destination_number: Number(lead.phone),
+    agent_number: Number(agent),
+    destination_number: Number(destination),
     caller_id: process.env.CALLERID,
   });
   console.log("Click To Call Response:",response)

@@ -51,3 +51,7 @@ export class LeadHistory extends Document {
 
 export const LeadHistorySchema =
   SchemaFactory.createForClass(LeadHistory);
+
+// Lead history timeline + stage-history backfill read by lead and time.
+LeadHistorySchema.index({ leadId: 1, createdAt: 1 });
+
