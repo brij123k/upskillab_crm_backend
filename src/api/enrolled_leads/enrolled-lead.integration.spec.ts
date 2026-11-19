@@ -160,6 +160,8 @@ beforeAll(async () => {
     { log: async () => undefined } as any,
     { create: async () => undefined } as any,
     m.EnrolledLead,
+    {} as any, // LeadStage (sales stage changes – not used here)
+    {} as any, // LeadStageHistory
   );
   service = new EnrolledLeadService(
     m.EnrolledLead,

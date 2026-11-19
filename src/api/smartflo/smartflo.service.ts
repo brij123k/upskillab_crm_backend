@@ -16,6 +16,8 @@ import { CallLogReview } from 'src/schema/all-log-review.schema';
 import { LeadActionType } from 'src/schema/lead_management/lead-history.schema';
 import { User } from 'src/schema/user.schema';
 import { EnrolledLead } from 'src/schema/enrolled_leads/enrolled-lead.schema';
+import { LeadStage } from 'src/schema/lead_management/lead-stage.schema';
+import { LeadStageHistory } from 'src/schema/lead_management/LeadStageHistory.schema';
 
 /** Last 10 digits of a phone number (Indian mobile without country code). */
 const lastTenDigits = (num?: string | number | null) =>
@@ -41,6 +43,12 @@ export class SmartfloService {
 
     @InjectModel(EnrolledLead.name)
     private readonly enrolledLeadModel: Model<EnrolledLead>,
+
+    @InjectModel(LeadStage.name)
+    private readonly leadStageModel: Model<LeadStage>,
+
+    @InjectModel(LeadStageHistory.name)
+    private readonly leadStageHistoryModel: Model<LeadStageHistory>,
     ) { }
    
 
@@ -414,11 +422,9 @@ async updateCallLog(body:any){
 
     await call.save();
 
-    // 🔥 update lead stage
-    await this.leadModel.updateOne(
-      { leadId: call.leadId },
-      { stageId:new Types.ObjectId(stageId) }
-    );
+    // 🔥 update lead stage – and record it like every other stage change
+    // (LeadStageHistory feeds the activity reports; lead history shows it).
+    await this.applyCallStageChange(call, stageId);
 
     await this.leadHistoryLogic.log({
         leadId: call.leadId.toString(),
@@ -451,6 +457,55 @@ async updateCallLog(body:any){
 }
   createreview(data: any) {
     return this.model.create(data);
+  }
+
+  /**
+   * Stage chosen in the after-call form. Only when it differs from the lead's
+   * current stage: updates the lead (stageChangedAt / modifiedBy too), writes a
+   * LeadStageHistory row and a "stage changed by call" lead-history entry.
+   */
+  private async applyCallStageChange(call: any, stageId: any) {
+    if (!stageId || !Types.ObjectId.isValid(String(stageId))) return;
+    const lead: any = await this.leadModel.findOne({ leadId: call.leadId }).select('_id leadId stageId').lean();
+    if (!lead) return;
+    if (lead.stageId && String(lead.stageId) === String(stageId)) return; // no change
+
+    const [newStage, oldStage]: any[] = await Promise.all([
+      this.leadStageModel.findById(stageId).select('name').lean(),
+      lead.stageId ? this.leadStageModel.findById(lead.stageId).select('name').lean() : null,
+    ]);
+    const now = new Date();
+    const userId = call.userId ? String(call.userId) : undefined;
+
+    await this.leadModel.updateOne(
+      { _id: lead._id },
+      {
+        $set: {
+          stageId: new Types.ObjectId(String(stageId)),
+          stageChangedAt: now,
+          modifiedAt: now,
+          ...(userId ? { modifiedBy: userId } : {}),
+        },
+      },
+    );
+
+    if (userId) {
+      await this.leadStageHistoryModel.create({
+        leadId: lead._id,
+        stageId: new Types.ObjectId(String(stageId)),
+        stageName: newStage?.name || 'Unknown',
+        userId: new Types.ObjectId(userId),
+        changedAt: now,
+        source: 'call',
+        callLogId: call._id,
+      });
+      await this.leadHistoryLogic.log({
+        leadId: String(call.leadId),
+        actionType: LeadActionType.STAGE_CHANGED_CallS,
+        actionBy: userId,
+        changes: { status: { from: oldStage?.name || '-', to: newStage?.name || '-' } },
+      });
+    }
   }
 
 }

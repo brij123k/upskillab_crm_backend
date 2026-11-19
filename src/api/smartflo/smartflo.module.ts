@@ -1,3 +1,5 @@
+import { LeadStage, LeadStageSchema } from 'src/schema/lead_management/lead-stage.schema';
+import { LeadStageHistory, LeadStageHistorySchema } from 'src/schema/lead_management/LeadStageHistory.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Profile, ProfileSchema } from 'src/schema/profile.schema';
@@ -26,6 +28,8 @@ import {
       { name: User.name, schema: UserSchema },
       { name: CallLogReview.name, schema: CallLogReviewSchema },
       { name: EnrolledLead.name, schema: EnrolledLeadSchema },
+      { name: LeadStage.name, schema: LeadStageSchema },
+      { name: LeadStageHistory.name, schema: LeadStageHistorySchema },
     ]),
     SocketModule,
     LeadHistoryModule,

@@ -48,6 +48,14 @@ export class LeadStageHistory {
     index: true,
   })
   changedAt: Date;
+
+  /** Where the row came from: 'lead' (stage change), 'call' (call feedback), 'backfill_call_log'. */
+  @Prop()
+  source?: string;
+
+  /** Call log that changed the stage (call feedback / backfill). */
+  @Prop({ type: Types.ObjectId, ref: 'CallLog' })
+  callLogId?: Types.ObjectId;
 }
 
 export const LeadStageHistorySchema =
