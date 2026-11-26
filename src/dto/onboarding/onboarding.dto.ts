@@ -3,6 +3,9 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsNumber,
+  Matches,
+  Min,
   IsObject,
   IsOptional,
   IsString,
@@ -110,4 +113,53 @@ export class ApproveOnboardingDto extends ChangeUserDto {
   @IsOptional()
   @IsBoolean()
   activateUser?: boolean;
+
+  /* ---- CTC (saved as the employee's first salary structure) ---- */
+
+  @ApiPropertyOptional({ example: 600000, description: 'Annual CTC in ₹' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  annualCtc?: number;
+
+  @ApiPropertyOptional({ example: '2026-12-01', description: 'Salary effective from (default today)' })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'salaryEffectiveFrom must be YYYY-MM-DD' })
+  salaryEffectiveFrom?: string;
+
+  @ApiPropertyOptional({ description: 'State for Professional Tax' })
+  @IsOptional()
+  @IsString()
+  ptState?: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsOptional()
+  @IsBoolean()
+  pfApplicable?: boolean;
+
+  @ApiPropertyOptional({ description: "'auto', true or false" })
+  @IsOptional()
+  esiApplicable?: boolean | 'auto';
+
+  @ApiPropertyOptional({ description: 'Monthly TDS' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tdsMonthly?: number;
+
+  @ApiPropertyOptional({ description: 'Insurance premium per year (optional)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  insuranceAnnual?: number;
+
+  @ApiPropertyOptional({ description: 'Salary structure template chosen at approval' })
+  @IsOptional()
+  @IsString()
+  salaryTemplateId?: string;
+
+  @ApiPropertyOptional({ description: 'Per-employee % split (overrides the template for this employee)' })
+  @IsOptional()
+  @IsArray()
+  customComponents?: any[];
 }

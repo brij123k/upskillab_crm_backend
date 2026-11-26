@@ -28,11 +28,13 @@ import { EnrolledLeadSyncService } from './enrolled-lead-sync.service';
 import { EnrolledLeadStageService } from './enrolled-lead-stage.service';
 import { UpskillabClient } from './upskillab.client';
 import { EnrolledLeadReportService } from './enrolled-lead-report.service';
+import { CampaignsModule } from '../campaigns/campaigns.module';
 
 @Module({
   imports: [
     UserModule,
     SmartfloModule,
+    CampaignsModule,
     MongooseModule.forFeature([
       { name: CallLog.name, schema: CallLogSchema },
       { name: EnrolledLead.name, schema: EnrolledLeadSchema },

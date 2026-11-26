@@ -39,6 +39,8 @@ import { HolidayModule } from './api/holiday/holiday.module';
 import { BootcampModule } from './bootcamp/bootcamp.module';
 import { EnrolledLeadModule } from './api/enrolled_leads/enrolled-lead.module';
 import { OnboardingModule } from './api/onboarding/onboarding.module';
+import { PayrollModule } from './api/payroll/payroll.module';
+import { HrModule } from './api/hr/hr.module';
 @Module({
   imports: [
 ConfigModule.forRoot({
@@ -50,6 +52,8 @@ ConfigModule.forRoot({
     CommonModule,
     UserModule,
     OnboardingModule,
+    PayrollModule,
+    HrModule,
     DepartmentModule,
     LeadStageModule,
     LeadModule,

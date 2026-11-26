@@ -89,6 +89,16 @@ export class BulkWhatsappDto {
 
   @IsOptional()
   @IsArray({
+    message: 'enrolledLeadIds must be an array',
+  })
+  @IsString({
+    each: true,
+    message: 'every enrolledLeadId must be a string',
+  })
+  enrolledLeadIds?: string[];
+
+  @IsOptional()
+  @IsArray({
     message: 'phoneNumbers must be an array',
   })
   @IsString({

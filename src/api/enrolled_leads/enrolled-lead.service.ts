@@ -242,6 +242,32 @@ export class EnrolledLeadService {
     };
   }
 
+  async findAccessibleForWhatsApp(ids: string[], user: any) {
+    const uniqueIds = [...new Set(ids)];
+    if (!uniqueIds.length) {
+      throw new BadRequestException('Select at least one enrolled student');
+    }
+    if (uniqueIds.some((id) => !Types.ObjectId.isValid(id))) {
+      throw new BadRequestException('One or more enrolled student ids are invalid');
+    }
+
+    const scope = await this.scopeMatch(user);
+    const students = await this.leadModel
+      .find({
+        _id: { $in: uniqueIds.map((id) => new Types.ObjectId(id)) },
+        ...(scope || {}),
+      })
+      .select('_id fullName username mobileNumber')
+      .lean();
+
+    if (students.length !== uniqueIds.length) {
+      throw new ForbiddenException('One or more selected students are no longer available to you');
+    }
+    // Students without a mobile number are skipped (same as the Leads bulk
+    // send); the campaign refuses only when none of them has a number.
+    return students;
+  }
+
   // =========================================================
   // DETAIL
   // =========================================================

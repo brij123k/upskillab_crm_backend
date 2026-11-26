@@ -15,6 +15,7 @@ import { SocketGateway } from '../socket/socket.gateway';
 import { GetCampaignsQueryDto } from './dto/get-campaigns-query.dto';
 import { GetCampaignLogsQueryDto } from './dto/get-campaign-logs-query.dto';
 import { SendTemplateDto } from '../whatsapp/dto/send-template.dto';
+import { EnrolledLead } from 'src/schema/enrolled_leads/enrolled-lead.schema';
 
 @Injectable()
 export class CampaignLogic {
@@ -24,6 +25,9 @@ export class CampaignLogic {
   constructor(
     @InjectModel(Lead.name)
     private readonly leadModel: Model<Lead>,
+
+    @InjectModel(EnrolledLead.name)
+    private readonly enrolledLeadModel: Model<EnrolledLead>,
 
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
@@ -1029,18 +1033,47 @@ private async processTemplateCampaign(
       })
       .lean();
 
-  await this.messageQueue.processInBatches(
-    logs,
-    5,
-    10000,
+  try {
+    await this.messageQueue.processInBatches(
+      logs,
+      5,
+      10000,
 
-    async (log) => {
-      await this.processTemplateRecipient(
-        campaignId,
-        log,
-        dto,
-        userId,
-      );
+      async (log) => {
+        // One recipient's failure must never stop the campaign.
+        try {
+          await this.processTemplateRecipient(
+            campaignId,
+            log,
+            dto,
+            userId,
+          );
+        } catch (error: any) {
+          this.logger.error(
+            `Template recipient crashed | campaign=${campaignId} | log=${log._id} | ${error?.message}`,
+          );
+        }
+      },
+    );
+  } catch (error: any) {
+    this.logger.error(
+      `Template campaign crashed | campaign=${campaignId} | ${error?.message}`,
+    );
+  }
+
+  // Anything still PENDING / PROCESSING at this point was never sent; mark it
+  // failed so the campaign always reaches a final status (no endless loader).
+  await this.campaignRecipientLogModel.updateMany(
+    {
+      campaignId: new Types.ObjectId(campaignId),
+      status: { $in: ['PENDING', 'PROCESSING'] },
+    },
+    {
+      $set: {
+        status: 'FAILED',
+        error: 'Not sent: campaign processing stopped',
+        failedAt: new Date(),
+      },
     },
   );
 
@@ -1205,10 +1238,23 @@ private async processTemplateRecipient(
     // 2. GET LATEST LEAD DATA
     // =====================================================
 
-    const lead =
-      await this.leadModel
-        .findById(log.leadId)
-        .lean();
+    const storedLead: any =
+      log.recipientType === 'enrolled'
+        ? await this.enrolledLeadModel
+            .findById(log.leadId)
+            .populate('assignedTo', 'name email')
+            .lean()
+        : await this.leadModel.findById(log.leadId).lean();
+
+    const lead: any = log.recipientType === 'enrolled' && storedLead
+      ? {
+          ...storedLead,
+          name: storedLead.fullName || storedLead.username || '',
+          phone: storedLead.mobileNumber || '',
+          createdAt: storedLead.studentCreatedAt || storedLead.createdAt,
+          stageId: { _id: storedLead.stageId, name: storedLead.stageName || '' },
+        }
+      : storedLead;
 
     if (!lead) {
       throw new Error(
@@ -1547,6 +1593,35 @@ async sendBulkCampaign(
     );
   }
 
+  return this.createTemplateCampaign(dto, user, records, 'lead');
+}
+
+async sendBulkEnrolledCampaign(
+  dto: BulkWhatsappDto,
+  user: any,
+  students: Array<EnrolledLead & { _id: any }>,
+) {
+  const records = students
+    .filter((student) => !!student.mobileNumber)
+    .map((student) => ({
+      _id: student._id,
+      name: student.fullName || student.username || '',
+      phone: student.mobileNumber || '',
+    }));
+
+  if (!records.length) {
+    throw new BadRequestException('No selected enrolled students have a phone number');
+  }
+
+  return this.createTemplateCampaign(dto, user, records, 'enrolled');
+}
+
+private async createTemplateCampaign(
+  dto: BulkWhatsappDto,
+  user: any,
+  records: Array<{ _id: any; name: string; phone: string }>,
+  recipientType: 'lead' | 'enrolled',
+) {
   // =========================
   // CREATE CAMPAIGN
   // =========================
@@ -1601,6 +1676,8 @@ async sendBulkCampaign(
       leadId:
         lead._id,
 
+      recipientType,
+
       leadName:
         lead.name,
 
@@ -1625,7 +1702,22 @@ async sendBulkCampaign(
     campaign._id.toString(),
     dto,
     user.userId,
-  );
+  ).catch(async (error: any) => {
+    this.logger.error(
+      `Template campaign failed | campaign=${campaign._id} | ${error?.message}`,
+    );
+    await this.campaignModel
+      .updateOne({ _id: campaign._id }, { $set: { status: 'FAILED', completedAt: new Date() } })
+      .catch(() => undefined);
+    this.socketGateway.emitToUser(user.userId, 'campaign-failed', {
+      campaignId: campaign._id.toString(),
+      status: 'FAILED',
+      totalRecipients: records.length,
+      sentCount: 0,
+      failedCount: records.length,
+      pendingCount: 0,
+    });
+  });
 
   return {
     success: true,

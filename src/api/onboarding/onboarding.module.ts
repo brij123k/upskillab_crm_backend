@@ -9,6 +9,7 @@ import {
   OnboardingStaffController,
 } from './onboarding.controller';
 import { OnboardingLogic } from './onboarding.logic';
+import { PayrollModule } from '../payroll/payroll.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { OnboardingLogic } from './onboarding.logic';
     ]),
     UserModule,
     ProfileUploadModule,
+    PayrollModule,
   ],
   controllers: [OnboardingStaffController, OnboardingPublicController],
   providers: [OnboardingLogic],

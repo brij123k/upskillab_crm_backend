@@ -10,10 +10,12 @@ import { QueueModule } from 'src/common/queue/queue.module';
 import { WhatsappCampaign,WhatsappCampaignSchema } from './schema/campaign.schema';
 import { CampaignRecipientLog,CampaignRecipientLogSchema } from './schema/campaign-recipient-log.schema';
 import { SocketModule } from 'src/api/socket/socket.module';
+import { EnrolledLead, EnrolledLeadSchema } from 'src/schema/enrolled_leads/enrolled-lead.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Lead.name, schema: LeadSchema },
+      { name: EnrolledLead.name, schema: EnrolledLeadSchema },
       { name: User.name, schema: UserSchema },
        { name: WhatsappCampaign.name, schema: WhatsappCampaignSchema },
       { name: CampaignRecipientLog.name, schema: CampaignRecipientLogSchema },

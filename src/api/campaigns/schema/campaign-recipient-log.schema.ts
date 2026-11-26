@@ -26,6 +26,9 @@ export class CampaignRecipientLog extends Document {
   })
   leadId: Types.ObjectId;
 
+  @Prop({ enum: ['lead', 'enrolled'], default: 'lead' })
+  recipientType: 'lead' | 'enrolled';
+
   @Prop()
   leadName?: string;
 

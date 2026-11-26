@@ -34,6 +34,8 @@ import {
 import { EnrolledLeadService } from './enrolled-lead.service';
 import { EnrolledLeadSyncService } from './enrolled-lead-sync.service';
 import { EnrolledLeadStageService } from './enrolled-lead-stage.service';
+import { BulkWhatsappDto } from 'src/api/whatsapp/dto/bulk-whatsapp.dto';
+import { CampaignLogic } from 'src/api/campaigns/campaigns.service';
 
 const P = PERMISSIONS.ENROLLED_LEADS;
 
@@ -47,6 +49,7 @@ export class EnrolledLeadController {
     private readonly sync: EnrolledLeadSyncService,
     private readonly stages: EnrolledLeadStageService,
     private readonly report: EnrolledLeadReportService,
+    private readonly campaigns: CampaignLogic,
   ) {}
 
   // ---------------- report: enrolled students by stage ----------------
@@ -160,6 +163,17 @@ export class EnrolledLeadController {
   @ApiOperation({ summary: 'Move several enrolled leads to a stage' })
   bulkStage(@Body() dto: BulkStageDto, @Req() req: any) {
     return this.service.bulkStage(dto, req.user);
+  }
+
+  @Post('whatsapp')
+  @RequirePermission(P.MODULE, P.ACTIONS.UPDATE)
+  @ApiOperation({ summary: 'Create a WhatsApp template campaign for enrolled students' })
+  async sendWhatsApp(@Body() dto: BulkWhatsappDto, @Req() req: any) {
+    const students = await this.service.findAccessibleForWhatsApp(
+      dto.enrolledLeadIds || [],
+      req.user,
+    );
+    return this.campaigns.sendBulkEnrolledCampaign(dto, req.user, students);
   }
 
   // ---------------- calls ----------------

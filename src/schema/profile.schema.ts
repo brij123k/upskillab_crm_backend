@@ -181,7 +181,17 @@ export class Profile extends Document {
 
   @Prop({ type: Documents, default: {} })
   documents?: Documents;
-  
+
+  /** Payroll / payslip details (UAN, PF a/c, ESI no., joining date). */
+  @Prop({ type: Object, default: {} })
+  statutoryDetails?: {
+    uan?: string;
+    pfNumber?: string;
+    esiNumber?: string;
+    /** YYYY-MM-DD; falls back to onboarding approval / account creation. */
+    dateOfJoining?: string;
+  };
+
   createdAt: Date;
   updatedAt: Date;
 }

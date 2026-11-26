@@ -90,6 +90,9 @@ async sendTemplate(data: SendTemplateDto) {
     const response = await firstValueFrom(
       this.httpService.post(url, data, {
         headers: this.headers,
+        // Without a timeout a stuck provider request leaves the campaign
+        // in PROCESSING forever.
+        timeout: 30000,
       }),
     );
 
@@ -99,7 +102,9 @@ async sendTemplate(data: SendTemplateDto) {
 
     throw new InternalServerErrorException(
       error?.response?.data?.message ||
-        'Unable to send message',
+        (error?.code === 'ECONNABORTED'
+          ? 'WhatsApp provider timed out'
+          : 'Unable to send message'),
     );
   }
 }

@@ -12,6 +12,7 @@ import { Profile } from 'src/schema/profile.schema';
 import { EmailService } from 'src/common/services/email.service';
 import { FileUploaderService } from '../file-uploader/file-uploader.service';
 import { UserLogic } from '../user/user.logic';
+import { PayrollService } from '../payroll/payroll.service';
 import {
   ApproveOnboardingDto,
   GenerateOnboardingLinkDto,
@@ -111,6 +112,7 @@ export class OnboardingLogic {
     private readonly userLogic: UserLogic,
     private readonly emailService: EmailService,
     private readonly fileUploader: FileUploaderService,
+    private readonly payroll: PayrollService,
   ) {}
 
   /* ------------------------------------------------------------------ */
@@ -297,17 +299,45 @@ export class OnboardingLogic {
       );
     }
 
-    const { activateUser, ...edits } = dto;
+    const {
+      activateUser,
+      annualCtc,
+      salaryEffectiveFrom,
+      ptState,
+      pfApplicable,
+      esiApplicable,
+      tdsMonthly,
+      insuranceAnnual,
+      salaryTemplateId,
+      customComponents,
+      ...edits
+    } = dto as any;
 
     // Employment details are set by staff at approval time.
     const existing: any = await this.profileModel.findOne({ userId: user._id }).lean();
     const departmentId = edits.departmentId || existing?.departmentId;
     const reportingSeniorId = edits.reportingSeniorId || existing?.reportingSeniorId;
-    const salary = edits.salary ?? existing?.salary;
     if (!departmentId) throw new BadRequestException('Please choose a department before approving');
     if (!reportingSeniorId) throw new BadRequestException('Please choose a reporting senior before approving');
-    if (!salary || Number(salary) <= 0) throw new BadRequestException('Please enter the CTC before approving');
-    if (edits.salary !== undefined) (edits as any).salary = Number(edits.salary);
+
+    // CTC: annual CTC → salary structure (breakup by the payroll rules).
+    // Older clients still send only the monthly `salary`.
+    const ctc = Number(annualCtc) > 0 ? Number(annualCtc) : Number(edits.salary ?? existing?.salary) > 0 ? Number(edits.salary ?? existing?.salary) * 12 : 0;
+    if (!(ctc > 0)) throw new BadRequestException('Please enter the CTC before approving');
+    const salaryInput = {
+      annualCtc: ctc,
+      ptState: ptState || existing?.currentAddress?.state || existing?.address?.state || undefined,
+      pfApplicable,
+      esiApplicable,
+      tdsMonthly,
+      insuranceAnnual,
+      templateId: salaryTemplateId || undefined,
+      customComponents: Array.isArray(customComponents) && customComponents.length ? customComponents : undefined,
+      effectiveFrom: salaryEffectiveFrom,
+    };
+    const breakup = await this.payroll.preview(salaryInput as any);
+    // Profile.salary stays the monthly gross (used by the Salary Sheet report).
+    (edits as any).salary = breakup.grossMonthly;
 
     const hasEdits = Object.values(edits).some((v) => v !== undefined);
     if (hasEdits) {
@@ -328,7 +358,10 @@ export class OnboardingLogic {
       { new: true },
     );
 
+    const structure = await this.payroll.applyOnboardingCtc(userId, salaryInput as any, actor);
+
     return {
+      salaryStructureId: structure._id,
       message: activateUser
         ? 'Onboarding approved and user activated'
         : 'Onboarding approved',
