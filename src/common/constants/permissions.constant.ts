@@ -45,8 +45,11 @@ export const PERMISSIONS = {
       READ: 'read',
       UPDATE: 'update',
       DELETE: 'delete',
+      STATUS: 'status',
       BLOCK: 'block',
       USER_ACTIVITY: 'user_activity',
+      /** "HR All Users": the user permissions above apply to every user, not only the user's own team. */
+      ALL_USERS: 'all_users',
       /** Run employee onboarding (links, review, approve) and manage every user. */
       ONBOARDING: 'onboarding',
     },

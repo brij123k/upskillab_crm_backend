@@ -32,6 +32,8 @@ import { FileUploaderService } from '../file-uploader/file-uploader.service';
  *  manage_documents  – upload / delete documents for any employee
  *  manage_expenses   – approve / reject / mark paid every expense claim
  *  reports           – HR reports (employee report)
+ *  dashboard         – HR dashboard (numbers cover every employee with
+ *                      user:all_users, otherwise the user's own team)
  * Everyone can raise their own exit request and expense claims and see their
  * own documents. Reporting seniors can upload documents for their team.
  */
@@ -41,6 +43,8 @@ export const HR_PERMISSIONS = {
   MANAGE_DOCUMENTS: 'manage_documents',
   MANAGE_EXPENSES: 'manage_expenses',
   REPORTS: 'reports',
+  /** "HR Dashboard" - may be given to any role. */
+  DASHBOARD: 'dashboard',
 } as const;
 
 const oid = (v: any) => new Types.ObjectId(String(v));
@@ -159,6 +163,8 @@ export class HrService {
       manageDocuments: this.can(user, HR_PERMISSIONS.MANAGE_DOCUMENTS),
       manageExpenses: this.can(user, HR_PERMISSIONS.MANAGE_EXPENSES),
       reports: this.can(user, HR_PERMISSIONS.REPORTS),
+      dashboard: this.can(user, HR_PERMISSIONS.DASHBOARD),
+      allUsers: this.hasAllUsers(user),
       hasTeam: team.length > 0,
       teamSize: team.length,
     };
@@ -609,6 +615,217 @@ export class HrService {
         byDepartment: Object.entries(byDept).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
       },
       departments: departments.map((d: any) => ({ _id: String(d._id), name: d.name })),
+    };
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* HR dashboard                                                        */
+  /* ------------------------------------------------------------------ */
+
+  /** "HR All Users" (user:all_users) – work on every employee, not only the own team. */
+  hasAllUsers(user: any) {
+    return this.isAdmin(user) || hasPermission(user, 'user', 'all_users');
+  }
+
+  /**
+   * HR dashboard (hr:dashboard). Every number covers the whole company for
+   * admins / user:all_users, otherwise the user and everyone below them.
+   */
+  async dashboard(user: any) {
+    this.assert(user, HR_PERMISSIONS.DASHBOARD, 'You do not have access to the HR dashboard');
+    const me = this.me(user);
+    const allUsers = this.hasAllUsers(user);
+    const scopeIds = allUsers ? null : [me, ...(await this.teamIds(me))];
+    const idFilter = (field: string) => (scopeIds ? { [field]: { $in: scopeIds.map(oid) } } : {});
+
+    const tz = getBusinessTimezone();
+    const todayStr = toDateKey(new Date(), tz);
+    const today = this.dayStart(todayStr);
+    const tomorrow = new Date(today.getTime() + 86_400_000);
+    const in30 = new Date(today.getTime() + 30 * 86_400_000);
+    const monthKey = todayStr.slice(0, 7);
+
+    const [users, profiles, departments, attendance, leavesToday, pendingLeaves, exits, expenses] = await Promise.all([
+      this.db
+        .collection('users')
+        .find(idFilter('_id'), { projection: { name: 1, employeeId: 1, status: 1, isBlocked: 1, createdAt: 1, onboarding: 1 } })
+        .toArray(),
+      this.db
+        .collection('profiles')
+        .find(idFilter('userId'), { projection: { userId: 1, departmentId: 1, statutoryDetails: 1, 'personalDetails.dateOfBirth': 1 } })
+        .toArray(),
+      this.db.collection('departments').find({}, { projection: { name: 1 } }).toArray(),
+      this.db
+        .collection('attendances')
+        .aggregate([
+          { $match: { ...idFilter('userId'), date: { $gte: today, $lt: tomorrow } } },
+          { $sort: { updatedAt: 1 } },
+          { $group: { _id: '$userId', status: { $last: '$status' } } },
+        ])
+        .toArray(),
+      this.db
+        .collection('leaverequests')
+        .find(
+          {
+            ...idFilter('userId'),
+            status: 'approved',
+            $or: [
+              { leaveFrom: { $lt: tomorrow }, leaveTo: { $gte: today } },
+              { leaveDate: { $gte: today, $lt: tomorrow } },
+              { leaveFrom: { $gte: today, $lt: tomorrow }, leaveTo: null },
+            ],
+          },
+          { projection: { userId: 1, leaveType: 1, leaveFrom: 1, leaveTo: 1, leaveDate: 1 } },
+        )
+        .toArray(),
+      this.db.collection('leaverequests').countDocuments({ ...idFilter('userId'), status: 'pending' }),
+      this.exitModel
+        .find(
+          { ...idFilter('employeeId'), status: { $in: [ExitStatus.PENDING, ExitStatus.APPROVED] } },
+          { employeeId: 1, status: 1, lastWorkingDay: 1, requestedLastWorkingDay: 1, reasonCategory: 1 },
+        )
+        .lean(),
+      this.expenseModel.aggregate([
+        { $match: { ...idFilter('employeeId'), status: { $in: [ExpenseStatus.SUBMITTED, ExpenseStatus.APPROVED] } } },
+        { $group: { _id: '$status', count: { $sum: 1 }, amount: { $sum: { $ifNull: ['$approvedAmount', '$amount'] } } } },
+      ]),
+    ]);
+
+    const prof = new Map(profiles.map((p: any) => [String(p.userId), p]));
+    const dept = new Map(departments.map((d: any) => [String(d._id), d.name]));
+    const brief = (u: any) => ({ _id: String(u._id), name: u.name, employeeId: u.employeeId });
+    const working = users.filter((u: any) => u.status === 'active' || u.status === 'probation');
+    const workingIds = new Set(working.map((u: any) => String(u._id)));
+    const byId = new Map(users.map((u: any) => [String(u._id), u]));
+
+    /* headcount */
+    const byStatus: Record<string, number> = {};
+    for (const u of users) byStatus[u.status || 'unknown'] = (byStatus[u.status || 'unknown'] || 0) + 1;
+    const byDept: Record<string, number> = {};
+    for (const u of working) {
+      const p: any = prof.get(String(u._id));
+      const name = (p?.departmentId && dept.get(String(p.departmentId))) || 'No department';
+      byDept[name] = (byDept[name] || 0) + 1;
+    }
+
+    /* joiners, work anniversaries (this month), birthdays (next 30 days) */
+    const joinDate = (u: any): string | null => {
+      const p: any = prof.get(String(u._id));
+      const doj = p?.statutoryDetails?.dateOfJoining;
+      if (doj && /^\d{4}-\d{2}-\d{2}/.test(String(doj))) return String(doj).slice(0, 10);
+      if (u.onboarding?.approvedAt) return toDateKey(new Date(u.onboarding.approvedAt), tz);
+      return u.createdAt ? toDateKey(new Date(u.createdAt), tz) : null;
+    };
+    const daysUntil = (mmdd: string) => {
+      const y = Number(todayStr.slice(0, 4));
+      let next = `${y}-${mmdd}`;
+      if (next < todayStr) next = `${y + 1}-${mmdd}`;
+      return Math.round((Date.parse(next) - Date.parse(todayStr)) / 86_400_000);
+    };
+    const newJoiners: any[] = [];
+    const anniversaries: any[] = [];
+    const birthdays: any[] = [];
+    for (const u of working) {
+      const doj = joinDate(u);
+      if (doj) {
+        if (doj.slice(0, 7) === monthKey) newJoiners.push({ ...brief(u), dateOfJoining: doj });
+        const years = Number(todayStr.slice(0, 4)) - Number(doj.slice(0, 4));
+        if (years >= 1 && doj.slice(5, 7) === todayStr.slice(5, 7)) anniversaries.push({ ...brief(u), dateOfJoining: doj, years });
+      }
+      const dob = (prof.get(String(u._id)) as any)?.personalDetails?.dateOfBirth;
+      if (dob && /^\d{4}-\d{2}-\d{2}/.test(String(dob))) {
+        const inDays = daysUntil(String(dob).slice(5, 10));
+        if (inDays >= 0 && inDays <= 30) birthdays.push({ ...brief(u), date: String(dob).slice(5, 10), inDays });
+      }
+    }
+    newJoiners.sort((a, b) => b.dateOfJoining.localeCompare(a.dateOfJoining));
+    anniversaries.sort((a, b) => a.dateOfJoining.slice(8, 10).localeCompare(b.dateOfJoining.slice(8, 10)));
+    birthdays.sort((a, b) => a.inDays - b.inDays);
+
+    /* onboarding */
+    let linkShared = 0;
+    const awaitingReview: any[] = [];
+    for (const u of users) {
+      if (u.onboarding?.status === 'pending') linkShared += 1;
+      if (u.onboarding?.status === 'submitted') awaitingReview.push({ ...brief(u), submittedAt: u.onboarding?.submittedAt || null });
+    }
+
+    /* attendance today (active + probation employees) */
+    const att = { total: working.length, present: 0, halfDay: 0, onLeave: 0, absent: 0, weekOffOrHoliday: 0, notMarked: 0 };
+    const marked = new Set<string>();
+    for (const a of attendance) {
+      const id = String(a._id);
+      if (!workingIds.has(id)) continue;
+      marked.add(id);
+      const st = String(a.status || '');
+      if (st === 'present' || st === 'logged_in' || st === 'late') att.present += 1;
+      else if (st === 'half_day') att.halfDay += 1;
+      else if (st === 'leave') att.onLeave += 1;
+      else if (st === 'week_off' || st === 'holiday') att.weekOffOrHoliday += 1;
+      else att.absent += 1;
+    }
+    const onLeaveToday: any[] = [];
+    const seenLeave = new Set<string>();
+    for (const l of leavesToday) {
+      const id = String(l.userId);
+      if (seenLeave.has(id) || !byId.has(id)) continue;
+      seenLeave.add(id);
+      onLeaveToday.push({
+        ...brief(byId.get(id)),
+        leaveType: l.leaveType,
+        from: l.leaveFrom || l.leaveDate,
+        to: l.leaveTo || l.leaveFrom || l.leaveDate,
+      });
+      if (workingIds.has(id) && !marked.has(id)) {
+        marked.add(id);
+        att.onLeave += 1;
+      }
+    }
+    att.notMarked = Math.max(0, working.length - marked.size);
+
+    /* exits */
+    const exitRows = exits.map((e: any) => ({
+      _id: String(e._id),
+      employee: byId.has(String(e.employeeId)) ? brief(byId.get(String(e.employeeId))) : { _id: String(e.employeeId) },
+      status: e.status,
+      reasonCategory: e.reasonCategory,
+      lastWorkingDay: e.lastWorkingDay || e.requestedLastWorkingDay || null,
+    }));
+    const pendingExits = exitRows.filter((e) => e.status === ExitStatus.PENDING);
+    const upcomingExits = exitRows
+      .filter((e) => e.status === ExitStatus.APPROVED && e.lastWorkingDay && new Date(e.lastWorkingDay) >= today && new Date(e.lastWorkingDay) <= in30)
+      .sort((a, b) => new Date(a.lastWorkingDay).getTime() - new Date(b.lastWorkingDay).getTime());
+
+    const exp = (status: string) => {
+      const row: any = expenses.find((e: any) => e._id === status);
+      return { count: row?.count || 0, amount: row?.amount || 0 };
+    };
+
+    return {
+      scope: allUsers ? 'all' : 'team',
+      date: todayStr,
+      headcount: {
+        total: users.length,
+        working: working.length,
+        active: byStatus.active || 0,
+        probation: byStatus.probation || 0,
+        inactive: byStatus.inactive || 0,
+        resigned: byStatus.resigned || 0,
+        blocked: users.filter((u: any) => u.isBlocked).length,
+        newThisMonth: newJoiners.length,
+      },
+      byDepartment: Object.entries(byDept)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+      attendanceToday: att,
+      onLeaveToday,
+      pendingLeaves,
+      onboarding: { linkShared, awaitingReview: awaitingReview.length, awaitingReviewList: awaitingReview.slice(0, 8) },
+      exits: { pending: pendingExits.length, pendingList: pendingExits.slice(0, 8), upcoming: upcomingExits.slice(0, 8) },
+      expenses: { awaitingApproval: exp(ExpenseStatus.SUBMITTED), awaitingPayment: exp(ExpenseStatus.APPROVED) },
+      newJoiners: newJoiners.slice(0, 8),
+      birthdays: birthdays.slice(0, 8),
+      anniversaries: anniversaries.slice(0, 8),
     };
   }
 }

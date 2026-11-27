@@ -58,21 +58,24 @@ export class UserController {
   }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('Admin')
+@Roles('Admin', 'bd', 'hr')
 @Patch(':id/status')
-@ApiOperation({ summary: 'Change user status' })
-changeStatus(
+@ApiOperation({ summary: 'Change user status (own team, or everyone with user:all_users)' })
+async changeStatus(
   @Param('id') userId: string,
   @Body() dto: ChangeStatusDto,
+  @Req() req: any,
 ) {
+  await this.logic.assertCanChangeUser(req.user, userId, PERMISSIONS.USER.ACTIONS.STATUS);
   return this.logic.changeStatus(userId, dto.status);
 }
 
 @UseGuards(JwtAuthGuard, RoleGuard)
-@Roles('Admin')
+@Roles('Admin', 'bd', 'hr')
 @Patch(':id/toggle-block')
-@ApiOperation({ summary: 'Block / Unblock user' })
-toggleBlock(@Param('id') userId: string) {
+@ApiOperation({ summary: 'Block / Unblock user (own team, or everyone with user:all_users)' })
+async toggleBlock(@Param('id') userId: string, @Req() req: any) {
+  await this.logic.assertCanChangeUser(req.user, userId, PERMISSIONS.USER.ACTIONS.BLOCK);
   return this.logic.toggleBlock(userId);
 }
 

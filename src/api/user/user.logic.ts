@@ -381,19 +381,47 @@ export class UserLogic {
    * hierarchy, plus freshly created users that are not yet assigned to
    * any department / reporting senior (so they can complete onboarding).
    */
+  private actorHas(actor: any, module: string, action: string) {
+    const perms: { module: string; actions: string[] }[] = actor?.permissions || [];
+    return perms.some(
+      (p) =>
+        (p.module === '*' || p.module === module) &&
+        Array.isArray(p.actions) &&
+        (p.actions.includes('*') || p.actions.includes(action)),
+    );
+  }
+
   /**
-   * Admins, and anyone granted `user:onboarding` (e.g. HR), manage every
-   * user – not just their own team.
+   * "HR All Users" (`user:all_users`): the user permissions the actor has
+   * (create / view / update / status / block / onboarding …) apply to every
+   * user in the company. Without it they apply only to the actor's own team
+   * (everyone below them in the reporting tree). Admins always have it.
    */
   hasFullUserAccess(actor: any) {
     if (!actor) return false;
     if (this.isAdminActor(actor)) return true;
-    const perms: { module: string; actions: string[] }[] = actor.permissions || [];
-    return perms.some(
-      (p) =>
-        (p.module === '*' && (p.actions.includes('*') || p.actions.includes('onboarding'))) ||
-        (p.module === 'user' && (p.actions.includes('*') || p.actions.includes('onboarding'))),
-    );
+    return this.actorHas(actor, 'user', 'all_users');
+  }
+
+  /** Admin, or a role granted `user:onboarding` (e.g. HR). Scope still comes from hasFullUserAccess. */
+  canManageOnboarding(actor: any) {
+    if (!actor) return false;
+    return this.isAdminActor(actor) || this.actorHas(actor, 'user', 'onboarding');
+  }
+
+  /** Status / block changes: never on yourself (unless admin), and only inside the actor's scope. */
+  async assertCanChangeUser(actor: any, targetUserId: string, action: string) {
+    if (!this.isAdminActor(actor) && !this.actorHas(actor, 'user', action)) {
+      throw new ForbiddenException(`Access denied for user:${action}`);
+    }
+    if (!Types.ObjectId.isValid(targetUserId)) {
+      throw new BadRequestException('Invalid user id');
+    }
+    const actorId = (actor?._id || actor?.userId)?.toString();
+    if (!this.isAdminActor(actor) && actorId === targetUserId) {
+      throw new ForbiddenException('You cannot change your own account');
+    }
+    await this.assertCanManageUser(actor, targetUserId);
   }
 
   /** User list for the Users page: whole company for full-access actors, team otherwise. */

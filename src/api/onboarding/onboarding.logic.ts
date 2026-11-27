@@ -136,7 +136,7 @@ export class OnboardingLogic {
 
   /** Admin, or a role granted `user:onboarding` (e.g. HR). */
   private assertOnboardingAccess(actor: any) {
-    if (!this.userLogic.hasFullUserAccess(actor)) {
+    if (!this.userLogic.canManageOnboarding(actor)) {
       throw new ForbiddenException(
         'You do not have permission to manage employee onboarding',
       );

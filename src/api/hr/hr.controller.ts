@@ -45,6 +45,12 @@ export class HrController {
     return this.service.access(req.user);
   }
 
+  @Get('dashboard')
+  @ApiOperation({ summary: 'HR dashboard (hr:dashboard; everyone with user:all_users, else own team)' })
+  dashboard(@Req() req: any) {
+    return this.service.dashboard(req.user);
+  }
+
   @Get('employees')
   @ApiOperation({ summary: 'Employees for pickers (everyone for HR, own team for managers)' })
   employees(@Req() req: any, @Query('scope') scope?: string) {
